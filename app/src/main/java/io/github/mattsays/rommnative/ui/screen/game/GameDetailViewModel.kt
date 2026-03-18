@@ -8,10 +8,11 @@ import io.github.mattsays.rommnative.domain.player.PlayerCapability
 import io.github.mattsays.rommnative.model.DownloadRecord
 import io.github.mattsays.rommnative.model.DownloadStatus
 import io.github.mattsays.rommnative.model.DownloadedRomEntity
+import io.github.mattsays.rommnative.model.ConnectivityState
 import io.github.mattsays.rommnative.model.RomDto
 import io.github.mattsays.rommnative.model.RomFileDto
-import io.github.mattsays.rommnative.model.ConnectivityState
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,6 +21,7 @@ import kotlinx.coroutines.launch
 
 data class GameDetailUiState(
     val isLoading: Boolean = true,
+    val isRefreshing: Boolean = false,
     val isDownloadingCore: Boolean = false,
     val rom: RomDto? = null,
     val installedFiles: List<DownloadedRomEntity> = emptyList(),
@@ -60,17 +62,45 @@ class GameDetailViewModel(
     private val _uiState = MutableStateFlow(GameDetailUiState())
     val uiState: StateFlow<GameDetailUiState> = _uiState.asStateFlow()
     private var downloadJob: Job? = null
+    private var observedDownloadFileId: Int? = null
 
     init {
         viewModelScope.launch {
-            repository.observeInstalledFiles(romId).collect { files ->
-                _uiState.updateState { current ->
-                    val selected = current.selectedFileId ?: current.rom?.files?.firstOrNull()?.id
-                    val support = current.rom?.let { rom ->
-                        val selectedFile = rom.files.firstOrNull { it.id == selected } ?: rom.files.firstOrNull()
-                        repository.resolveCoreSupport(rom, selectedFile)
+            combine(
+                repository.observeCachedRom(romId),
+                repository.observeInstalledFiles(romId),
+            ) { rom, files ->
+                rom to files
+            }.collect { (rom, files) ->
+                val nextSelectedFileId = _uiState.value.let { current ->
+                    current.selectedFileId?.takeIf { selectedId ->
+                        rom?.files?.any { it.id == selectedId } == true
                     }
-                    current.copy(installedFiles = files, selectedFileId = selected, support = support)
+                        ?: files.firstOrNull { installed ->
+                            rom?.files?.any { it.id == installed.fileId } == true
+                        }?.fileId
+                        ?: rom?.files?.firstOrNull()?.id
+                }
+                val support = rom?.let { cachedRom ->
+                    val selectedFile = cachedRom.files.firstOrNull { it.id == nextSelectedFileId }
+                        ?: cachedRom.files.firstOrNull()
+                    repository.resolveCoreSupport(cachedRom, selectedFile)
+                }
+                _uiState.updateState { current ->
+                    current.copy(
+                        rom = rom,
+                        installedFiles = files,
+                        selectedFileId = nextSelectedFileId,
+                        support = support,
+                        isLoading = if (rom != null) false else current.isLoading,
+                    )
+                }
+                if (nextSelectedFileId != null) {
+                    observeSelectedDownload(nextSelectedFileId)
+                } else {
+                    observedDownloadFileId = null
+                    downloadJob?.cancel()
+                    _uiState.updateState { it.copy(downloadRecord = null) }
                 }
             }
         }
@@ -79,27 +109,48 @@ class GameDetailViewModel(
 
     fun refresh() {
         viewModelScope.launch {
-            _uiState.updateState { it.copy(isLoading = true, errorMessage = null) }
-            runCatching { repository.getRomById(romId) }.fold(
-                onSuccess = { rom ->
-                    val selectedFileId = _uiState.value.selectedFileId ?: rom.files.firstOrNull()?.id
-                    val support = repository.resolveCoreSupport(
-                        rom,
-                        rom.files.firstOrNull { it.id == selectedFileId } ?: rom.files.firstOrNull(),
+            _uiState.updateState {
+                it.copy(
+                    isLoading = it.rom == null,
+                    isRefreshing = true,
+                    errorMessage = null,
+                )
+            }
+            if (repository.currentConnectivityState() != ConnectivityState.ONLINE) {
+                _uiState.updateState {
+                    it.copy(
+                        isLoading = false,
+                        isRefreshing = false,
+                        errorMessage = if (it.rom == null) {
+                            "Offline. This title will appear after the profile sync completes."
+                        } else {
+                            null
+                        },
                     )
+                }
+                return@launch
+            }
+            runCatching { repository.refreshRomInBackground(romId) }.fold(
+                onSuccess = {
                     _uiState.updateState {
                         it.copy(
-                            isLoading = false,
-                            rom = rom,
-                            selectedFileId = selectedFileId,
-                            support = support,
+                            isLoading = it.rom == null,
+                            isRefreshing = false,
+                            errorMessage = null,
                         )
                     }
-                    selectedFileId?.let(::observeSelectedDownload)
                 },
                 onFailure = { error ->
                     _uiState.updateState {
-                        it.copy(isLoading = false, errorMessage = error.message ?: "Unable to load this ROM.")
+                        it.copy(
+                            isLoading = false,
+                            isRefreshing = false,
+                            errorMessage = if (it.rom != null) {
+                                error.message ?: "This title is showing cached data until the next successful refresh."
+                            } else {
+                                error.message ?: "Unable to load this ROM."
+                            },
+                        )
                     }
                 },
             )
@@ -234,6 +285,8 @@ class GameDetailViewModel(
     fun selectedFile(): RomFileDto? = _uiState.value.selectedFile()
 
     private fun observeSelectedDownload(fileId: Int) {
+        if (observedDownloadFileId == fileId) return
+        observedDownloadFileId = fileId
         downloadJob?.cancel()
         downloadJob = viewModelScope.launch {
             repository.observeDownloadRecord(romId, fileId).collect { record ->

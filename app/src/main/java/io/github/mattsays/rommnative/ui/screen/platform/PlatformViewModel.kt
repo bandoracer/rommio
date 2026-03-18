@@ -12,6 +12,7 @@ import kotlinx.coroutines.launch
 
 data class PlatformUiState(
     val isLoading: Boolean = true,
+    val isRefreshing: Boolean = false,
     val supportedRoms: List<RomDto> = emptyList(),
     val unsupportedRoms: List<RomDto> = emptyList(),
     val errorMessage: String? = null,
@@ -25,20 +26,47 @@ class PlatformViewModel(
     val uiState: StateFlow<PlatformUiState> = _uiState.asStateFlow()
 
     init {
+        viewModelScope.launch {
+            repository.observeCachedPlatformRoms(platformId).collect { roms ->
+                val (unsupportedRoms, supportedRoms) = roms.partition(repository::isUnsupportedInApp)
+                _uiState.update {
+                    it.copy(
+                        supportedRoms = supportedRoms,
+                        unsupportedRoms = unsupportedRoms,
+                        isLoading = if (roms.isNotEmpty()) false else it.isLoading,
+                    )
+                }
+            }
+        }
         refresh()
     }
 
     fun refresh() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
-            runCatching { repository.getRomsByPlatform(platformId) }.fold(
-                onSuccess = { roms ->
-                    val (unsupportedRoms, supportedRoms) = roms.partition(repository::isUnsupportedInApp)
+            _uiState.update {
+                it.copy(
+                    isLoading = !it.hasContent(),
+                    isRefreshing = true,
+                    errorMessage = null,
+                )
+            }
+            if (repository.currentConnectivityState() != io.github.mattsays.rommnative.model.ConnectivityState.ONLINE) {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        isRefreshing = false,
+                        errorMessage = if (it.hasContent()) null else "Offline. This platform will appear after the profile sync completes.",
+                    )
+                }
+                return@launch
+            }
+            runCatching { repository.refreshPlatformInBackground(platformId) }.fold(
+                onSuccess = {
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            supportedRoms = supportedRoms,
-                            unsupportedRoms = unsupportedRoms,
+                            isRefreshing = false,
+                            errorMessage = null,
                         )
                     }
                 },
@@ -46,6 +74,7 @@ class PlatformViewModel(
                     _uiState.update {
                         it.copy(
                             isLoading = false,
+                            isRefreshing = false,
                             errorMessage = error.message ?: "Unable to load platform ROMs.",
                         )
                     }
@@ -53,4 +82,8 @@ class PlatformViewModel(
             )
         }
     }
+}
+
+private fun PlatformUiState.hasContent(): Boolean {
+    return supportedRoms.isNotEmpty() || unsupportedRoms.isNotEmpty()
 }

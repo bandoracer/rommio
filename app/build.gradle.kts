@@ -32,6 +32,19 @@ fun buildConfigString(value: String): String {
 }
 
 val localTestEnv = loadLocalEnv(rootProject.file(".env.test.local"))
+val localReleaseEnv = loadLocalEnv(rootProject.file(".env.release.local"))
+val releaseKeystorePath = providers.environmentVariable("ROMMIO_RELEASE_KEYSTORE_PATH").orNull
+    ?: localReleaseEnv["ROMMIO_RELEASE_KEYSTORE_PATH"]
+val releaseStorePassword = providers.environmentVariable("ROMMIO_RELEASE_STORE_PASSWORD").orNull
+    ?: localReleaseEnv["ROMMIO_RELEASE_STORE_PASSWORD"]
+val releaseKeyAlias = providers.environmentVariable("ROMMIO_RELEASE_KEY_ALIAS").orNull
+    ?: localReleaseEnv["ROMMIO_RELEASE_KEY_ALIAS"]
+val releaseKeyPassword = providers.environmentVariable("ROMMIO_RELEASE_KEY_PASSWORD").orNull
+    ?: localReleaseEnv["ROMMIO_RELEASE_KEY_PASSWORD"]
+val hasReleaseSigning = !releaseKeystorePath.isNullOrBlank() &&
+    !releaseStorePassword.isNullOrBlank() &&
+    !releaseKeyAlias.isNullOrBlank() &&
+    !releaseKeyPassword.isNullOrBlank()
 
 android {
     namespace = "io.github.mattsays.rommnative"
@@ -43,9 +56,25 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField("String", "DEBUG_TEST_BASE_URL", "\"\"")
+        buildConfigField("String", "DEBUG_TEST_CLIENT_ID", "\"\"")
+        buildConfigField("String", "DEBUG_TEST_CLIENT_SECRET", "\"\"")
+        buildConfigField("String", "DEBUG_TEST_USERNAME", "\"\"")
+        buildConfigField("String", "DEBUG_TEST_PASSWORD", "\"\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = rootProject.file(releaseKeystorePath!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
     }
 
     buildTypes {
@@ -58,6 +87,11 @@ android {
         }
 
         release {
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

@@ -12,6 +12,7 @@ import kotlinx.coroutines.launch
 
 data class CollectionsUiState(
     val isLoading: Boolean = true,
+    val isRefreshing: Boolean = false,
     val collections: List<RommCollectionDto> = emptyList(),
     val collectionPreviewCoverUrls: Map<String, List<String>> = emptyMap(),
     val errorMessage: String? = null,
@@ -33,7 +34,7 @@ class CollectionsViewModel(
                     it.copy(
                         collections = collections,
                         collectionPreviewCoverUrls = previewCovers,
-                        isLoading = it.isLoading && collections.isEmpty(),
+                        isLoading = if (collections.isNotEmpty()) false else it.isLoading,
                     )
                 }
             }
@@ -43,21 +44,34 @@ class CollectionsViewModel(
 
     fun refresh() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+            _uiState.update {
+                it.copy(
+                    isLoading = it.collections.isEmpty(),
+                    isRefreshing = true,
+                    errorMessage = null,
+                )
+            }
             if (repository.currentConnectivityState() != io.github.mattsays.rommnative.model.ConnectivityState.ONLINE) {
-                _uiState.update { it.copy(isLoading = false) }
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        isRefreshing = false,
+                        errorMessage = if (it.collections.isEmpty()) {
+                            "Offline. Collections will appear after this profile syncs once."
+                        } else {
+                            null
+                        },
+                    )
+                }
                 return@launch
             }
-            runCatching { repository.getCollections() }.fold(
-                onSuccess = { collections ->
-                    val previewCovers = collections.associate { collection ->
-                        "${collection.kind}:${collection.id}" to repository.getCollectionPreviewCoverUrls(collection)
-                    }
+            runCatching { repository.refreshCollectionsInBackground() }.fold(
+                onSuccess = {
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            collections = collections,
-                            collectionPreviewCoverUrls = previewCovers,
+                            isRefreshing = false,
+                            errorMessage = null,
                         )
                     }
                 },
@@ -65,6 +79,7 @@ class CollectionsViewModel(
                     _uiState.update {
                         it.copy(
                             isLoading = false,
+                            isRefreshing = false,
                             errorMessage = error.message ?: "Collections are unavailable on this server.",
                         )
                     }

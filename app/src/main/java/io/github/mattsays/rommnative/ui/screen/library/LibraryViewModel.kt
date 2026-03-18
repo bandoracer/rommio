@@ -6,6 +6,7 @@ import io.github.mattsays.rommnative.data.repository.RommRepository
 import io.github.mattsays.rommnative.model.InstalledPlatformSummary
 import io.github.mattsays.rommnative.model.PlatformDto
 import io.github.mattsays.rommnative.model.RomDto
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -14,6 +15,7 @@ import kotlinx.coroutines.launch
 
 data class LibraryUiState(
     val isLoading: Boolean = true,
+    val isRefreshing: Boolean = false,
     val supportedPlatforms: List<PlatformDto> = emptyList(),
     val unsupportedPlatforms: List<PlatformDto> = emptyList(),
     val recentInstalled: List<RomDto> = emptyList(),
@@ -29,54 +31,52 @@ class LibraryViewModel(
 
     init {
         viewModelScope.launch {
-            repository.observeCachedPlatforms().collect { platforms ->
+            combine(
+                repository.observeCachedPlatforms(),
+                repository.observeInstalledPlatformSummaries(),
+                repository.observeRecentInstalledRoms(),
+            ) { platforms, summaries, recentInstalled ->
                 val sortedPlatforms = platforms.sortedBy { platform -> platform.name.lowercase() }
                 _uiState.update {
                     it.copy(
                         supportedPlatforms = sortedPlatforms.filter(repository::supportsEmbeddedPlayer),
                         unsupportedPlatforms = sortedPlatforms.filterNot(repository::supportsEmbeddedPlayer),
-                        isLoading = it.isLoading && sortedPlatforms.isEmpty(),
+                        recentInstalled = recentInstalled,
+                        installedPlatformSummaries = summaries,
+                        isLoading = if (sortedPlatforms.isNotEmpty() || recentInstalled.isNotEmpty()) false else it.isLoading,
                     )
                 }
-            }
-        }
-        viewModelScope.launch {
-            repository.observeInstalledPlatformSummaries().collect { summaries ->
-                _uiState.update { it.copy(installedPlatformSummaries = summaries) }
-            }
-        }
-        viewModelScope.launch {
-            repository.observeInstalledLibrary().collect { installed ->
-                if (installed.isEmpty()) {
-                    _uiState.update { it.copy(recentInstalled = emptyList()) }
-                    return@collect
-                }
-                val roms = installed
-                    .take(8)
-                    .mapNotNull { record ->
-                        runCatching { repository.getRomById(record.romId) }.getOrNull()
-                    }
-                _uiState.update { it.copy(recentInstalled = roms.distinctBy { rom -> rom.id }) }
-            }
+            }.collect {}
         }
         refresh()
     }
 
     fun refresh() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+            _uiState.update {
+                it.copy(
+                    isLoading = !it.hasContent(),
+                    isRefreshing = true,
+                    errorMessage = null,
+                )
+            }
             if (repository.currentConnectivityState() != io.github.mattsays.rommnative.model.ConnectivityState.ONLINE) {
-                _uiState.update { it.copy(isLoading = false) }
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        isRefreshing = false,
+                        errorMessage = if (it.hasContent()) null else "Offline. Library content will appear after this profile syncs once.",
+                    )
+                }
                 return@launch
             }
-            runCatching { repository.getPlatforms() }.fold(
-                onSuccess = { platforms ->
-                    val sortedPlatforms = platforms.sortedBy { platform -> platform.name.lowercase() }
+            runCatching { repository.refreshPlatformsInBackground() }.fold(
+                onSuccess = {
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            supportedPlatforms = sortedPlatforms.filter(repository::supportsEmbeddedPlayer),
-                            unsupportedPlatforms = sortedPlatforms.filterNot(repository::supportsEmbeddedPlayer),
+                            isRefreshing = false,
+                            errorMessage = null,
                         )
                     }
                 },
@@ -84,6 +84,7 @@ class LibraryViewModel(
                     _uiState.update {
                         it.copy(
                             isLoading = false,
+                            isRefreshing = false,
                             errorMessage = error.message ?: "Unable to load the library.",
                         )
                     }
@@ -91,4 +92,8 @@ class LibraryViewModel(
             )
         }
     }
+}
+
+private fun LibraryUiState.hasContent(): Boolean {
+    return supportedPlatforms.isNotEmpty() || unsupportedPlatforms.isNotEmpty() || recentInstalled.isNotEmpty()
 }

@@ -159,6 +159,9 @@ interface CachedRomDao {
     suspend fun listAll(profileId: String): List<CachedRomEntity>
 
     @Query("SELECT * FROM cached_roms WHERE profileId = :profileId AND platformId = :platformId ORDER BY name COLLATE NOCASE ASC")
+    fun observeByPlatform(profileId: String, platformId: Int): Flow<List<CachedRomEntity>>
+
+    @Query("SELECT * FROM cached_roms WHERE profileId = :profileId AND platformId = :platformId ORDER BY name COLLATE NOCASE ASC")
     suspend fun listByPlatform(profileId: String, platformId: Int): List<CachedRomEntity>
 
     @Query("SELECT * FROM cached_roms WHERE profileId = :profileId AND romId = :romId LIMIT 1")
@@ -181,6 +184,9 @@ interface CachedRomDao {
 interface CachedCollectionDao {
     @Query("SELECT * FROM cached_collections WHERE profileId = :profileId ORDER BY isFavorite DESC, romCount DESC, name COLLATE NOCASE ASC")
     fun observeAll(profileId: String): Flow<List<CachedCollectionEntity>>
+
+    @Query("SELECT * FROM cached_collections WHERE profileId = :profileId AND kind = :kind AND collectionId = :collectionId LIMIT 1")
+    fun observeById(profileId: String, kind: String, collectionId: String): Flow<CachedCollectionEntity?>
 
     @Query("SELECT * FROM cached_collections WHERE profileId = :profileId ORDER BY isFavorite DESC, romCount DESC, name COLLATE NOCASE ASC")
     suspend fun listAll(profileId: String): List<CachedCollectionEntity>

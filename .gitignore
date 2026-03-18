@@ -7,4 +7,4 @@
 **/build/
 **/local.properties
 .env.test.local
-
+.env.release.local

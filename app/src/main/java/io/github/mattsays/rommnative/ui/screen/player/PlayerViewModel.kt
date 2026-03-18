@@ -9,6 +9,7 @@ import io.github.mattsays.rommnative.domain.input.PlayerControlsState
 import io.github.mattsays.rommnative.domain.input.TouchLayoutProfile
 import io.github.mattsays.rommnative.model.DownloadedRomEntity
 import io.github.mattsays.rommnative.model.RomDto
+import io.github.mattsays.rommnative.model.RomFileDto
 import io.github.mattsays.rommnative.model.SaveStateEntity
 import io.github.mattsays.rommnative.model.ConnectivityState
 import kotlinx.coroutines.Job
@@ -20,6 +21,7 @@ import kotlinx.coroutines.launch
 
 data class PlayerUiState(
     val isLoading: Boolean = true,
+    val isRefreshing: Boolean = false,
     val rom: RomDto? = null,
     val installation: DownloadedRomEntity? = null,
     val saveStates: List<SaveStateEntity> = emptyList(),
@@ -50,6 +52,7 @@ class PlayerViewModel(
     private val _uiState = MutableStateFlow(PlayerUiState())
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
     private var controlsJob: Job? = null
+    private var romJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -62,29 +65,78 @@ class PlayerViewModel(
 
     fun refresh() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
-            runCatching {
-                val install = repository.installedFileOrNull(romId, fileId)
-                    ?: error("Download this ROM in the native app before launching it.")
-                val rom = repository.getRomById(romId)
-                rom to install
-            }.fold(
-                onSuccess = { (rom, install) ->
-                    observeControls(rom.platformSlug)
+            _uiState.update { current ->
+                current.copy(
+                    isLoading = current.installation == null && current.rom == null,
+                    isRefreshing = true,
+                    errorMessage = null,
+                )
+            }
+
+            val install = repository.installedFileOrNull(romId, fileId)
+                ?: run {
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            rom = rom,
+                            isRefreshing = false,
+                            errorMessage = "Download this ROM in the native app before launching it.",
+                        )
+                    }
+                    return@launch
+                }
+
+            observeControls(install.platformSlug)
+            observeRom(install)
+
+            if (repository.currentConnectivityState() != ConnectivityState.ONLINE) {
+                _uiState.update {
+                    it.copy(
+                        installation = install,
+                        isLoading = it.rom == null,
+                        isRefreshing = false,
+                        errorMessage = null,
+                    )
+                }
+                return@launch
+            }
+
+            runCatching { repository.refreshRomInBackground(romId) }.fold(
+                onSuccess = {
+                    _uiState.update {
+                        it.copy(
                             installation = install,
+                            isLoading = it.rom == null,
+                            isRefreshing = false,
+                            errorMessage = null,
                         )
                     }
                 },
-                onFailure = { error ->
+                onFailure = {
                     _uiState.update {
-                        it.copy(isLoading = false, errorMessage = error.message ?: "Unable to prepare player.")
+                        it.copy(
+                            installation = install,
+                            isLoading = it.rom == null,
+                            isRefreshing = false,
+                            errorMessage = null,
+                        )
                     }
                 },
             )
+        }
+    }
+
+    private fun observeRom(installation: DownloadedRomEntity) {
+        romJob?.cancel()
+        romJob = viewModelScope.launch {
+            repository.observeCachedRom(romId).collect { cachedRom ->
+                _uiState.update { current ->
+                    current.copy(
+                        rom = cachedRom ?: installation.toFallbackRom(),
+                        installation = installation,
+                        isLoading = false,
+                    )
+                }
+            }
         }
     }
 
@@ -250,4 +302,24 @@ class PlayerViewModel(
             }
         }
     }
+}
+
+private fun DownloadedRomEntity.toFallbackRom(): RomDto {
+    val fileExtension = fileName.substringAfterLast('.', "")
+    val fallbackFile = RomFileDto(
+        id = fileId,
+        romId = romId,
+        fileName = fileName,
+        fileExtension = fileExtension,
+        fileSizeBytes = fileSizeBytes,
+    )
+    return RomDto(
+        id = romId,
+        name = romName,
+        platformName = platformSlug.replace('-', ' ').replaceFirstChar { it.uppercase() },
+        platformSlug = platformSlug,
+        fsName = fileName.substringBeforeLast('.'),
+        files = listOf(fallbackFile),
+        urlCover = null,
+    )
 }

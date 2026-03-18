@@ -1,6 +1,8 @@
 package io.github.mattsays.rommnative.data.cache
 
 import android.content.Context
+import android.graphics.BitmapFactory
+import android.net.Uri
 import io.github.mattsays.rommnative.data.local.MediaCacheEntryDao
 import io.github.mattsays.rommnative.data.local.MediaCacheEntryEntity
 import io.github.mattsays.rommnative.model.MediaCacheCategory
@@ -30,7 +32,7 @@ class ThumbnailCacheStore(
                 updatedAtEpochMs = System.currentTimeMillis(),
             ),
         )
-        file.toURI().toString()
+        Uri.fromFile(file).toString()
     }
 
     suspend fun cacheIfNeeded(
@@ -50,6 +52,10 @@ class ThumbnailCacheStore(
             runCatching { target.delete() }
             return@withContext null
         }
+        if (!isValidCachedImage(target, sourceUrl)) {
+            runCatching { target.delete() }
+            return@withContext null
+        }
         val now = System.currentTimeMillis()
         mediaCacheEntryDao.upsert(
             MediaCacheEntryEntity(
@@ -64,7 +70,7 @@ class ThumbnailCacheStore(
             ),
         )
         enforceLruLimit()
-        target.toURI().toString()
+        Uri.fromFile(target).toString()
     }
 
     suspend fun totalBytes(profileId: String? = null): Long = withContext(Dispatchers.IO) {
@@ -97,5 +103,24 @@ class ThumbnailCacheStore(
         val extension = sourceUrl.substringBefore('?').substringAfterLast('.', "").lowercase()
             .takeIf { it.length in 2..6 } ?: "img"
         return "$digest.$extension"
+    }
+
+    private fun isValidCachedImage(file: File, sourceUrl: String): Boolean {
+        val extension = sourceUrl.substringBefore('?').substringAfterLast('.', "").lowercase()
+        if (extension == "svg") {
+            return runCatching {
+                file.inputStream().buffered().use { stream ->
+                    val header = ByteArray(2048)
+                    val bytesRead = stream.read(header)
+                    bytesRead > 0 && String(header, 0, bytesRead).contains("<svg", ignoreCase = true)
+                }
+            }.getOrDefault(false)
+        }
+
+        val options = BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+        BitmapFactory.decodeFile(file.absolutePath, options)
+        return options.outWidth > 0 && options.outHeight > 0
     }
 }

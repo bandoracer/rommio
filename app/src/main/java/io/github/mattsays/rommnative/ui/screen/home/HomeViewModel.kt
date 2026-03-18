@@ -2,6 +2,7 @@ package io.github.mattsays.rommnative.ui.screen.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.mattsays.rommnative.data.repository.CachedHomeSnapshot
 import io.github.mattsays.rommnative.data.repository.RommRepository
 import io.github.mattsays.rommnative.model.DownloadRecord
 import io.github.mattsays.rommnative.model.DownloadStatus
@@ -17,6 +18,7 @@ import kotlinx.coroutines.launch
 
 data class HomeUiState(
     val isLoading: Boolean = true,
+    val isRefreshing: Boolean = false,
     val continuePlaying: List<RomDto> = emptyList(),
     val recentRoms: List<RomDto> = emptyList(),
     val featuredCollections: List<RommCollectionDto> = emptyList(),
@@ -47,14 +49,20 @@ class HomeViewModel(
                         recentRoms = snapshot.recentRoms,
                         featuredCollections = snapshot.featuredCollections,
                         collectionPreviewCoverUrls = snapshot.collectionPreviewCoverUrls,
-                        isLoading = it.isLoading && snapshot.continuePlaying.isEmpty() && snapshot.recentRoms.isEmpty() && snapshot.featuredCollections.isEmpty(),
+                        isLoading = if (snapshot.hasContent()) false else it.isLoading,
                     )
                 }
             }
         }
         viewModelScope.launch {
             repository.observeOfflineState().collect { offlineState ->
-                _uiState.update { it.copy(offlineState = offlineState) }
+                _uiState.update {
+                    it.copy(
+                        offlineState = offlineState,
+                        isRefreshing = offlineState.isRefreshing,
+                        isLoading = if (!it.hasContent() && !offlineState.isRefreshing) false else it.isLoading,
+                    )
+                }
             }
         }
         viewModelScope.launch {
@@ -73,30 +81,30 @@ class HomeViewModel(
 
     fun refresh() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+            _uiState.update {
+                it.copy(
+                    isLoading = !it.hasContent(),
+                    isRefreshing = true,
+                    errorMessage = null,
+                )
+            }
             if (!stateIsOnline()) {
-                _uiState.update { it.copy(isLoading = false) }
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        isRefreshing = false,
+                        errorMessage = if (it.hasContent()) null else "Offline. Home content will appear after this profile syncs once.",
+                    )
+                }
                 return@launch
             }
-            runCatching {
-                Triple(
-                    repository.getContinuePlaying(),
-                    repository.getRecentlyAdded(),
-                    repository.getCollections(),
-                )
-            }.fold(
-                onSuccess = { (continuePlaying, recentRoms, collections) ->
-                    val featuredCollections = collections.take(8)
-                    val previewCovers = featuredCollections.associate { collection ->
-                        "${collection.kind}:${collection.id}" to repository.getCollectionPreviewCoverUrls(collection)
-                    }
+            runCatching { repository.refreshActiveProfileCache(force = false) }.fold(
+                onSuccess = {
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            continuePlaying = continuePlaying.take(10),
-                            recentRoms = recentRoms.take(12),
-                            featuredCollections = featuredCollections,
-                            collectionPreviewCoverUrls = previewCovers,
+                            isRefreshing = false,
+                            errorMessage = null,
                         )
                     }
                 },
@@ -104,7 +112,12 @@ class HomeViewModel(
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            errorMessage = error.message ?: "Unable to load the home dashboard.",
+                            isRefreshing = false,
+                            errorMessage = if (it.hasContent()) {
+                                error.message ?: "Home content is stale until the next successful refresh."
+                            } else {
+                                error.message ?: "Unable to load the home dashboard."
+                            },
                         )
                     }
                 },
@@ -115,4 +128,12 @@ class HomeViewModel(
     private fun stateIsOnline(): Boolean {
         return repository.currentConnectivityState() == io.github.mattsays.rommnative.model.ConnectivityState.ONLINE
     }
+}
+
+private fun CachedHomeSnapshot.hasContent(): Boolean {
+    return continuePlaying.isNotEmpty() || recentRoms.isNotEmpty() || featuredCollections.isNotEmpty()
+}
+
+private fun HomeUiState.hasContent(): Boolean {
+    return continuePlaying.isNotEmpty() || recentRoms.isNotEmpty() || featuredCollections.isNotEmpty()
 }

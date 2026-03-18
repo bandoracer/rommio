@@ -82,6 +82,27 @@ Debug APK output:
 
 - `app/build/outputs/apk/debug/app-debug.apk`
 
+Build an installable release APK from the repository root:
+
+```bash
+./gradlew assembleRelease
+```
+
+Release APK output:
+
+- `app/build/outputs/apk/release/app-release.apk`
+
+By default, local release builds fall back to the standard Android debug signing config so the APK is installable for smoke testing. To sign releases with a dedicated key, create a root-level `.env.release.local` file or export matching environment variables:
+
+```bash
+ROMMIO_RELEASE_KEYSTORE_PATH=
+ROMMIO_RELEASE_STORE_PASSWORD=
+ROMMIO_RELEASE_KEY_ALIAS=
+ROMMIO_RELEASE_KEY_PASSWORD=
+```
+
+If these values are present, `assembleRelease` signs the APK with that keystore instead of the debug key.
+
 ## Test
 
 Run unit tests from the repository root:
@@ -235,6 +256,22 @@ ROMM_TEST_PASSWORD=
 These values are used by debug-only onboarding shortcuts and by smoke/instrumentation flows.
 
 If your RomM server runs on the same host as the Android emulator, use `http://10.0.2.2:<port>` inside the emulator instead of `localhost`.
+
+## GitHub releases
+
+This repository includes a GitHub Actions workflow at [`.github/workflows/android-release.yml`](.github/workflows/android-release.yml).
+
+- Pushing a tag like `v0.1.0` builds `app-release.apk`
+- The workflow uploads the APK as both a build artifact and a GitHub release asset
+- If the repository has release-signing secrets configured, the workflow uses them
+- Without those secrets, the workflow still produces an installable APK signed with the debug key for testing/pre-release distribution
+
+Optional GitHub Actions secrets for production signing:
+
+- `ROMMIO_RELEASE_KEYSTORE_BASE64`
+- `ROMMIO_RELEASE_STORE_PASSWORD`
+- `ROMMIO_RELEASE_KEY_ALIAS`
+- `ROMMIO_RELEASE_KEY_PASSWORD`
 
 ## Authentication model
 
