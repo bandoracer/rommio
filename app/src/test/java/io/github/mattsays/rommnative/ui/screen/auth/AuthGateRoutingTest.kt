@@ -3,6 +3,7 @@ package io.github.mattsays.rommnative.ui.screen.auth
 import io.github.mattsays.rommnative.model.AuthCapabilities
 import io.github.mattsays.rommnative.model.AuthStatus
 import io.github.mattsays.rommnative.model.EdgeAuthMode
+import io.github.mattsays.rommnative.model.OfflineState
 import io.github.mattsays.rommnative.model.OriginAuthMode
 import io.github.mattsays.rommnative.model.ServerAccessState
 import io.github.mattsays.rommnative.model.ServerAccessStatus
@@ -39,9 +40,28 @@ class AuthGateRoutingTest {
         )
     }
 
+    @Test
+    fun offlineHydratedProfileRoutesToAppShell() {
+        assertEquals(
+            NavRoutes.APP,
+            authRouteForProfile(
+                profile(
+                    access = ServerAccessStatus.READY,
+                    auth = AuthStatus.REAUTH_REQUIRED_ORIGIN,
+                    sessionState = SessionState(hasOriginSession = true),
+                ),
+                offlineState = OfflineState(
+                    connectivity = io.github.mattsays.rommnative.model.ConnectivityState.OFFLINE,
+                    catalogReady = true,
+                ),
+            ),
+        )
+    }
+
     private fun profile(
         access: ServerAccessStatus,
         auth: AuthStatus,
+        sessionState: SessionState = SessionState(),
     ): ServerProfile {
         return ServerProfile(
             id = "server_1",
@@ -51,7 +71,7 @@ class AuthGateRoutingTest {
             originAuthMode = OriginAuthMode.ROMM_BEARER_PASSWORD,
             capabilities = AuthCapabilities(),
             serverAccess = ServerAccessState(status = access),
-            sessionState = SessionState(),
+            sessionState = sessionState,
             isActive = true,
             status = auth,
             lastValidationAt = null,

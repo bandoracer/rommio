@@ -6,6 +6,7 @@ import io.github.mattsays.rommnative.data.repository.RommRepository
 import io.github.mattsays.rommnative.model.DownloadRecord
 import io.github.mattsays.rommnative.model.DownloadStatus
 import io.github.mattsays.rommnative.model.LibraryStorageSummary
+import io.github.mattsays.rommnative.model.OfflineState
 import io.github.mattsays.rommnative.model.RomDto
 import io.github.mattsays.rommnative.model.RommCollectionDto
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,6 +23,7 @@ data class HomeUiState(
     val collectionPreviewCoverUrls: Map<String, List<String>> = emptyMap(),
     val storageSummary: LibraryStorageSummary = LibraryStorageSummary(),
     val activeDownloads: List<DownloadRecord> = emptyList(),
+    val offlineState: OfflineState = OfflineState(),
     val errorMessage: String? = null,
 )
 
@@ -35,6 +37,24 @@ class HomeViewModel(
         viewModelScope.launch {
             repository.observeLibraryStorageSummary().collect { summary ->
                 _uiState.update { it.copy(storageSummary = summary) }
+            }
+        }
+        viewModelScope.launch {
+            repository.observeCachedHome().collect { snapshot ->
+                _uiState.update {
+                    it.copy(
+                        continuePlaying = snapshot.continuePlaying,
+                        recentRoms = snapshot.recentRoms,
+                        featuredCollections = snapshot.featuredCollections,
+                        collectionPreviewCoverUrls = snapshot.collectionPreviewCoverUrls,
+                        isLoading = it.isLoading && snapshot.continuePlaying.isEmpty() && snapshot.recentRoms.isEmpty() && snapshot.featuredCollections.isEmpty(),
+                    )
+                }
+            }
+        }
+        viewModelScope.launch {
+            repository.observeOfflineState().collect { offlineState ->
+                _uiState.update { it.copy(offlineState = offlineState) }
             }
         }
         viewModelScope.launch {
@@ -54,6 +74,10 @@ class HomeViewModel(
     fun refresh() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+            if (!stateIsOnline()) {
+                _uiState.update { it.copy(isLoading = false) }
+                return@launch
+            }
             runCatching {
                 Triple(
                     repository.getContinuePlaying(),
@@ -86,5 +110,9 @@ class HomeViewModel(
                 },
             )
         }
+    }
+
+    private fun stateIsOnline(): Boolean {
+        return repository.currentConnectivityState() == io.github.mattsays.rommnative.model.ConnectivityState.ONLINE
     }
 }

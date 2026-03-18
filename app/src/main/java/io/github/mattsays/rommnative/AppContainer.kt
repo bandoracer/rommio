@@ -2,6 +2,7 @@ package io.github.mattsays.rommnative
 
 import android.content.Context
 import androidx.room.Room
+import io.github.mattsays.rommnative.data.cache.ThumbnailCacheStore
 import io.github.mattsays.rommnative.data.auth.AuthDiscovery
 import io.github.mattsays.rommnative.data.auth.AuthJsonCodec
 import io.github.mattsays.rommnative.data.auth.AuthManager
@@ -10,6 +11,7 @@ import io.github.mattsays.rommnative.data.input.ControlsJsonCodec
 import io.github.mattsays.rommnative.data.input.ExternalControllerMonitor
 import io.github.mattsays.rommnative.data.input.PlayerControlsPreferencesStore
 import io.github.mattsays.rommnative.data.local.AppDatabase
+import io.github.mattsays.rommnative.data.network.ConnectivityMonitor
 import io.github.mattsays.rommnative.data.network.DownloadClient
 import io.github.mattsays.rommnative.data.repository.PlayerControlsRepository
 import io.github.mattsays.rommnative.data.network.RommServiceFactory
@@ -28,7 +30,12 @@ class AppContainer(appContext: Context) {
         appContext,
         AppDatabase::class.java,
         "romm_native.db",
-    ).addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4)
+    ).addMigrations(
+        AppDatabase.MIGRATION_1_2,
+        AppDatabase.MIGRATION_2_3,
+        AppDatabase.MIGRATION_3_4,
+        AppDatabase.MIGRATION_4_5,
+    )
         .build()
 
     val downloadedRomDao = database.downloadedRomDao()
@@ -37,11 +44,20 @@ class AppContainer(appContext: Context) {
     val serverProfileDao = database.serverProfileDao()
     val touchLayoutProfileDao = database.touchLayoutProfileDao()
     val hardwareBindingProfileDao = database.hardwareBindingProfileDao()
+    val cachedPlatformDao = database.cachedPlatformDao()
+    val cachedRomDao = database.cachedRomDao()
+    val cachedCollectionDao = database.cachedCollectionDao()
+    val cachedCollectionRomDao = database.cachedCollectionRomDao()
+    val cachedHomeEntryDao = database.cachedHomeEntryDao()
+    val profileCacheStateDao = database.profileCacheStateDao()
+    val pendingRemoteActionDao = database.pendingRemoteActionDao()
+    val mediaCacheEntryDao = database.mediaCacheEntryDao()
     val secretStore = AuthSecretStore(appContext)
     val authJsonCodec = AuthJsonCodec()
     val controlsJsonCodec = ControlsJsonCodec()
     val controlsPreferencesStore = PlayerControlsPreferencesStore(appContext)
     val externalControllerMonitor = ExternalControllerMonitor(appContext)
+    val connectivityMonitor = ConnectivityMonitor(appContext)
     val authDiscovery = AuthDiscovery()
     val authManager = AuthManager(
         serverProfileDao = serverProfileDao,
@@ -51,6 +67,7 @@ class AppContainer(appContext: Context) {
     )
     val serviceFactory = RommServiceFactory(authManager)
     val downloadClient = DownloadClient(authManager)
+    val thumbnailCacheStore = ThumbnailCacheStore(appContext, mediaCacheEntryDao)
 
     val coreResolver = CoreCatalogResolver(appContext, libraryStore)
     val controlProfileResolver = PlatformControlProfileResolver()
@@ -70,10 +87,19 @@ class AppContainer(appContext: Context) {
         downloadedRomDao = downloadedRomDao,
         downloadRecordDao = downloadRecordDao,
         saveStateDao = saveStateDao,
+        cachedPlatformDao = cachedPlatformDao,
+        cachedRomDao = cachedRomDao,
+        cachedCollectionDao = cachedCollectionDao,
+        cachedCollectionRomDao = cachedCollectionRomDao,
+        cachedHomeEntryDao = cachedHomeEntryDao,
+        profileCacheStateDao = profileCacheStateDao,
+        pendingRemoteActionDao = pendingRemoteActionDao,
         libraryStore = libraryStore,
         coreResolver = coreResolver,
         coreInstaller = coreInstaller,
         syncBridge = syncBridge,
+        connectivityMonitor = connectivityMonitor,
+        thumbnailCacheStore = thumbnailCacheStore,
     )
     val playerControlsRepository = PlayerControlsRepository(
         resolver = controlProfileResolver,

@@ -12,6 +12,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Apps
+import androidx.compose.material.icons.outlined.CloudDone
+import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.Storage
@@ -50,6 +52,7 @@ fun SettingsScreen(
     onReauthenticate: () -> Unit,
     onLogout: suspend () -> Unit,
     onActivateProfile: suspend (ServerProfile) -> Unit,
+    onActiveProfileDeleted: suspend () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val viewModel: SettingsViewModel = viewModel(
@@ -106,6 +109,66 @@ fun SettingsScreen(
                         value = state.profiles.size.toString(),
                         icon = Icons.Outlined.Hub,
                         modifier = Modifier.fillMaxWidth(0.48f),
+                    )
+                }
+            }
+        }
+        item {
+            SectionHeader(
+                title = "Offline readiness",
+                supportingText = "Rommio caches the active profile so the shell, library, and installed games can keep working without a connection.",
+            )
+        }
+        item {
+            CompactPanel(
+                title = if (state.offlineState.isOffline) "Offline mode active" else "Online and ready",
+                subtitle = when {
+                    state.offlineState.isOfflineReady && state.offlineState.isOffline ->
+                        "This profile is hydrated and can browse offline with cached media."
+                    state.offlineState.isOffline ->
+                        "Offline browsing is limited until the active profile finishes a full sync."
+                    state.offlineState.isRefreshing ->
+                        "Refreshing metadata, collections, and thumbnail cache in the background."
+                    else ->
+                        "The active profile will refresh automatically whenever a network connection is available."
+                },
+                badge = if (state.offlineState.isOfflineReady) "Ready" else "Syncing",
+                eyebrow = "Offline",
+            ) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    maxItemsInEachRow = 2,
+                ) {
+                    MetricTile(
+                        label = "Status",
+                        value = if (state.offlineState.isOffline) "Offline" else "Online",
+                        icon = if (state.offlineState.isOffline) Icons.Outlined.CloudOff else Icons.Outlined.CloudDone,
+                        modifier = Modifier.fillMaxWidth(0.48f),
+                    )
+                    MetricTile(
+                        label = "Cache",
+                        value = formatBytes(state.offlineState.cacheBytes),
+                        icon = Icons.Outlined.Storage,
+                        modifier = Modifier.fillMaxWidth(0.48f),
+                    )
+                }
+                Text(
+                    text = "Last catalog sync: ${state.offlineState.lastFullSyncAtEpochMs?.let { java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it)) } ?: "Never"}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = "Last media sync: ${state.offlineState.lastMediaSyncAtEpochMs?.let { java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it)) } ?: "Never"}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                state.offlineState.lastError?.let { error ->
+                    Text(
+                        text = error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
                     )
                 }
             }
@@ -173,6 +236,27 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(if (profile.id == state.activeProfile?.id) "Current profile" else "Activate profile")
+                    }
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        AssistChip(
+                            onClick = {
+                                scope.launch {
+                                    val deletedActive = viewModel.deleteProfile(profile.id)
+                                    if (deletedActive) {
+                                        onActiveProfileDeleted()
+                                    }
+                                }
+                            },
+                            label = { Text(if (profile.id == state.activeProfile?.id) "Remove active profile" else "Remove profile") },
+                            colors = AssistChipDefaults.assistChipColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                labelColor = MaterialTheme.colorScheme.error,
+                            ),
+                        )
                     }
                 }
             }

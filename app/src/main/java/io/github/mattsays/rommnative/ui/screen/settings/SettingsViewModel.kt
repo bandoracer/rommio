@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.mattsays.rommnative.data.repository.PlayerControlsRepository
 import io.github.mattsays.rommnative.data.repository.RommRepository
 import io.github.mattsays.rommnative.domain.input.PlayerControlsPreferences
+import io.github.mattsays.rommnative.model.OfflineState
 import io.github.mattsays.rommnative.model.ServerProfile
 import io.github.mattsays.rommnative.model.UserDto
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,6 +23,7 @@ data class SettingsUiState(
     val installedGameCount: Int = 0,
     val installedFileCount: Int = 0,
     val storageBytes: Long = 0,
+    val offlineState: OfflineState = OfflineState(),
     val libraryPath: String = "",
     val errorMessage: String? = null,
 )
@@ -54,6 +56,11 @@ class SettingsViewModel(
                         storageBytes = summary.totalBytes,
                     )
                 }
+            }
+        }
+        viewModelScope.launch {
+            repository.observeOfflineState().collect { offlineState ->
+                _uiState.update { it.copy(offlineState = offlineState) }
             }
         }
         refresh()
@@ -96,5 +103,12 @@ class SettingsViewModel(
 
     fun setRumbleToDeviceEnabled(enabled: Boolean) {
         viewModelScope.launch { controlsRepository.setRumbleToDeviceEnabled(enabled) }
+    }
+
+    suspend fun deleteProfile(profileId: String): Boolean {
+        val wasActive = _uiState.value.activeProfile?.id == profileId
+        repository.deleteProfile(profileId)
+        refresh()
+        return wasActive
     }
 }

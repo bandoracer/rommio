@@ -10,6 +10,7 @@ import io.github.mattsays.rommnative.domain.input.TouchLayoutProfile
 import io.github.mattsays.rommnative.model.DownloadedRomEntity
 import io.github.mattsays.rommnative.model.RomDto
 import io.github.mattsays.rommnative.model.SaveStateEntity
+import io.github.mattsays.rommnative.model.ConnectivityState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -63,9 +64,9 @@ class PlayerViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
             runCatching {
-                val rom = repository.getRomById(romId)
                 val install = repository.installedFileOrNull(romId, fileId)
                     ?: error("Download this ROM in the native app before launching it.")
+                val rom = repository.getRomById(romId)
                 rom to install
             }.fold(
                 onSuccess = { (rom, install) ->
@@ -113,6 +114,11 @@ class PlayerViewModel(
             val state = _uiState.value
             val rom = state.rom ?: return@launch
             val install = state.installation ?: return@launch
+            if (repository.currentConnectivityState() != ConnectivityState.ONLINE) {
+                repository.enqueuePendingSync(install, rom)
+                onFinished("Save sync queued. It will run when you are back online.")
+                return@launch
+            }
             runCatching { repository.syncGame(install, rom) }.fold(
                 onSuccess = { summary ->
                     onFinished("Uploaded ${summary.uploaded}, downloaded ${summary.downloaded}.")

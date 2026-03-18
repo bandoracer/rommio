@@ -115,8 +115,16 @@ interface ServerProfileDao {
         ServerProfileEntity::class,
         TouchLayoutProfileEntity::class,
         HardwareBindingProfileEntity::class,
+        CachedPlatformEntity::class,
+        CachedRomEntity::class,
+        CachedCollectionEntity::class,
+        CachedCollectionRomEntity::class,
+        CachedHomeEntryEntity::class,
+        ProfileCacheStateEntity::class,
+        PendingRemoteActionEntity::class,
+        MediaCacheEntryEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -126,6 +134,14 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun serverProfileDao(): ServerProfileDao
     abstract fun touchLayoutProfileDao(): TouchLayoutProfileDao
     abstract fun hardwareBindingProfileDao(): HardwareBindingProfileDao
+    abstract fun cachedPlatformDao(): CachedPlatformDao
+    abstract fun cachedRomDao(): CachedRomDao
+    abstract fun cachedCollectionDao(): CachedCollectionDao
+    abstract fun cachedCollectionRomDao(): CachedCollectionRomDao
+    abstract fun cachedHomeEntryDao(): CachedHomeEntryDao
+    abstract fun profileCacheStateDao(): ProfileCacheStateDao
+    abstract fun pendingRemoteActionDao(): PendingRemoteActionDao
+    abstract fun mediaCacheEntryDao(): MediaCacheEntryDao
 
     companion object {
         val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -207,6 +223,139 @@ abstract class AppDatabase : RoomDatabase() {
                       completedAtEpochMs INTEGER,
                       updatedAtEpochMs INTEGER NOT NULL,
                       PRIMARY KEY(romId, fileId)
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS cached_platforms (
+                      profileId TEXT NOT NULL,
+                      platformId INTEGER NOT NULL,
+                      slug TEXT NOT NULL,
+                      name TEXT NOT NULL,
+                      fsSlug TEXT NOT NULL,
+                      urlLogo TEXT,
+                      romCount INTEGER NOT NULL,
+                      logoCachedUri TEXT,
+                      updatedAtEpochMs INTEGER NOT NULL,
+                      PRIMARY KEY(profileId, platformId)
+                    )
+                    """.trimIndent(),
+                )
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS cached_roms (
+                      profileId TEXT NOT NULL,
+                      romId INTEGER NOT NULL,
+                      name TEXT,
+                      summary TEXT,
+                      platformId INTEGER NOT NULL,
+                      platformName TEXT NOT NULL,
+                      platformSlug TEXT NOT NULL,
+                      fsName TEXT NOT NULL,
+                      filesJson TEXT NOT NULL,
+                      siblingsJson TEXT NOT NULL,
+                      urlCover TEXT,
+                      coverCachedUri TEXT,
+                      updatedAtEpochMs INTEGER NOT NULL,
+                      PRIMARY KEY(profileId, romId)
+                    )
+                    """.trimIndent(),
+                )
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS cached_collections (
+                      profileId TEXT NOT NULL,
+                      kind TEXT NOT NULL,
+                      collectionId TEXT NOT NULL,
+                      name TEXT NOT NULL,
+                      description TEXT NOT NULL,
+                      romCount INTEGER NOT NULL,
+                      pathCoverSmall TEXT,
+                      pathCoverLarge TEXT,
+                      pathCoversSmallJson TEXT NOT NULL,
+                      pathCoversLargeJson TEXT NOT NULL,
+                      coverCachedUri TEXT,
+                      isPublic INTEGER NOT NULL,
+                      isFavorite INTEGER NOT NULL,
+                      isVirtual INTEGER NOT NULL,
+                      isSmart INTEGER NOT NULL,
+                      ownerUsername TEXT,
+                      updatedAtEpochMs INTEGER NOT NULL,
+                      PRIMARY KEY(profileId, kind, collectionId)
+                    )
+                    """.trimIndent(),
+                )
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS cached_collection_roms (
+                      profileId TEXT NOT NULL,
+                      kind TEXT NOT NULL,
+                      collectionId TEXT NOT NULL,
+                      romId INTEGER NOT NULL,
+                      position INTEGER NOT NULL,
+                      PRIMARY KEY(profileId, kind, collectionId, romId)
+                    )
+                    """.trimIndent(),
+                )
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS cached_home_entries (
+                      profileId TEXT NOT NULL,
+                      feedType TEXT NOT NULL,
+                      position INTEGER NOT NULL,
+                      romId INTEGER,
+                      collectionKind TEXT,
+                      collectionId TEXT,
+                      PRIMARY KEY(profileId, feedType, position)
+                    )
+                    """.trimIndent(),
+                )
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS profile_cache_state (
+                      profileId TEXT NOT NULL PRIMARY KEY,
+                      lastFullSyncAtEpochMs INTEGER,
+                      lastMediaSyncAtEpochMs INTEGER,
+                      catalogReady INTEGER NOT NULL,
+                      mediaReady INTEGER NOT NULL,
+                      isRefreshing INTEGER NOT NULL,
+                      lastError TEXT
+                    )
+                    """.trimIndent(),
+                )
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS pending_remote_actions (
+                      profileId TEXT NOT NULL,
+                      actionType TEXT NOT NULL,
+                      dedupeKey TEXT NOT NULL,
+                      payloadJson TEXT NOT NULL,
+                      status TEXT NOT NULL,
+                      createdAtEpochMs INTEGER NOT NULL,
+                      updatedAtEpochMs INTEGER NOT NULL,
+                      lastError TEXT,
+                      PRIMARY KEY(profileId, actionType, dedupeKey)
+                    )
+                    """.trimIndent(),
+                )
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS media_cache_entries (
+                      profileId TEXT NOT NULL,
+                      sourceUrl TEXT NOT NULL,
+                      localPath TEXT NOT NULL,
+                      category TEXT NOT NULL,
+                      pinned INTEGER NOT NULL,
+                      sizeBytes INTEGER NOT NULL,
+                      lastAccessEpochMs INTEGER NOT NULL,
+                      updatedAtEpochMs INTEGER NOT NULL,
+                      PRIMARY KEY(profileId, sourceUrl)
                     )
                     """.trimIndent(),
                 )

@@ -615,6 +615,26 @@ class AuthManager(
         )
     }
 
+    suspend fun deleteProfile(profileId: String): ServerProfile? {
+        val profile = requireProfile(profileId)
+        val wasActive = profile.isActive
+        secretStore.clearAll(profile.id)
+        if (wasActive) {
+            clearCookies()
+        }
+        serverProfileDao.delete(profile.id)
+        if (wasActive) {
+            val nextProfile = serverProfileDao.listAll()
+                .sortedByDescending { it.updatedAt }
+                .firstOrNull()
+                ?.toModel()
+            if (nextProfile != null) {
+                serverProfileDao.setActiveOnly(nextProfile.id, nowIso())
+            }
+        }
+        return getActiveProfile()
+    }
+
     suspend fun decorateRequest(profileId: String, url: String, includeOriginAuth: Boolean): RequestDecoration {
         val profile = requireProfile(profileId)
         val headers = linkedMapOf<String, String>()

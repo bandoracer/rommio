@@ -425,6 +425,9 @@ private fun PlatformLogo(
     val context = LocalContext.current
     val candidates = remember(platform.id, platform.slug, platform.fsSlug, platform.urlLogo, imageBaseUrl) {
         buildList {
+            platform.urlLogo
+                ?.takeIf { it.startsWith("file://") || it.startsWith("content://") }
+                ?.let(::add)
             listOf(platform.slug, platform.fsSlug)
                 .map { it.trim() }
                 .filter { it.isNotBlank() }

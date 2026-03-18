@@ -10,6 +10,7 @@ import io.github.mattsays.rommnative.model.DownloadStatus
 import io.github.mattsays.rommnative.model.DownloadedRomEntity
 import io.github.mattsays.rommnative.model.RomDto
 import io.github.mattsays.rommnative.model.RomFileDto
+import io.github.mattsays.rommnative.model.ConnectivityState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -168,6 +169,17 @@ class GameDetailViewModel(
         val file = state.selectedFile()
 
         viewModelScope.launch {
+            if (repository.currentConnectivityState() != ConnectivityState.ONLINE) {
+                val runtime = state.support?.runtimeProfile
+                    ?: return@launch _uiState.updateState {
+                        it.copy(coreMessage = "Connect to the internet before downloading this core.")
+                    }
+                repository.enqueuePendingCoreDownload(runtime)
+                _uiState.updateState {
+                    it.copy(coreMessage = "${runtime.displayName} will download when you are back online.")
+                }
+                return@launch
+            }
             _uiState.updateState { it.copy(isDownloadingCore = true, coreMessage = null, errorMessage = null) }
             runCatching { repository.installRecommendedCore(rom, file) }.fold(
                 onSuccess = { updatedSupport ->
@@ -198,6 +210,13 @@ class GameDetailViewModel(
             val state = _uiState.value
             val rom = state.rom ?: return@launch
             val installed = state.currentInstall() ?: return@launch
+            if (repository.currentConnectivityState() != ConnectivityState.ONLINE) {
+                repository.enqueuePendingSync(installed, rom)
+                _uiState.updateState {
+                    it.copy(syncMessage = "Save sync queued. It will resume when you are back online.")
+                }
+                return@launch
+            }
             runCatching { repository.syncGame(installed, rom) }.fold(
                 onSuccess = { summary ->
                     _uiState.updateState {

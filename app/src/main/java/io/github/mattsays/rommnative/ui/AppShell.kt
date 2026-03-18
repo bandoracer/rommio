@@ -34,6 +34,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import io.github.mattsays.rommnative.AppContainer
+import io.github.mattsays.rommnative.model.OfflineState
 import io.github.mattsays.rommnative.model.PlatformDto
 import io.github.mattsays.rommnative.model.RomDto
 import io.github.mattsays.rommnative.model.RommCollectionDto
@@ -72,6 +73,7 @@ fun AppShell(
     val canGoBack = destination?.route !in TopLevelDestinations.map { it.route }
     val showBottomBar = destination?.route in TopLevelDestinations.map { it.route }
     val downloadAttentionCount by container.repository.observeDownloadAttentionCount().collectAsStateWithLifecycle(initialValue = 0)
+    val offlineState by container.repository.observeOfflineState().collectAsStateWithLifecycle(initialValue = OfflineState())
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -95,6 +97,14 @@ fun AppShell(
                     }
                 },
                 actions = {
+                    if (offlineState.isOffline) {
+                        Text(
+                            text = "Offline",
+                            color = BrandText,
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.padding(end = 6.dp),
+                        )
+                    }
                     if (destination?.route != NavRoutes.DOWNLOADS) {
                         IconButton(
                             modifier = Modifier.padding(end = 6.dp),
@@ -211,6 +221,7 @@ fun AppShell(
                         container.repository.activateProfile(profile.id)
                         onProfileActivated()
                     },
+                    onActiveProfileDeleted = onProfileActivated,
                 )
             }
             composable(NavRoutes.DOWNLOADS) {

@@ -24,12 +24,30 @@ class CollectionsViewModel(
     val uiState: StateFlow<CollectionsUiState> = _uiState.asStateFlow()
 
     init {
+        viewModelScope.launch {
+            repository.observeCachedCollections().collect { collections ->
+                val previewCovers = collections.associate { collection ->
+                    collection.cacheKey() to repository.getCollectionPreviewCoverUrls(collection)
+                }
+                _uiState.update {
+                    it.copy(
+                        collections = collections,
+                        collectionPreviewCoverUrls = previewCovers,
+                        isLoading = it.isLoading && collections.isEmpty(),
+                    )
+                }
+            }
+        }
         refresh()
     }
 
     fun refresh() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+            if (repository.currentConnectivityState() != io.github.mattsays.rommnative.model.ConnectivityState.ONLINE) {
+                _uiState.update { it.copy(isLoading = false) }
+                return@launch
+            }
             runCatching { repository.getCollections() }.fold(
                 onSuccess = { collections ->
                     val previewCovers = collections.associate { collection ->
@@ -55,3 +73,5 @@ class CollectionsViewModel(
         }
     }
 }
+
+private fun RommCollectionDto.cacheKey(): String = "${kind}:${id}"

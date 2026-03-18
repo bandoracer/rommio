@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.mattsays.rommnative.AppContainer
 import io.github.mattsays.rommnative.model.AuthStatus
+import io.github.mattsays.rommnative.model.OfflineState
 import io.github.mattsays.rommnative.model.ServerAccessStatus
 import io.github.mattsays.rommnative.model.ServerProfile
 import io.github.mattsays.rommnative.ui.component.RommGradientBackdrop
@@ -33,6 +34,7 @@ fun AuthGateScreen(
     onResolved: (String) -> Unit,
 ) {
     val activeProfile by container.repository.activeProfileFlow().collectAsStateWithLifecycle(initialValue = null)
+    val offlineState by container.repository.observeOfflineState().collectAsStateWithLifecycle(initialValue = OfflineState())
     var isInitializing by remember { mutableStateOf(true) }
     var initialProfile by remember { mutableStateOf<ServerProfile?>(null) }
 
@@ -44,7 +46,7 @@ fun AuthGateScreen(
 
     LaunchedEffect(isInitializing, activeProfile, initialProfile) {
         if (!isInitializing) {
-            onResolved(authRouteForProfile(activeProfile ?: initialProfile))
+            onResolved(authRouteForProfile(activeProfile ?: initialProfile, offlineState))
         }
     }
 
@@ -65,7 +67,11 @@ fun AuthGateScreen(
                 modifier = Modifier.padding(top = 16.dp),
             )
             Text(
-                text = "Checking server access and any resumable RomM session.",
+                text = if (offlineState.isOffline) {
+                    "No network detected. Looking for a hydrated profile that can open offline."
+                } else {
+                    "Checking server access, cached library readiness, and any resumable RomM session."
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp),
@@ -74,11 +80,15 @@ fun AuthGateScreen(
     }
 }
 
-internal fun authRouteForProfile(profile: ServerProfile?): String {
+internal fun authRouteForProfile(
+    profile: ServerProfile?,
+    offlineState: OfflineState = OfflineState(),
+): String {
     return when {
         profile == null -> NavRoutes.ONBOARDING_WELCOME
         profile.serverAccess.status != ServerAccessStatus.READY -> NavRoutes.ONBOARDING_SERVER
         profile.status == AuthStatus.CONNECTED -> NavRoutes.APP
+        offlineState.isOffline && offlineState.catalogReady && profile.sessionState.hasOriginSession -> NavRoutes.APP
         profile.status == AuthStatus.REAUTH_REQUIRED_EDGE -> NavRoutes.ONBOARDING_SERVER
         else -> NavRoutes.ONBOARDING_LOGIN
     }

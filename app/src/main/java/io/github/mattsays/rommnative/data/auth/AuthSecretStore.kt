@@ -108,6 +108,20 @@ class AuthSecretStore(context: Context) {
         }
     }
 
+    fun clearAll(profileId: String) {
+        prefs.edit(commit = true) {
+            remove(key(profileId, "username"))
+            remove(key(profileId, "password"))
+            remove(key(profileId, "access_token"))
+            remove(key(profileId, "refresh_token"))
+            remove(key(profileId, "token_type"))
+            remove(key(profileId, "expires_at"))
+            remove(key(profileId, "cf_client_id"))
+            remove(key(profileId, "cf_client_secret"))
+            remove(key(profileId, "device_id"))
+        }
+    }
+
     private fun key(profileId: String, suffix: String): String {
         val sanitizedId = profileId.replace(Regex("[^A-Za-z0-9._-]"), "_")
         val sanitizedSuffix = suffix.replace(Regex("[^A-Za-z0-9._-]"), "_")

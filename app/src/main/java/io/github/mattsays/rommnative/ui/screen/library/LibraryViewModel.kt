@@ -29,6 +29,18 @@ class LibraryViewModel(
 
     init {
         viewModelScope.launch {
+            repository.observeCachedPlatforms().collect { platforms ->
+                val sortedPlatforms = platforms.sortedBy { platform -> platform.name.lowercase() }
+                _uiState.update {
+                    it.copy(
+                        supportedPlatforms = sortedPlatforms.filter(repository::supportsEmbeddedPlayer),
+                        unsupportedPlatforms = sortedPlatforms.filterNot(repository::supportsEmbeddedPlayer),
+                        isLoading = it.isLoading && sortedPlatforms.isEmpty(),
+                    )
+                }
+            }
+        }
+        viewModelScope.launch {
             repository.observeInstalledPlatformSummaries().collect { summaries ->
                 _uiState.update { it.copy(installedPlatformSummaries = summaries) }
             }
@@ -53,6 +65,10 @@ class LibraryViewModel(
     fun refresh() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+            if (repository.currentConnectivityState() != io.github.mattsays.rommnative.model.ConnectivityState.ONLINE) {
+                _uiState.update { it.copy(isLoading = false) }
+                return@launch
+            }
             runCatching { repository.getPlatforms() }.fold(
                 onSuccess = { platforms ->
                     val sortedPlatforms = platforms.sortedBy { platform -> platform.name.lowercase() }

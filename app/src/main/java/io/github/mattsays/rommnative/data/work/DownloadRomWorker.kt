@@ -11,6 +11,8 @@ import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
 import androidx.work.ForegroundInfo
+import androidx.work.Constraints
+import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -231,7 +233,13 @@ class DownloadRomWorker(
         WorkManager.getInstance(applicationContext).enqueueUniqueWork(
             QUEUE_WORK_NAME,
             ExistingWorkPolicy.REPLACE,
-            OneTimeWorkRequestBuilder<DownloadRomWorker>().build(),
+            OneTimeWorkRequestBuilder<DownloadRomWorker>()
+                .setConstraints(
+                    Constraints.Builder()
+                        .setRequiredNetworkType(NetworkType.CONNECTED)
+                        .build(),
+                )
+                .build(),
         )
     }
 

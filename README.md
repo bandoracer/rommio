@@ -10,15 +10,16 @@ Rommio currently includes:
 
 - A guided onboarding flow that walks through server discovery, edge access, RomM authentication, and resumable setup
 - An authenticated app shell with bottom-tab navigation for `Home`, `Library`, `Collections`, and `Settings`
+- Offline-first browsing for previously hydrated profiles, including cached library metadata, cached collections, cached thumbnails, and offline app-shell entry
 - A download manager with queue state, progress, retry/cancel flows, and local library tracking
 - RomM-backed collections, including collection detail views and preview artwork fallbacks
 - An embedded libretro player with:
   - on-demand core downloads
-  - local save/state sync plumbing
+  - local save/state sync plumbing with reconnect-aware queueing
   - controller-first fallbacks where needed
   - fixed-zone touch controls for supported platforms
   - player-only visual themes such as OLED black mode and console-color control accents
-- Local persistence for installed ROM metadata, download history, player/control preferences, and auth/session state
+- Local persistence for installed ROM metadata, offline catalog state, download history, player/control preferences, and auth/session state
 
 ## Tech stack
 
@@ -296,6 +297,26 @@ Important notes:
 - core binaries are not bundled by default
 - some platforms require BIOS files before they can be considered playable
 - download/install state is persisted locally and surfaced throughout Home, Library, Downloads, and Settings
+- profile-specific offline catalog data and thumbnail media are cached locally so previously hydrated profiles can browse and launch installed titles without a network connection
+
+## Offline-first behavior
+
+Rommio now treats the active profile as an offline-capable catalog once it has been hydrated successfully online at least once.
+
+Current offline behavior:
+
+- app launch skips remote validation when the device is offline and the active profile already has a ready local catalog
+- Home, Library, Collections, platform detail, collection detail, and game detail read from local cache first and refresh in the background when the network returns
+- installed titles can still open from cached/local metadata without a live RomM lookup
+- ROM downloads remain queued behind network constraints instead of failing immediately while offline
+- save/state sync and recommended-core download requests queue automatically and drain on reconnect
+- thumbnail artwork for platforms, collections, and ROMs is cached locally with eviction, so metadata stays available even if some media falls back to placeholders later
+
+Profile/offline cache notes:
+
+- offline readiness is tracked per saved profile
+- deleting a saved profile clears that profile's cached catalog, thumbnail media, and pending remote actions
+- logging out clears auth and queued remote work for the active profile
 
 ## UI structure
 
@@ -305,6 +326,13 @@ The authenticated shell currently uses:
 - `Library`: platform-first browsing and installed-recent rows
 - `Collections`: RomM-backed collection browsing
 - `Settings`: account/profile, storage, and global control settings
+
+Settings also surfaces:
+
+- current online/offline status
+- offline readiness for the active profile
+- last successful catalog/media sync timestamps
+- local cache usage
 
 Deeper routes include:
 
