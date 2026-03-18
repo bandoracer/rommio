@@ -1,0 +1,8 @@
+<resources>
+    <color name="brand_seed">#D76C3D</color>
+    <color name="brand_canvas">#111315</color>
+    <color name="brand_panel">#171A1E</color>
+    <color name="brand_panel_alt">#22262D</color>
+    <color name="brand_text">#F7F4EE</color>
+    <color name="brand_muted">#B8B1A3</color>
+</resources>

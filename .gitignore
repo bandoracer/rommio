@@ -1,0 +1,10 @@
+.DS_Store
+*.swp
+*.swo
+*.tmp
+.gradle/
+**/.kotlin/
+**/build/
+**/local.properties
+.env.test.local
+

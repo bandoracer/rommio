@@ -1,0 +1,20 @@
+[
+  {
+    "platformSlug": "nes",
+    "displayName": "Nintendo Entertainment System",
+    "coreName": "FCEUmm",
+    "libraryFileName": "libfceumm_libretro_android.so"
+  },
+  {
+    "platformSlug": "snes",
+    "displayName": "Super Nintendo",
+    "coreName": "Snes9x",
+    "libraryFileName": "libsnes9x_libretro_android.so"
+  },
+  {
+    "platformSlug": "gba",
+    "displayName": "Game Boy Advance",
+    "coreName": "mGBA",
+    "libraryFileName": "libmgba_libretro_android.so"
+  }
+]
