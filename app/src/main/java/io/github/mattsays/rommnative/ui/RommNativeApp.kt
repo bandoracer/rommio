@@ -2,28 +2,30 @@ package io.github.mattsays.rommnative.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
-import androidx.navigation.NavType
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import io.github.mattsays.rommnative.RommNativeApplication
 import io.github.mattsays.rommnative.model.InteractiveSessionProvider
+import io.github.mattsays.rommnative.model.ServerAccessStatus
 import io.github.mattsays.rommnative.ui.navigation.NavRoutes
 import io.github.mattsays.rommnative.ui.screen.auth.AuthGateScreen
 import io.github.mattsays.rommnative.ui.screen.auth.InteractiveAuthScreen
+import io.github.mattsays.rommnative.ui.screen.auth.OnboardingSuccessScreen
+import io.github.mattsays.rommnative.ui.screen.auth.OnboardingWelcomeScreen
 import io.github.mattsays.rommnative.ui.screen.auth.ServerAccessScreen
-import io.github.mattsays.rommnative.ui.screen.game.GameDetailScreen
-import io.github.mattsays.rommnative.ui.screen.home.HomeScreen
 import io.github.mattsays.rommnative.ui.screen.login.LoginScreen
-import io.github.mattsays.rommnative.ui.screen.platform.PlatformScreen
 import io.github.mattsays.rommnative.ui.screen.player.PlayerScreen
 
 @Composable
 fun RommNativeApp() {
     val app = LocalContext.current.applicationContext as RommNativeApplication
     val navController = rememberNavController()
+    val activeProfile = app.container.repository.activeProfileFlow().collectAsStateWithLifecycle(initialValue = null).value
 
     NavHost(
         navController = navController,
@@ -35,29 +37,49 @@ fun RommNativeApp() {
                 onResolved = { route -> navController.resetRoot(route) },
             )
         }
-        composable(NavRoutes.SERVER_ACCESS) {
+        composable(NavRoutes.ONBOARDING_WELCOME) {
+            OnboardingWelcomeScreen(
+                hasProfile = activeProfile != null,
+                onStart = { navController.resetRoot(NavRoutes.ONBOARDING_SERVER) },
+                onResume = {
+                    navController.resetRoot(
+                        if (activeProfile?.serverAccess?.status == ServerAccessStatus.READY) {
+                            NavRoutes.ONBOARDING_LOGIN
+                        } else {
+                            NavRoutes.ONBOARDING_SERVER
+                        },
+                    )
+                },
+            )
+        }
+        composable(NavRoutes.ONBOARDING_SERVER) {
             ServerAccessScreen(
                 container = app.container,
                 onInteractiveAuthRequested = { provider ->
                     navController.navigate(NavRoutes.interactive(provider))
                 },
                 onContinueToLogin = {
-                    navController.resetRoot(NavRoutes.LOGIN)
+                    navController.resetRoot(NavRoutes.ONBOARDING_LOGIN)
                 },
             )
         }
-        composable(NavRoutes.LOGIN) {
+        composable(NavRoutes.ONBOARDING_LOGIN) {
             LoginScreen(
                 container = app.container,
                 onBackToServerAccess = {
-                    navController.resetRoot(NavRoutes.SERVER_ACCESS)
+                    navController.resetRoot(NavRoutes.ONBOARDING_SERVER)
                 },
                 onInteractiveAuthRequested = { provider ->
                     navController.navigate(NavRoutes.interactive(provider))
                 },
                 onLoginSuccess = {
-                    navController.resetRoot(NavRoutes.GATE)
+                    navController.resetRoot(NavRoutes.ONBOARDING_SUCCESS)
                 },
+            )
+        }
+        composable(NavRoutes.ONBOARDING_SUCCESS) {
+            OnboardingSuccessScreen(
+                onContinue = { navController.resetRoot(NavRoutes.APP) },
             )
         }
         composable(
@@ -74,53 +96,31 @@ fun RommNativeApp() {
                 provider = provider,
                 onCancel = { navController.popBackStack() },
                 onEdgeFinished = {
-                    navController.resetRoot(NavRoutes.SERVER_ACCESS)
+                    navController.resetRoot(NavRoutes.ONBOARDING_SERVER)
                 },
                 onOriginFinished = {
-                    navController.resetRoot(NavRoutes.GATE)
+                    navController.resetRoot(NavRoutes.ONBOARDING_SUCCESS)
                 },
             )
         }
-        composable(NavRoutes.HOME) {
-            HomeScreen(
+        composable(NavRoutes.APP) {
+            AppShell(
                 container = app.container,
-                onPlatformSelected = { platform ->
-                    navController.navigate(NavRoutes.platform(platform.id, platform.name))
-                },
-                onRomSelected = { rom ->
-                    navController.navigate(NavRoutes.game(rom.id))
-                },
+                imageBaseUrl = activeProfile?.baseUrl,
                 onLogout = {
+                    app.container.repository.logout()
                     navController.resetRoot(NavRoutes.GATE)
                 },
-            )
-        }
-        composable(
-            route = NavRoutes.PLATFORM,
-            arguments = listOf(
-                navArgument("platformId") { type = NavType.IntType },
-                navArgument("platformName") { type = NavType.StringType },
-            ),
-        ) { entry ->
-            PlatformScreen(
-                container = app.container,
-                platformId = entry.arguments?.getInt("platformId") ?: 0,
-                platformName = entry.arguments?.getString("platformName").orEmpty(),
-                onBack = { navController.popBackStack() },
-                onRomSelected = { rom ->
-                    navController.navigate(NavRoutes.game(rom.id))
+                onReconfigureServer = {
+                    navController.resetRoot(NavRoutes.ONBOARDING_SERVER)
                 },
-            )
-        }
-        composable(
-            route = NavRoutes.GAME,
-            arguments = listOf(navArgument("romId") { type = NavType.IntType }),
-        ) { entry ->
-            GameDetailScreen(
-                container = app.container,
-                romId = entry.arguments?.getInt("romId") ?: 0,
-                onBack = { navController.popBackStack() },
-                onPlay = { romId, fileId ->
+                onReauthenticate = {
+                    navController.resetRoot(NavRoutes.ONBOARDING_LOGIN)
+                },
+                onProfileActivated = {
+                    navController.resetRoot(NavRoutes.GATE)
+                },
+                onLaunchPlayer = { romId, fileId ->
                     navController.navigate(NavRoutes.player(romId, fileId))
                 },
             )

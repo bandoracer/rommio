@@ -1,18 +1,13 @@
 package io.github.mattsays.rommnative.ui.screen.auth
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -40,7 +35,7 @@ import io.github.mattsays.rommnative.model.EdgeAuthMode
 import io.github.mattsays.rommnative.model.InteractiveSessionProvider
 import io.github.mattsays.rommnative.model.ServerAccessStatus
 import io.github.mattsays.rommnative.model.ServerProfile
-import io.github.mattsays.rommnative.ui.theme.BrandCanvas
+import io.github.mattsays.rommnative.ui.screen.auth.OnboardingPanelCard
 import io.github.mattsays.rommnative.util.getServerSecurityNotice
 import io.github.mattsays.rommnative.util.normalizeServerUrl
 import kotlinx.coroutines.Job
@@ -161,220 +156,209 @@ fun ServerAccessScreen(
         return container.repository.currentProfile() ?: profile
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(BrandCanvas)
-            .verticalScroll(rememberScrollState())
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+    OnboardingFrame(
+        step = OnboardingStep.Server,
+        title = "Verify native server access.",
+        subtitle = "Choose the right edge policy, confirm that the app can reach RomM from native requests, then continue to sign-in.",
     ) {
-        Text(
-            text = "RomM Native",
-            style = MaterialTheme.typography.headlineLarge,
-        )
-        Text(
-            text = "Step 1 of 2: configure how the app reaches your RomM server.",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
         if (hasDebugTestServer) {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TextButton(
-                    onClick = {
-                        serverUrl = BuildConfig.DEBUG_TEST_BASE_URL
-                        edgeAuthModeName = EdgeAuthMode.CLOUDFLARE_ACCESS_SERVICE.name
-                        manualEdgeMode = true
-                        serviceClientId = BuildConfig.DEBUG_TEST_CLIENT_ID
-                        serviceClientSecret = BuildConfig.DEBUG_TEST_CLIENT_SECRET
-                        lastMessage = null
-                    },
-                ) {
-                    Text("Use debug test server")
-                }
-                TextButton(
-                    onClick = {
-                        scope.launch {
-                            isTestingAccess = true
-                            runCatching {
-                                serverUrl = BuildConfig.DEBUG_TEST_BASE_URL
-                                edgeAuthModeName = EdgeAuthMode.CLOUDFLARE_ACCESS_SERVICE.name
-                                manualEdgeMode = true
-                                serviceClientId = BuildConfig.DEBUG_TEST_CLIENT_ID
-                                serviceClientSecret = BuildConfig.DEBUG_TEST_CLIENT_SECRET
-                                lastMessage = null
-                                val discovered = container.repository.discoverServer(BuildConfig.DEBUG_TEST_BASE_URL)
-                                val profile = container.repository.configureServerProfile(
-                                    baseUrl = BuildConfig.DEBUG_TEST_BASE_URL,
-                                    edgeAuthMode = EdgeAuthMode.CLOUDFLARE_ACCESS_SERVICE,
-                                    originAuthMode = discovered.recommendedOriginAuthMode,
-                                    discoveryResult = discovered,
-                                    makeActive = true,
-                                )
-                                container.repository.setCloudflareServiceCredentials(
-                                    profile.id,
-                                    CloudflareServiceCredentials(
-                                        clientId = BuildConfig.DEBUG_TEST_CLIENT_ID,
-                                        clientSecret = BuildConfig.DEBUG_TEST_CLIENT_SECRET,
-                                    ),
-                                )
-                                val result = container.repository.testServerAccess(profile.id)
-                                check(result.status == ServerAccessStatus.READY) { result.message }
-                            }.fold(
-                                onSuccess = {
-                                    onContinueToLogin()
-                                },
-                                onFailure = { error ->
-                                    lastMessage = error.message ?: "Unable to run debug server access."
-                                },
-                            )
-                            isTestingAccess = false
-                        }
-                    },
-                    enabled = !isTestingAccess && !isLaunchingInteractive,
-                ) {
-                    Text("Run debug server access")
-                }
-            }
-        }
-
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = serverUrl,
-                    onValueChange = {
-                        serverUrl = it
-                        lastMessage = null
-                    },
-                    label = { Text("Server URL") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "Debug shortcuts",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (isDiscovering) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        CircularProgressIndicator(modifier = Modifier.height(18.dp))
-                        Text("Checking server access policy…", style = MaterialTheme.typography.bodyMedium)
-                    }
-                }
-                discovery?.let { result ->
-                    Text(
-                        text = discoverySummary(result),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                discoveryError?.let { message ->
-                    Text(message, color = MaterialTheme.colorScheme.error)
-                }
-                securityNotice?.let { notice ->
-                    Text(
-                        text = notice,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-            }
-        }
-
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Edge access mode", style = MaterialTheme.typography.titleMedium)
-                discovery?.let { result ->
-                    Text(
-                        text = "Recommended: ${edgeAuthLabel(result.recommendedEdgeAuthMode)}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                EdgeAuthMode.entries.forEach { option ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        RadioButton(
-                            selected = edgeAuthMode == option,
-                            onClick = {
-                                edgeAuthModeName = option.name
-                                manualEdgeMode = true
-                            },
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(edgeAuthLabel(option), style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                text = edgeAuthDescription(option),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-                if (discovery != null && manualEdgeMode) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     TextButton(
                         onClick = {
-                            edgeAuthModeName = discovery!!.recommendedEdgeAuthMode.name
-                            manualEdgeMode = false
+                            serverUrl = BuildConfig.DEBUG_TEST_BASE_URL
+                            edgeAuthModeName = EdgeAuthMode.CLOUDFLARE_ACCESS_SERVICE.name
+                            manualEdgeMode = true
+                            serviceClientId = BuildConfig.DEBUG_TEST_CLIENT_ID
+                            serviceClientSecret = BuildConfig.DEBUG_TEST_CLIENT_SECRET
+                            lastMessage = null
                         },
                     ) {
-                        Text("Use detected recommendation")
+                        Text("Use debug test server")
+                    }
+                    TextButton(
+                        onClick = {
+                            scope.launch {
+                                isTestingAccess = true
+                                runCatching {
+                                    serverUrl = BuildConfig.DEBUG_TEST_BASE_URL
+                                    edgeAuthModeName = EdgeAuthMode.CLOUDFLARE_ACCESS_SERVICE.name
+                                    manualEdgeMode = true
+                                    serviceClientId = BuildConfig.DEBUG_TEST_CLIENT_ID
+                                    serviceClientSecret = BuildConfig.DEBUG_TEST_CLIENT_SECRET
+                                    lastMessage = null
+                                    val discovered = container.repository.discoverServer(BuildConfig.DEBUG_TEST_BASE_URL)
+                                    val profile = container.repository.configureServerProfile(
+                                        baseUrl = BuildConfig.DEBUG_TEST_BASE_URL,
+                                        edgeAuthMode = EdgeAuthMode.CLOUDFLARE_ACCESS_SERVICE,
+                                        originAuthMode = discovered.recommendedOriginAuthMode,
+                                        discoveryResult = discovered,
+                                        makeActive = true,
+                                    )
+                                    container.repository.setCloudflareServiceCredentials(
+                                        profile.id,
+                                        CloudflareServiceCredentials(
+                                            clientId = BuildConfig.DEBUG_TEST_CLIENT_ID,
+                                            clientSecret = BuildConfig.DEBUG_TEST_CLIENT_SECRET,
+                                        ),
+                                    )
+                                    val result = container.repository.testServerAccess(profile.id)
+                                    check(result.status == ServerAccessStatus.READY) { result.message }
+                                }.fold(
+                                    onSuccess = {
+                                        onContinueToLogin()
+                                    },
+                                    onFailure = { error ->
+                                        lastMessage = error.message ?: "Unable to run debug server access."
+                                    },
+                                )
+                                isTestingAccess = false
+                            }
+                        },
+                        enabled = !isTestingAccess && !isLaunchingInteractive,
+                    ) {
+                        Text("Run debug server access")
                     }
                 }
-                if (edgeAuthMode == EdgeAuthMode.CLOUDFLARE_ACCESS_SERVICE) {
-                    HorizontalDivider()
-                    OutlinedTextField(
-                        value = serviceClientId,
-                        onValueChange = { serviceClientId = it },
-                        label = { Text("Cloudflare client ID") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
+            }
+        }
+
+        OnboardingPanelCard {
+            OutlinedTextField(
+                value = serverUrl,
+                onValueChange = {
+                    serverUrl = it
+                    lastMessage = null
+                },
+                label = { Text("Server URL") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (isDiscovering) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    CircularProgressIndicator(modifier = Modifier.height(18.dp))
+                    Text("Checking server access policy…", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            discovery?.let { result ->
+                Text(
+                    text = discoverySummary(result),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            discoveryError?.let { message ->
+                Text(message, color = MaterialTheme.colorScheme.error)
+            }
+            securityNotice?.let { notice ->
+                Text(
+                    text = notice,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
+
+        OnboardingPanelCard {
+            Text("Edge access mode", style = MaterialTheme.typography.titleMedium)
+            discovery?.let { result ->
+                Text(
+                    text = "Recommended: ${edgeAuthLabel(result.recommendedEdgeAuthMode)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            EdgeAuthMode.entries.forEach { option ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    RadioButton(
+                        selected = edgeAuthMode == option,
+                        onClick = {
+                            edgeAuthModeName = option.name
+                            manualEdgeMode = true
+                        },
                     )
-                    OutlinedTextField(
-                        value = serviceClientSecret,
-                        onValueChange = { serviceClientSecret = it },
-                        label = { Text("Cloudflare client secret") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    if (activeMatchesSelection && container.repository.hasStoredCloudflareServiceCredentials(activeProfile?.id.orEmpty())) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(edgeAuthLabel(option), style = MaterialTheme.typography.bodyLarge)
                         Text(
-                            text = "Stored service-token credentials are already available for this profile. Leave the fields blank to reuse them.",
+                            text = edgeAuthDescription(option),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
             }
+            if (discovery != null && manualEdgeMode) {
+                TextButton(
+                    onClick = {
+                        edgeAuthModeName = discovery!!.recommendedEdgeAuthMode.name
+                        manualEdgeMode = false
+                    },
+                ) {
+                    Text("Use detected recommendation")
+                }
+            }
+            if (edgeAuthMode == EdgeAuthMode.CLOUDFLARE_ACCESS_SERVICE) {
+                HorizontalDivider()
+                OutlinedTextField(
+                    value = serviceClientId,
+                    onValueChange = { serviceClientId = it },
+                    label = { Text("Cloudflare client ID") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = serviceClientSecret,
+                    onValueChange = { serviceClientSecret = it },
+                    label = { Text("Cloudflare client secret") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (activeMatchesSelection && container.repository.hasStoredCloudflareServiceCredentials(activeProfile?.id.orEmpty())) {
+                    Text(
+                        text = "Stored service-token credentials are already available for this profile. Leave the fields blank to reuse them.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
 
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Diagnostics", style = MaterialTheme.typography.titleMedium)
-                DiagnosticsRow(label = "Server", value = activeProfile?.label ?: "Not configured")
-                DiagnosticsRow(label = "HTTP status", value = serverAccess?.lastHttpStatus?.toString() ?: "Not tested")
-                DiagnosticsRow(label = "Response kind", value = serverAccess?.lastResponseKind?.name ?: "Unknown")
-                DiagnosticsRow(
-                    label = "Cookies seen",
-                    value = serverAccess?.cookieNamesSeen?.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "None",
+        OnboardingPanelCard {
+            Text("Diagnostics", style = MaterialTheme.typography.titleMedium)
+            DiagnosticsRow(label = "Server", value = activeProfile?.label ?: "Not configured")
+            DiagnosticsRow(label = "HTTP status", value = serverAccess?.lastHttpStatus?.toString() ?: "Not tested")
+            DiagnosticsRow(label = "Response kind", value = serverAccess?.lastResponseKind?.name ?: "Unknown")
+            DiagnosticsRow(
+                label = "Cookies seen",
+                value = serverAccess?.cookieNamesSeen?.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "None",
+            )
+            DiagnosticsRow(label = "Last test", value = serverAccess?.lastTestedAt ?: "Never")
+            serverAccess?.lastError?.let { message ->
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (serverAccess.status == ServerAccessStatus.READY) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
                 )
-                DiagnosticsRow(label = "Last test", value = serverAccess?.lastTestedAt ?: "Never")
-                serverAccess?.lastError?.let { message ->
-                    Text(
-                        text = message,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (serverAccess.status == ServerAccessStatus.READY) {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        } else {
-                            MaterialTheme.colorScheme.error
-                        },
-                    )
-                }
-                lastMessage?.let { message ->
-                    Text(
-                        text = message,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (serverAccessReady) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+            }
+            lastMessage?.let { message ->
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (serverAccessReady) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
 

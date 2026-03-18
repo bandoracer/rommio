@@ -31,6 +31,8 @@ class PlayerControlsRepository(
 ) {
     fun resolveProfile(platformSlug: String): PlatformControlProfile = resolver.resolve(platformSlug)
 
+    fun observePreferences(): Flow<PlayerControlsPreferences> = preferencesStore.preferencesFlow
+
     fun observeControls(platformSlug: String): Flow<PlayerControlsState> {
         val profile = resolver.resolve(platformSlug)
         return combine(
@@ -72,25 +74,11 @@ class PlayerControlsRepository(
             touchLayoutDao.delete(profile.familyId)
             return
         }
-        val layout = if (presetId == null || presetId == defaultLayout.presetId) {
-            defaultLayout
-        } else {
-            defaultLayout.copy(
-                presetId = presetId,
-                elementStates = profile.presets.firstOrNull { it.presetId == presetId }
-                    ?.elements
-                    ?.map { element ->
-                        io.github.mattsays.rommnative.domain.input.TouchElementState(
-                            elementId = element.id,
-                            centerX = element.centerX,
-                            centerY = element.centerY,
-                            scale = element.baseScale,
-                        )
-                    }
-                    ?: defaultLayout.elementStates,
-            )
-        }
-        saveTouchLayout(layout.copy(updatedAtEpochMs = System.currentTimeMillis()))
+        val layout = defaultLayout.copy(
+            presetId = presetId ?: defaultLayout.presetId,
+            updatedAtEpochMs = System.currentTimeMillis(),
+        )
+        saveTouchLayout(layout)
     }
 
     suspend fun saveHardwareBinding(profile: HardwareBindingProfile) {
@@ -117,20 +105,34 @@ class PlayerControlsRepository(
         preferencesStore.setRumbleToDeviceEnabled(enabled)
     }
 
+    suspend fun setOledBlackModeEnabled(enabled: Boolean) {
+        preferencesStore.setOledBlackModeEnabled(enabled)
+    }
+
+    suspend fun setConsoleColorsEnabled(enabled: Boolean) {
+        preferencesStore.setConsoleColorsEnabled(enabled)
+    }
+
     private fun observeTouchLayout(profile: PlatformControlProfile): Flow<TouchLayoutProfile?> {
         return touchLayoutDao.observeByFamilyId(profile.familyId).map { entity ->
             when {
                 profile.touchSupportMode == TouchSupportMode.CONTROLLER_FIRST -> null
                 entity == null -> profile.defaultTouchLayout()
-                else -> TouchLayoutProfile(
-                    platformFamilyId = entity.platformFamilyId,
-                    presetId = entity.presetId,
-                    elementStates = codec.decodeTouchElementStates(entity.layoutJson),
-                    opacity = entity.opacity,
-                    globalScale = entity.globalScale,
-                    leftHanded = entity.leftHanded,
-                    updatedAtEpochMs = entity.updatedAtEpochMs,
-                )
+                else -> {
+                    val defaultLayout = profile.defaultTouchLayout()
+                    if (defaultLayout == null) {
+                        null
+                    } else {
+                        defaultLayout.copy(
+                            platformFamilyId = entity.platformFamilyId,
+                            presetId = entity.presetId,
+                            opacity = entity.opacity,
+                            globalScale = entity.globalScale,
+                            leftHanded = entity.leftHanded,
+                            updatedAtEpochMs = entity.updatedAtEpochMs,
+                        )
+                    }
+                }
             }
         }
     }

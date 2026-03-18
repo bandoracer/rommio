@@ -6,6 +6,7 @@ import java.io.File
 
 interface LibraryStore {
     fun ensureRootLayout()
+    fun rootDirectory(): File
     fun romDirectory(platformSlug: String): File
     fun romTarget(platformSlug: String, fileName: String): File
     fun saveRamFile(installation: DownloadedRomEntity): File
@@ -36,6 +37,8 @@ class AppManagedLibraryStore(
             File(root, "system"),
         ).forEach { it.mkdirs() }
     }
+
+    override fun rootDirectory(): File = root
 
     override fun romDirectory(platformSlug: String): File {
         return File(File(root, "roms"), platformSlug).apply { mkdirs() }

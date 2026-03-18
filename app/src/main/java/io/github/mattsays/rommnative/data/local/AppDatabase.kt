@@ -10,6 +10,7 @@ import androidx.room.Query
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import io.github.mattsays.rommnative.model.DownloadRecordEntity
 import io.github.mattsays.rommnative.model.DownloadedRomEntity
 import io.github.mattsays.rommnative.model.SaveStateEntity
 import kotlinx.coroutines.flow.Flow
@@ -33,6 +34,9 @@ data class ServerProfileEntity(
 
 @Dao
 interface DownloadedRomDao {
+    @Query("SELECT * FROM downloaded_roms ORDER BY downloadedAtEpochMs DESC")
+    fun observeAll(): Flow<List<DownloadedRomEntity>>
+
     @Query("SELECT * FROM downloaded_roms WHERE romId = :romId ORDER BY downloadedAtEpochMs DESC")
     fun observeByRomId(romId: Int): Flow<List<DownloadedRomEntity>>
 
@@ -43,6 +47,27 @@ interface DownloadedRomDao {
     suspend fun upsert(entity: DownloadedRomEntity)
 
     @Query("DELETE FROM downloaded_roms WHERE romId = :romId AND fileId = :fileId")
+    suspend fun delete(romId: Int, fileId: Int)
+}
+
+@Dao
+interface DownloadRecordDao {
+    @Query("SELECT * FROM download_records ORDER BY updatedAtEpochMs DESC")
+    fun observeAll(): Flow<List<DownloadRecordEntity>>
+
+    @Query("SELECT * FROM download_records")
+    suspend fun listAll(): List<DownloadRecordEntity>
+
+    @Query("SELECT * FROM download_records WHERE romId = :romId AND fileId = :fileId LIMIT 1")
+    fun observeByIds(romId: Int, fileId: Int): Flow<DownloadRecordEntity?>
+
+    @Query("SELECT * FROM download_records WHERE romId = :romId AND fileId = :fileId LIMIT 1")
+    suspend fun getByIds(romId: Int, fileId: Int): DownloadRecordEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: DownloadRecordEntity)
+
+    @Query("DELETE FROM download_records WHERE romId = :romId AND fileId = :fileId")
     suspend fun delete(romId: Int, fileId: Int)
 }
 
@@ -85,16 +110,18 @@ interface ServerProfileDao {
 @Database(
     entities = [
         DownloadedRomEntity::class,
+        DownloadRecordEntity::class,
         SaveStateEntity::class,
         ServerProfileEntity::class,
         TouchLayoutProfileEntity::class,
         HardwareBindingProfileEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun downloadedRomDao(): DownloadedRomDao
+    abstract fun downloadRecordDao(): DownloadRecordDao
     abstract fun saveStateDao(): SaveStateDao
     abstract fun serverProfileDao(): ServerProfileDao
     abstract fun touchLayoutProfileDao(): TouchLayoutProfileDao
@@ -151,6 +178,35 @@ abstract class AppDatabase : RoomDatabase() {
                       deadzone REAL NOT NULL,
                       bindingsJson TEXT NOT NULL,
                       updatedAtEpochMs INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS download_records (
+                      romId INTEGER NOT NULL,
+                      fileId INTEGER NOT NULL,
+                      romName TEXT NOT NULL,
+                      platformSlug TEXT NOT NULL,
+                      fileName TEXT NOT NULL,
+                      fileSizeBytes INTEGER NOT NULL,
+                      workId TEXT,
+                      status TEXT NOT NULL,
+                      progressPercent INTEGER NOT NULL,
+                      bytesDownloaded INTEGER NOT NULL,
+                      totalBytes INTEGER NOT NULL,
+                      localPath TEXT,
+                      lastError TEXT,
+                      enqueuedAtEpochMs INTEGER NOT NULL,
+                      startedAtEpochMs INTEGER,
+                      completedAtEpochMs INTEGER,
+                      updatedAtEpochMs INTEGER NOT NULL,
+                      PRIMARY KEY(romId, fileId)
                     )
                     """.trimIndent(),
                 )

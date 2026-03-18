@@ -3,8 +3,11 @@ package io.github.mattsays.rommnative.ui.screen.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.mattsays.rommnative.data.repository.RommRepository
-import io.github.mattsays.rommnative.model.PlatformDto
+import io.github.mattsays.rommnative.model.DownloadRecord
+import io.github.mattsays.rommnative.model.DownloadStatus
+import io.github.mattsays.rommnative.model.LibraryStorageSummary
 import io.github.mattsays.rommnative.model.RomDto
+import io.github.mattsays.rommnative.model.RommCollectionDto
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -13,8 +16,12 @@ import kotlinx.coroutines.launch
 
 data class HomeUiState(
     val isLoading: Boolean = true,
-    val platforms: List<PlatformDto> = emptyList(),
+    val continuePlaying: List<RomDto> = emptyList(),
     val recentRoms: List<RomDto> = emptyList(),
+    val featuredCollections: List<RommCollectionDto> = emptyList(),
+    val collectionPreviewCoverUrls: Map<String, List<String>> = emptyMap(),
+    val storageSummary: LibraryStorageSummary = LibraryStorageSummary(),
+    val activeDownloads: List<DownloadRecord> = emptyList(),
     val errorMessage: String? = null,
 )
 
@@ -25,6 +32,22 @@ class HomeViewModel(
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
     init {
+        viewModelScope.launch {
+            repository.observeLibraryStorageSummary().collect { summary ->
+                _uiState.update { it.copy(storageSummary = summary) }
+            }
+        }
+        viewModelScope.launch {
+            repository.observeDownloadHistory().collect { downloads ->
+                _uiState.update {
+                    it.copy(
+                        activeDownloads = downloads.filter { record ->
+                            record.status == DownloadStatus.RUNNING || record.status == DownloadStatus.QUEUED || record.status == DownloadStatus.FAILED
+                        },
+                    )
+                }
+            }
+        }
         refresh()
     }
 
@@ -32,14 +55,24 @@ class HomeViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
             runCatching {
-                repository.getPlatforms() to repository.getRecentlyAdded()
+                Triple(
+                    repository.getContinuePlaying(),
+                    repository.getRecentlyAdded(),
+                    repository.getCollections(),
+                )
             }.fold(
-                onSuccess = { (platforms, recentRoms) ->
+                onSuccess = { (continuePlaying, recentRoms, collections) ->
+                    val featuredCollections = collections.take(8)
+                    val previewCovers = featuredCollections.associate { collection ->
+                        "${collection.kind}:${collection.id}" to repository.getCollectionPreviewCoverUrls(collection)
+                    }
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            platforms = platforms.sortedBy { platform -> platform.name.lowercase() },
-                            recentRoms = recentRoms,
+                            continuePlaying = continuePlaying.take(10),
+                            recentRoms = recentRoms.take(12),
+                            featuredCollections = featuredCollections,
+                            collectionPreviewCoverUrls = previewCovers,
                         )
                     }
                 },
@@ -47,7 +80,7 @@ class HomeViewModel(
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            errorMessage = error.message ?: "Unable to load the RomM library.",
+                            errorMessage = error.message ?: "Unable to load the home dashboard.",
                         )
                     }
                 },

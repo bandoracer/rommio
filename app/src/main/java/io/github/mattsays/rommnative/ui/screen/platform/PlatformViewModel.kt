@@ -12,7 +12,8 @@ import kotlinx.coroutines.launch
 
 data class PlatformUiState(
     val isLoading: Boolean = true,
-    val roms: List<RomDto> = emptyList(),
+    val supportedRoms: List<RomDto> = emptyList(),
+    val unsupportedRoms: List<RomDto> = emptyList(),
     val errorMessage: String? = null,
 )
 
@@ -32,7 +33,14 @@ class PlatformViewModel(
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
             runCatching { repository.getRomsByPlatform(platformId) }.fold(
                 onSuccess = { roms ->
-                    _uiState.update { it.copy(isLoading = false, roms = roms) }
+                    val (unsupportedRoms, supportedRoms) = roms.partition(repository::isUnsupportedInApp)
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            supportedRoms = supportedRoms,
+                            unsupportedRoms = unsupportedRoms,
+                        )
+                    }
                 },
                 onFailure = { error ->
                     _uiState.update {

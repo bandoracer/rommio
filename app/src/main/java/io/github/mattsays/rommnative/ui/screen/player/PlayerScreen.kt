@@ -3,13 +3,19 @@ package io.github.mattsays.rommnative.ui.screen.player
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.view.MotionEvent
 import android.view.View
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -22,25 +28,24 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.Gamepad
-import androidx.compose.material.icons.outlined.Menu
-import androidx.compose.material.icons.outlined.Pause
-import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Sync
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -48,6 +53,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -60,11 +66,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -78,16 +88,18 @@ import androidx.core.view.ViewCompat
 import io.github.mattsays.rommnative.AppContainer
 import io.github.mattsays.rommnative.domain.input.ActiveInputMode
 import io.github.mattsays.rommnative.domain.input.HotkeyAction
+import io.github.mattsays.rommnative.domain.input.PlayerOrientationPolicy
 import io.github.mattsays.rommnative.domain.input.TouchLayoutProfile
+import io.github.mattsays.rommnative.domain.input.TouchSupportMode
 import io.github.mattsays.rommnative.domain.player.PlayerControllerDescriptor
 import io.github.mattsays.rommnative.domain.player.PlayerEngine
 import io.github.mattsays.rommnative.domain.player.PlayerInputConfiguration
 import io.github.mattsays.rommnative.ui.screen.collectAsStateWithLifecycleCompat
-import io.github.mattsays.rommnative.ui.theme.BrandCanvas
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun PlayerScreen(
     container: AppContainer,
@@ -109,6 +121,8 @@ fun PlayerScreen(
         },
     )
     val state by viewModel.uiState.collectAsStateWithLifecycleCompat()
+    val visualTheme = remember(state.controls) { resolvePlayerVisualTheme(state.controls) }
+    val sheetTheme = remember { resolvePlayerVisualTheme(null) }
     val context = LocalContext.current
     val density = LocalDensity.current
     val rootView = LocalView.current
@@ -117,14 +131,30 @@ fun PlayerScreen(
     var slot by rememberSaveable { mutableIntStateOf(1) }
     var showPauseSheet by rememberSaveable { mutableStateOf(false) }
     var showControlsSheet by rememberSaveable { mutableStateOf(false) }
-    var editMode by rememberSaveable { mutableStateOf(false) }
-    var manualPause by rememberSaveable { mutableStateOf(false) }
     var playerAttached by remember { mutableStateOf(false) }
     var runtimeControllers by remember { mutableStateOf<List<PlayerControllerDescriptor>>(emptyList()) }
-    var draftLayout by remember { mutableStateOf<TouchLayoutProfile?>(null) }
     val engine = remember { container.createPlayerEngine() }
+    val primaryOverlayAlpha by animateFloatAsState(
+        targetValue = when {
+            state.overlay.fadeSuspended -> 1f
+            state.overlay.primaryPhase == PlayerOverlayPhase.IDLE -> 0.22f
+            else -> 1f
+        },
+        animationSpec = tween(durationMillis = 440),
+        label = "playerPrimaryOverlayAlpha",
+    )
+    val tertiaryOverlayAlpha by animateFloatAsState(
+        targetValue = when {
+            state.overlay.fadeSuspended -> 1f
+            state.overlay.tertiaryPhase == PlayerOverlayPhase.IDLE -> 0.22f
+            else -> 1f
+        },
+        animationSpec = tween(durationMillis = 440),
+        label = "playerTertiaryOverlayAlpha",
+    )
 
     ImmersivePlayerMode(enabled = true)
+    PlayerOrientationMode(policy = state.controls?.platformProfile?.playerOrientationPolicy)
 
     DisposableEffect(engine) {
         onDispose { engine.detach() }
@@ -132,12 +162,6 @@ fun PlayerScreen(
 
     LaunchedEffect(state.errorMessage) {
         state.errorMessage?.let { snackbarHostState.showSnackbar(it) }
-    }
-
-    LaunchedEffect(state.controls?.touchLayout?.updatedAtEpochMs, editMode) {
-        if (!editMode) {
-            draftLayout = state.controls?.touchLayout
-        }
     }
 
     LaunchedEffect(playerAttached, state.controls?.hardwareBinding?.deadzone) {
@@ -179,10 +203,28 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(playerAttached, manualPause, showPauseSheet) {
+    LaunchedEffect(playerAttached, showPauseSheet) {
         if (playerAttached) {
-            engine.setPaused(manualPause || showPauseSheet)
+            engine.setPaused(showPauseSheet)
         }
+    }
+
+    LaunchedEffect(showPauseSheet, showControlsSheet, state.isLoading) {
+        viewModel.setOverlayFadeSuspended(
+            suspended = showPauseSheet || showControlsSheet || state.isLoading,
+        )
+    }
+
+    LaunchedEffect(playerAttached, state.overlay.primaryLastInteractionEpochMs, state.overlay.fadeSuspended) {
+        if (!playerAttached || state.overlay.fadeSuspended) return@LaunchedEffect
+        delay(10_000)
+        viewModel.setPrimaryOverlayIdle()
+    }
+
+    LaunchedEffect(playerAttached, state.overlay.tertiaryLastInteractionEpochMs, state.overlay.fadeSuspended) {
+        if (!playerAttached || state.overlay.fadeSuspended) return@LaunchedEffect
+        delay(10_000)
+        viewModel.setTertiaryOverlayIdle()
     }
 
     BackHandler(enabled = !state.isLoading) {
@@ -196,7 +238,7 @@ fun PlayerScreen(
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .background(BrandCanvas),
+            .background(visualTheme.canvasColor),
     ) {
         val availableWidth = maxWidth
         val availableHeight = maxHeight
@@ -219,7 +261,7 @@ fun PlayerScreen(
                 else -> {
                     val controls = state.controls
                     val isLandscape = availableWidth > availableHeight
-                    val portraitSystemBars = WindowInsets.systemBars.only(WindowInsetsSides.Vertical).asPaddingValues()
+                    val systemBars = WindowInsets.systemBars.only(WindowInsetsSides.Vertical).asPaddingValues()
                     val portraitCutoutTopInset = with(density) {
                         (ViewCompat.getRootWindowInsets(rootView)?.displayCutout?.safeInsetTop ?: 0).toDp()
                     }
@@ -227,50 +269,63 @@ fun PlayerScreen(
                         0.dp
                     } else {
                         maxOf(
-                            portraitSystemBars.calculateTopPadding(),
+                            systemBars.calculateTopPadding(),
                             portraitCutoutTopInset,
                         )
                     }
-                    val portraitBottomInset = if (isLandscape) 0.dp else portraitSystemBars.calculateBottomPadding()
-                    val viewportModifier = controls?.platformProfile?.preferredViewportAspectRatio?.let { aspectRatio ->
-                        if (isLandscape) {
-                            Modifier
-                                .align(Alignment.Center)
-                                .fillMaxHeight()
-                                .aspectRatio(aspectRatio, matchHeightConstraintsFirst = true)
-                        } else {
-                            Modifier
-                                .align(Alignment.TopCenter)
-                                .padding(top = portraitTopInset)
-                                .fillMaxWidth()
-                                .aspectRatio(aspectRatio)
-                        }
-                    } ?: Modifier.fillMaxSize()
+                    val bottomInset = systemBars.calculateBottomPadding()
+                    val viewportFrame = calculateViewportFrame(
+                        containerWidth = availableWidth,
+                        containerHeight = availableHeight,
+                        aspectRatio = controls?.platformProfile?.preferredViewportAspectRatio,
+                        isLandscape = isLandscape,
+                        portraitTopInset = portraitTopInset,
+                    )
 
                     PlayerViewport(
                         viewModel = viewModel,
                         engine = engine,
-                        modifier = viewportModifier,
+                        modifier = Modifier
+                            .offset(x = viewportFrame.left, y = viewportFrame.top)
+                            .size(width = viewportFrame.width, height = viewportFrame.height),
                         onAttached = { playerAttached = true },
                         onError = { message ->
                             scope.launch { snackbarHostState.showSnackbar(message) }
                         },
                     )
 
-                    if (controls?.showTouchControls == true && draftLayout != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInteropFilter { motionEvent ->
+                                if (motionEvent.actionMasked == MotionEvent.ACTION_DOWN) {
+                                    viewModel.markPrimaryOverlayInteraction()
+                                }
+                                false
+                            },
+                    )
+
+                    if (controls?.showTouchControls == true && controls.touchLayout != null) {
                         TouchControlsOverlay(
                             controlsState = controls,
-                            layout = draftLayout!!,
-                            editMode = editMode,
-                            modifier = Modifier.fillMaxSize(),
-                            onLayoutChange = { updated -> draftLayout = updated },
-                            onLayoutCommit = { updated ->
-                                draftLayout = updated
-                                viewModel.saveTouchLayout(updated)
-                            },
+                            layout = controls.touchLayout,
+                            visualTheme = visualTheme,
+                            viewportFrame = viewportFrame,
+                            isLandscape = isLandscape,
+                            bottomInset = bottomInset,
+                            primaryControlsAlpha = primaryOverlayAlpha,
+                            tertiaryControlsAlpha = tertiaryOverlayAlpha,
+                            modifier = Modifier
+                                .fillMaxSize(),
                             onDigitalInput = { keyCode, pressed ->
                                 scope.launch { engine.dispatchDigital(keyCode = keyCode, pressed = pressed) }
                             },
+                            onMenuClick = {
+                                viewModel.markTertiaryOverlayInteraction()
+                                showPauseSheet = true
+                            },
+                            onPrimaryInteraction = viewModel::markPrimaryOverlayInteraction,
+                            onTertiaryInteraction = viewModel::markTertiaryOverlayInteraction,
                         )
                     }
 
@@ -278,60 +333,11 @@ fun PlayerScreen(
                         ControllerFirstHint(
                             message = controls.platformProfile.controllerFallbackMessage
                                 ?: "Connect a controller for this platform.",
+                            visualTheme = visualTheme,
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
-                                .padding(bottom = 32.dp + portraitBottomInset),
-                        )
-                    } else if (controls?.connectedControllers?.isNotEmpty() == true) {
-                        AssistChip(
-                            onClick = { showControlsSheet = true },
-                            label = {
-                                Text(
-                                    when (controls.inputMode) {
-                                        ActiveInputMode.HYBRID -> "Controller + touch"
-                                        ActiveInputMode.CONTROLLER -> "Controller active"
-                                        else -> "Controller connected"
-                                    },
-                                )
-                            },
-                            leadingIcon = {
-                                Icon(Icons.Outlined.Gamepad, contentDescription = null)
-                            },
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .padding(start = 16.dp, top = 12.dp + portraitTopInset),
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(end = 16.dp, top = 12.dp + portraitTopInset),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        FilledTonalIconButton(
-                            onClick = { manualPause = !manualPause },
-                        ) {
-                            Icon(
-                                if (manualPause || showPauseSheet) Icons.Outlined.PlayArrow else Icons.Outlined.Pause,
-                                contentDescription = if (manualPause || showPauseSheet) "Resume emulation" else "Pause emulation",
-                            )
-                        }
-                        FilledTonalIconButton(
-                            onClick = { showPauseSheet = true },
-                        ) {
-                            Icon(Icons.Outlined.Menu, contentDescription = "Menu")
-                        }
-                    }
-
-                    if (editMode) {
-                        AssistChip(
-                            onClick = { editMode = false },
-                            label = { Text("Editing layout") },
-                            leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .padding(top = 16.dp + portraitTopInset),
+                                .alpha(primaryOverlayAlpha)
+                                .padding(bottom = 32.dp + bottomInset),
                         )
                     }
                 }
@@ -350,8 +356,11 @@ fun PlayerScreen(
     if (showPauseSheet) {
         ModalBottomSheet(
             onDismissRequest = { showPauseSheet = false },
+            containerColor = sheetTheme.panelColor,
+            scrimColor = Color.Black.copy(alpha = 0.72f),
         ) {
             PauseSheet(
+                visualTheme = sheetTheme,
                 title = state.rom?.displayName ?: "Player",
                 latestStateLabel = state.saveStates.lastOrNull()?.label,
                 currentSlot = slot,
@@ -403,6 +412,8 @@ fun PlayerScreen(
         val controls = state.controls
         ModalBottomSheet(
             onDismissRequest = { showControlsSheet = false },
+            containerColor = sheetTheme.panelColor,
+            scrimColor = Color.Black.copy(alpha = 0.72f),
         ) {
             if (controls == null) {
                 Text(
@@ -411,30 +422,21 @@ fun PlayerScreen(
                 )
             } else {
                 ControlsSheet(
+                    visualTheme = sheetTheme,
                     controls = controls,
                     runtimeControllers = runtimeControllers,
-                    currentLayout = draftLayout ?: controls.touchLayout,
-                    editMode = editMode,
+                    currentLayout = controls.touchLayout,
                     onDismiss = { showControlsSheet = false },
-                    onEnterEditMode = {
-                        showControlsSheet = false
-                        editMode = true
-                    },
-                    onExitEditMode = { editMode = false },
                     onTouchControlsEnabled = viewModel::setTouchControlsEnabled,
                     onAutoHideTouchControls = viewModel::setAutoHideTouchOnController,
                     onRumbleToDeviceEnabled = viewModel::setRumbleToDeviceEnabled,
-                    onPresetSelected = { presetId ->
-                        viewModel.resetTouchLayout(presetId)
-                        editMode = false
-                    },
+                    onOledBlackModeEnabled = viewModel::setOledBlackModeEnabled,
+                    onConsoleColorsEnabled = viewModel::setConsoleColorsEnabled,
                     onLayoutUpdated = { updated ->
-                        draftLayout = updated
                         viewModel.saveTouchLayout(updated)
                     },
                     onResetLayout = {
                         viewModel.resetTouchLayout()
-                        editMode = false
                     },
                     onDeadzoneChanged = { deadzone ->
                         viewModel.saveHardwareBinding(
@@ -455,6 +457,74 @@ fun PlayerScreen(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun PlayerOrientationMode(
+    policy: PlayerOrientationPolicy?,
+) {
+    val context = LocalContext.current
+    DisposableEffect(context, policy) {
+        val activity = context.findActivity()
+        if (activity == null || policy == null) {
+            onDispose {}
+        } else {
+            val originalOrientation = activity.requestedOrientation
+            activity.requestedOrientation = when (policy) {
+                PlayerOrientationPolicy.AUTO -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                PlayerOrientationPolicy.LANDSCAPE_ONLY -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            }
+            onDispose {
+                activity.requestedOrientation = originalOrientation
+            }
+        }
+    }
+}
+
+private fun calculateViewportFrame(
+    containerWidth: androidx.compose.ui.unit.Dp,
+    containerHeight: androidx.compose.ui.unit.Dp,
+    aspectRatio: Float?,
+    isLandscape: Boolean,
+    portraitTopInset: androidx.compose.ui.unit.Dp,
+): PlayerViewportFrame {
+    if (aspectRatio == null) {
+        return PlayerViewportFrame(
+            left = 0.dp,
+            top = 0.dp,
+            width = containerWidth,
+            height = containerHeight,
+        )
+    }
+
+    return if (isLandscape) {
+        var height = containerHeight
+        var width = height * aspectRatio
+        if (width > containerWidth) {
+            width = containerWidth
+            height = width / aspectRatio
+        }
+        PlayerViewportFrame(
+            left = (containerWidth - width) / 2f,
+            top = (containerHeight - height) / 2f,
+            width = width,
+            height = height,
+        )
+    } else {
+        val maxHeight = containerHeight - portraitTopInset
+        var width = containerWidth
+        var height = width / aspectRatio
+        if (height > maxHeight) {
+            height = maxHeight
+            width = height * aspectRatio
+        }
+        PlayerViewportFrame(
+            left = (containerWidth - width) / 2f,
+            top = portraitTopInset,
+            width = width,
+            height = height,
+        )
     }
 }
 
@@ -490,8 +560,10 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     else -> null
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PauseSheet(
+    visualTheme: PlayerVisualTheme,
     title: String,
     latestStateLabel: String?,
     currentSlot: Int,
@@ -503,60 +575,180 @@ private fun PauseSheet(
     onSync: () -> Unit,
     onLeaveGame: () -> Unit,
 ) {
-    Column(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(title, style = MaterialTheme.typography.headlineSmall)
-        Text("Quick-save slot: $currentSlot", style = MaterialTheme.typography.bodyMedium)
-        Button(onClick = onResume, modifier = Modifier.fillMaxWidth()) {
-            Text("Resume")
-        }
-        Button(onClick = onOpenControls, modifier = Modifier.fillMaxWidth()) {
-            Icon(Icons.Outlined.Settings, contentDescription = null)
-            Text("Controls", modifier = Modifier.padding(start = 8.dp))
-        }
-        Button(onClick = onQuickSave, modifier = Modifier.fillMaxWidth()) {
-            Icon(Icons.Outlined.Save, contentDescription = null)
-            Text("Quick save", modifier = Modifier.padding(start = 8.dp))
-        }
-        Button(
-            onClick = onQuickLoad,
-            enabled = latestStateLabel != null,
-            modifier = Modifier.fillMaxWidth(),
+        val wideLayout = maxWidth >= 560.dp
+        val sheetWidth = maxWidth
+        val actionGap = 12.dp
+        val actionWidth = if (wideLayout) (maxWidth - actionGap) / 2f else maxWidth
+        Column(
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text(if (latestStateLabel == null) "No state to load" else "Load $latestStateLabel")
-        }
-        Button(onClick = onReset, modifier = Modifier.fillMaxWidth()) {
-            Icon(Icons.Outlined.Refresh, contentDescription = null)
-            Text("Reset core", modifier = Modifier.padding(start = 8.dp))
-        }
-        Button(onClick = onSync, modifier = Modifier.fillMaxWidth()) {
-            Icon(Icons.Outlined.Sync, contentDescription = null)
-            Text("Sync saves and states", modifier = Modifier.padding(start = 8.dp))
-        }
-        Button(onClick = onLeaveGame, modifier = Modifier.fillMaxWidth()) {
-            Text("Leave game")
+            Surface(
+                color = visualTheme.panelAltColor,
+                contentColor = visualTheme.textColor,
+                shape = MaterialTheme.shapes.extraLarge,
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(title, style = MaterialTheme.typography.headlineSmall)
+                    Text("Quick-save slot $currentSlot", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        latestStateLabel?.let { "Latest state: $it" } ?: "No save state available yet.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = visualTheme.textColor.copy(alpha = 0.78f),
+                    )
+                }
+            }
+
+            FlowRow(
+                maxItemsInEachRow = if (wideLayout) 2 else 1,
+                horizontalArrangement = Arrangement.spacedBy(actionGap),
+                verticalArrangement = Arrangement.spacedBy(actionGap),
+            ) {
+                PauseActionButton(
+                    title = "Resume",
+                    subtitle = "Return to the game immediately.",
+                    icon = null,
+                    width = actionWidth,
+                    primary = true,
+                    visualTheme = visualTheme,
+                    onClick = onResume,
+                )
+                PauseActionButton(
+                    title = "Controls",
+                    subtitle = "Adjust touch layout, theme, and controller options.",
+                    icon = Icons.Outlined.Settings,
+                    width = actionWidth,
+                    visualTheme = visualTheme,
+                    onClick = onOpenControls,
+                )
+                PauseActionButton(
+                    title = "Quick save",
+                    subtitle = "Write the current state to slot $currentSlot.",
+                    icon = Icons.Outlined.Save,
+                    width = actionWidth,
+                    visualTheme = visualTheme,
+                    onClick = onQuickSave,
+                )
+                PauseActionButton(
+                    title = if (latestStateLabel == null) "Load state" else "Load $latestStateLabel",
+                    subtitle = latestStateLabel?.let { "Load $it." } ?: "No save state available yet.",
+                    icon = Icons.Outlined.Refresh,
+                    width = actionWidth,
+                    enabled = latestStateLabel != null,
+                    visualTheme = visualTheme,
+                    onClick = onQuickLoad,
+                )
+                PauseActionButton(
+                    title = "Sync saves",
+                    subtitle = "Upload saves and download the latest states.",
+                    icon = Icons.Outlined.Sync,
+                    width = actionWidth,
+                    visualTheme = visualTheme,
+                    onClick = onSync,
+                )
+                PauseActionButton(
+                    title = "Reset core",
+                    subtitle = "Hard reset the running core.",
+                    icon = Icons.Outlined.Refresh,
+                    width = actionWidth,
+                    visualTheme = visualTheme,
+                    onClick = onReset,
+                )
+            }
+
+            PauseActionButton(
+                title = "Leave game",
+                subtitle = "Exit the player and return to the library.",
+                icon = null,
+                width = sheetWidth,
+                visualTheme = visualTheme,
+                destructive = true,
+                onClick = onLeaveGame,
+            )
         }
     }
 }
 
 @Composable
+private fun PauseActionButton(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector?,
+    width: androidx.compose.ui.unit.Dp,
+    visualTheme: PlayerVisualTheme,
+    primary: Boolean = false,
+    destructive: Boolean = false,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    val containerColor = when {
+        primary -> visualTheme.accentColor
+        destructive -> visualTheme.panelAltColor
+        else -> visualTheme.panelAltColor
+    }
+    val contentColor = when {
+        primary -> Color(0xFF151515)
+        else -> visualTheme.textColor
+    }
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier
+            .width(width)
+            .heightIn(min = 76.dp),
+        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+            containerColor = containerColor,
+            contentColor = contentColor,
+            disabledContainerColor = visualTheme.panelAltColor.copy(alpha = 0.42f),
+            disabledContentColor = visualTheme.textColor.copy(alpha = 0.45f),
+        ),
+        shape = MaterialTheme.shapes.extraLarge,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            icon?.let {
+                Icon(imageVector = it, contentDescription = null)
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = contentColor.copy(alpha = if (enabled) 0.76f else 0.55f),
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
 private fun ControlsSheet(
+    visualTheme: PlayerVisualTheme,
     controls: io.github.mattsays.rommnative.domain.input.PlayerControlsState,
     runtimeControllers: List<PlayerControllerDescriptor>,
     currentLayout: TouchLayoutProfile?,
-    editMode: Boolean,
     onDismiss: () -> Unit,
-    onEnterEditMode: () -> Unit,
-    onExitEditMode: () -> Unit,
     onTouchControlsEnabled: (Boolean) -> Unit,
     onAutoHideTouchControls: (Boolean) -> Unit,
     onRumbleToDeviceEnabled: (Boolean) -> Unit,
-    onPresetSelected: (String) -> Unit,
+    onOledBlackModeEnabled: (Boolean) -> Unit,
+    onConsoleColorsEnabled: (Boolean) -> Unit,
     onLayoutUpdated: (TouchLayoutProfile) -> Unit,
     onResetLayout: () -> Unit,
     onDeadzoneChanged: (Float) -> Unit,
@@ -573,11 +765,67 @@ private fun ControlsSheet(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text("${controls.platformProfile.displayName} controls", style = MaterialTheme.typography.headlineSmall)
         Text("Input mode: ${controls.inputMode.label()}", style = MaterialTheme.typography.bodyMedium)
+        if (currentLayout != null) {
+            Text(
+                "Touch controls auto-fade during play. Primary controls and menu/system controls fade separately. Layouts are fixed by orientation; use size, opacity, and handedness to tune them.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Surface(
+            color = visualTheme.panelAltColor,
+            contentColor = visualTheme.textColor,
+            shape = MaterialTheme.shapes.large,
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text("Player theme", style = MaterialTheme.typography.titleMedium)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("OLED black mode")
+                        Text(
+                            "Use true black for the player background and sheets.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = visualTheme.textColor.copy(alpha = 0.76f),
+                        )
+                    }
+                    Switch(
+                        checked = controls.preferences.oledBlackModeEnabled,
+                        onCheckedChange = onOledBlackModeEnabled,
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Console colors")
+                        Text(
+                            "Tint face buttons to match the original hardware.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = visualTheme.textColor.copy(alpha = 0.76f),
+                        )
+                    }
+                    Switch(
+                        checked = controls.preferences.consoleColorsEnabled,
+                        onCheckedChange = onConsoleColorsEnabled,
+                    )
+                }
+            }
+        }
         if (controls.connectedControllers.isNotEmpty()) {
             Text(
                 "Connected: ${controls.connectedControllers.joinToString { it.name }}",
@@ -635,17 +883,6 @@ private fun ControlsSheet(
                 )
             }
 
-            Text("Preset", style = MaterialTheme.typography.titleMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                controls.platformProfile.presets.forEach { preset ->
-                    FilterChip(
-                        selected = preset.presetId == currentLayout.presetId,
-                        onClick = { onPresetSelected(preset.presetId) },
-                        label = { Text(preset.displayName) },
-                    )
-                }
-            }
-
             Text("Opacity ${(pendingOpacity * 100f).roundToInt()}%", style = MaterialTheme.typography.titleMedium)
             Slider(
                 value = pendingOpacity,
@@ -675,14 +912,8 @@ private fun ControlsSheet(
                     )
                 },
             )
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = if (editMode) onExitEditMode else onEnterEditMode) {
-                    Text(if (editMode) "Done editing" else "Edit layout")
-                }
-                Button(onClick = onResetLayout) {
-                    Text("Reset layout")
-                }
+            Button(onClick = onResetLayout) {
+                Text("Reset control tuning")
             }
         }
 
@@ -695,7 +926,10 @@ private fun ControlsSheet(
 
         if (runtimeControllers.isNotEmpty()) {
             Text("Controller type", style = MaterialTheme.typography.titleMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 runtimeControllers.forEach { controller ->
                     FilterChip(
                         selected = controls.hardwareBinding.controllerTypeId == controller.id,
@@ -727,14 +961,15 @@ private fun ControlsSheet(
 @Composable
 private fun ControllerFirstHint(
     message: String,
+    visualTheme: PlayerVisualTheme,
     modifier: Modifier = Modifier,
 ) {
     Box(
         modifier = modifier
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.86f), MaterialTheme.shapes.large)
+            .background(visualTheme.panelAltColor.copy(alpha = 0.9f), MaterialTheme.shapes.large)
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
-        Text(message, style = MaterialTheme.typography.bodyMedium)
+        Text(message, style = MaterialTheme.typography.bodyMedium, color = visualTheme.textColor)
     }
 }
 
@@ -750,7 +985,7 @@ private fun PlayerViewport(
     val lifecycleOwner = LocalLifecycleOwner.current
 
     AndroidView(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier,
         factory = {
             val session = runCatching { kotlinx.coroutines.runBlocking { viewModel.buildSession() } }.getOrElse {
                 onError(it.message ?: "Unable to create player session.")

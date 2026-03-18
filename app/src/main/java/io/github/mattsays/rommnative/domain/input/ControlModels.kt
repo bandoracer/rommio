@@ -15,6 +15,11 @@ enum class ActiveInputMode {
     CONTROLLER_REQUIRED,
 }
 
+enum class PlayerOrientationPolicy {
+    AUTO,
+    LANDSCAPE_ONLY,
+}
+
 enum class HotkeyAction {
     PAUSE_MENU,
     QUICK_SAVE,
@@ -110,6 +115,7 @@ data class PlatformControlProfile(
     val displayName: String,
     val platformSlugs: Set<String>,
     val touchSupportMode: TouchSupportMode,
+    val playerOrientationPolicy: PlayerOrientationPolicy = PlayerOrientationPolicy.AUTO,
     val preferredViewportAspectRatio: Float? = null,
     val defaultPresetId: String? = null,
     val presets: List<TouchLayoutPreset> = emptyList(),
@@ -126,6 +132,8 @@ data class PlayerControlsPreferences(
     val touchControlsEnabled: Boolean = true,
     val autoHideTouchOnController: Boolean = true,
     val rumbleToDeviceEnabled: Boolean = true,
+    val oledBlackModeEnabled: Boolean = false,
+    val consoleColorsEnabled: Boolean = false,
 )
 
 data class PlayerControlsState(

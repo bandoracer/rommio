@@ -43,6 +43,7 @@ class PlatformControlProfileResolver : ControlProfileResolver {
             familyId = "snes",
             displayName = "SNES / Super Famicom",
             platformSlugs = setOf("snes", "sfam"),
+            orientationPolicy = PlayerOrientationPolicy.LANDSCAPE_ONLY,
             presets = listOf(
                 TouchLayoutPreset(
                     presetId = "standard",
@@ -86,6 +87,7 @@ class PlatformControlProfileResolver : ControlProfileResolver {
             familyId = "gba",
             displayName = "Game Boy Advance",
             platformSlugs = setOf("gba"),
+            orientationPolicy = PlayerOrientationPolicy.LANDSCAPE_ONLY,
             presets = listOf(
                 TouchLayoutPreset(
                     presetId = "standard",
@@ -129,6 +131,7 @@ class PlatformControlProfileResolver : ControlProfileResolver {
             familyId = "psx",
             displayName = "PlayStation",
             platformSlugs = setOf("psx", "ps1", "playstation"),
+            orientationPolicy = PlayerOrientationPolicy.LANDSCAPE_ONLY,
             presets = listOf(
                 TouchLayoutPreset(
                     presetId = "digital",
@@ -266,6 +269,7 @@ class PlatformControlProfileResolver : ControlProfileResolver {
         familyId: String,
         displayName: String,
         platformSlugs: Set<String>,
+        orientationPolicy: PlayerOrientationPolicy = PlayerOrientationPolicy.AUTO,
         presets: List<TouchLayoutPreset>,
     ): PlatformControlProfile {
         return PlatformControlProfile(
@@ -273,6 +277,7 @@ class PlatformControlProfileResolver : ControlProfileResolver {
             displayName = displayName,
             platformSlugs = platformSlugs,
             touchSupportMode = TouchSupportMode.FULL,
+            playerOrientationPolicy = orientationPolicy,
             preferredViewportAspectRatio = when (familyId) {
                 "nes", "snes", "sega16", "psx", "atari", "tg16", "arcade" -> 4f / 3f
                 "gb" -> 10f / 9f
@@ -295,6 +300,7 @@ class PlatformControlProfileResolver : ControlProfileResolver {
             displayName = displayName,
             platformSlugs = platformSlugs,
             touchSupportMode = TouchSupportMode.CONTROLLER_FIRST,
+            playerOrientationPolicy = PlayerOrientationPolicy.AUTO,
             controllerFallbackMessage = message,
         )
     }

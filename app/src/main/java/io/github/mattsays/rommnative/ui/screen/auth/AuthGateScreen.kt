@@ -1,6 +1,6 @@
 package io.github.mattsays.rommnative.ui.screen.auth
 
-import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,8 +22,10 @@ import io.github.mattsays.rommnative.AppContainer
 import io.github.mattsays.rommnative.model.AuthStatus
 import io.github.mattsays.rommnative.model.ServerAccessStatus
 import io.github.mattsays.rommnative.model.ServerProfile
+import io.github.mattsays.rommnative.ui.component.RommGradientBackdrop
 import io.github.mattsays.rommnative.ui.navigation.NavRoutes
-import io.github.mattsays.rommnative.ui.theme.BrandCanvas
+import io.github.mattsays.rommnative.ui.theme.BrandSeed
+import io.github.mattsays.rommnative.ui.theme.BrandText
 
 @Composable
 fun AuthGateScreen(
@@ -42,39 +44,42 @@ fun AuthGateScreen(
 
     LaunchedEffect(isInitializing, activeProfile, initialProfile) {
         if (!isInitializing) {
-            onResolved(resolveDestination(activeProfile ?: initialProfile))
+            onResolved(authRouteForProfile(activeProfile ?: initialProfile))
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(BrandCanvas)
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        CircularProgressIndicator()
-        Text(
-            text = "Preparing authentication…",
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(top = 16.dp),
-        )
-        Text(
-            text = "Checking server access and any resumable RomM session.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 8.dp),
-        )
+    Box(modifier = Modifier.fillMaxSize()) {
+        RommGradientBackdrop(modifier = Modifier.fillMaxSize())
+        Column(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            CircularProgressIndicator(color = BrandSeed)
+            Text(
+                text = "Preparing authentication…",
+                style = MaterialTheme.typography.titleMedium,
+                color = BrandText,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+            Text(
+                text = "Checking server access and any resumable RomM session.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
     }
 }
 
-private fun resolveDestination(profile: ServerProfile?): String {
+internal fun authRouteForProfile(profile: ServerProfile?): String {
     return when {
-        profile == null -> NavRoutes.SERVER_ACCESS
-        profile.serverAccess.status != ServerAccessStatus.READY -> NavRoutes.SERVER_ACCESS
-        profile.status == AuthStatus.CONNECTED -> NavRoutes.HOME
-        profile.status == AuthStatus.REAUTH_REQUIRED_EDGE -> NavRoutes.SERVER_ACCESS
-        else -> NavRoutes.LOGIN
+        profile == null -> NavRoutes.ONBOARDING_WELCOME
+        profile.serverAccess.status != ServerAccessStatus.READY -> NavRoutes.ONBOARDING_SERVER
+        profile.status == AuthStatus.CONNECTED -> NavRoutes.APP
+        profile.status == AuthStatus.REAUTH_REQUIRED_EDGE -> NavRoutes.ONBOARDING_SERVER
+        else -> NavRoutes.ONBOARDING_LOGIN
     }
 }

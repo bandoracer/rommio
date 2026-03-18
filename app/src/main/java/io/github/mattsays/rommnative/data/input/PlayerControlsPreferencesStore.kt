@@ -19,6 +19,8 @@ class PlayerControlsPreferencesStore(context: Context) {
             touchControlsEnabled = prefs[TOUCH_CONTROLS_ENABLED] ?: true,
             autoHideTouchOnController = prefs[AUTO_HIDE_TOUCH_ON_CONTROLLER] ?: true,
             rumbleToDeviceEnabled = prefs[RUMBLE_TO_DEVICE_ENABLED] ?: true,
+            oledBlackModeEnabled = prefs[OLED_BLACK_MODE_ENABLED] ?: false,
+            consoleColorsEnabled = prefs[CONSOLE_COLORS_ENABLED] ?: false,
         )
     }
 
@@ -34,9 +36,19 @@ class PlayerControlsPreferencesStore(context: Context) {
         dataStore.edit { it[RUMBLE_TO_DEVICE_ENABLED] = enabled }
     }
 
+    suspend fun setOledBlackModeEnabled(enabled: Boolean) {
+        dataStore.edit { it[OLED_BLACK_MODE_ENABLED] = enabled }
+    }
+
+    suspend fun setConsoleColorsEnabled(enabled: Boolean) {
+        dataStore.edit { it[CONSOLE_COLORS_ENABLED] = enabled }
+    }
+
     companion object {
         private val TOUCH_CONTROLS_ENABLED = booleanPreferencesKey("touch_controls_enabled")
         private val AUTO_HIDE_TOUCH_ON_CONTROLLER = booleanPreferencesKey("auto_hide_touch_on_controller")
         private val RUMBLE_TO_DEVICE_ENABLED = booleanPreferencesKey("rumble_to_device_enabled")
+        private val OLED_BLACK_MODE_ENABLED = booleanPreferencesKey("oled_black_mode_enabled")
+        private val CONSOLE_COLORS_ENABLED = booleanPreferencesKey("console_colors_enabled")
     }
 }

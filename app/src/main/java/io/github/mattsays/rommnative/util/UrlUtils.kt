@@ -15,6 +15,17 @@ fun retrofitBaseUrl(raw: String): String {
     return normalizeServerUrl(raw).removeSuffix("/") + "/"
 }
 
+fun resolveRemoteAssetUrl(baseUrl: String?, rawPath: String?): String? {
+    if (rawPath.isNullOrBlank()) return null
+    if (rawPath.startsWith("http://") || rawPath.startsWith("https://")) return rawPath
+    val normalizedBase = baseUrl?.takeIf { it.isNotBlank() }?.let(::normalizeServerUrl)?.removeSuffix("/") ?: return rawPath
+    return if (rawPath.startsWith("/")) {
+        normalizedBase + rawPath
+    } else {
+        "$normalizedBase/$rawPath"
+    }
+}
+
 fun getServerSecurityNotice(rawUrl: String): String? {
     if (rawUrl.isBlank()) {
         return null

@@ -23,8 +23,22 @@ data class PlayerUiState(
     val installation: DownloadedRomEntity? = null,
     val saveStates: List<SaveStateEntity> = emptyList(),
     val controls: PlayerControlsState? = null,
+    val overlay: PlayerOverlayState = PlayerOverlayState(),
     val errorMessage: String? = null,
 )
+
+data class PlayerOverlayState(
+    val primaryPhase: PlayerOverlayPhase = PlayerOverlayPhase.ACTIVE,
+    val tertiaryPhase: PlayerOverlayPhase = PlayerOverlayPhase.ACTIVE,
+    val primaryLastInteractionEpochMs: Long = System.currentTimeMillis(),
+    val tertiaryLastInteractionEpochMs: Long = System.currentTimeMillis(),
+    val fadeSuspended: Boolean = false,
+)
+
+enum class PlayerOverlayPhase {
+    ACTIVE,
+    IDLE,
+}
 
 class PlayerViewModel(
     private val repository: RommRepository,
@@ -144,6 +158,90 @@ class PlayerViewModel(
     fun setRumbleToDeviceEnabled(enabled: Boolean) {
         viewModelScope.launch {
             controlsRepository.setRumbleToDeviceEnabled(enabled)
+        }
+    }
+
+    fun setOledBlackModeEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            controlsRepository.setOledBlackModeEnabled(enabled)
+        }
+    }
+
+    fun setConsoleColorsEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            controlsRepository.setConsoleColorsEnabled(enabled)
+        }
+    }
+
+    fun markPrimaryOverlayInteraction() {
+        _uiState.update { current ->
+            current.copy(
+                overlay = current.overlay.copy(
+                    primaryPhase = PlayerOverlayPhase.ACTIVE,
+                    primaryLastInteractionEpochMs = System.currentTimeMillis(),
+                ),
+            )
+        }
+    }
+
+    fun markTertiaryOverlayInteraction() {
+        val now = System.currentTimeMillis()
+        _uiState.update { current ->
+            current.copy(
+                overlay = current.overlay.copy(
+                    primaryPhase = PlayerOverlayPhase.ACTIVE,
+                    tertiaryPhase = PlayerOverlayPhase.ACTIVE,
+                    primaryLastInteractionEpochMs = now,
+                    tertiaryLastInteractionEpochMs = now,
+                ),
+            )
+        }
+    }
+
+    fun setOverlayFadeSuspended(suspended: Boolean) {
+        _uiState.update { current ->
+            if (current.overlay.fadeSuspended == suspended) {
+                current
+            } else {
+                val now = System.currentTimeMillis()
+                current.copy(
+                    overlay = current.overlay.copy(
+                        fadeSuspended = suspended,
+                        primaryPhase = PlayerOverlayPhase.ACTIVE,
+                        tertiaryPhase = PlayerOverlayPhase.ACTIVE,
+                        primaryLastInteractionEpochMs = now,
+                        tertiaryLastInteractionEpochMs = now,
+                    ),
+                )
+            }
+        }
+    }
+
+    fun setPrimaryOverlayIdle() {
+        _uiState.update { current ->
+            if (current.overlay.fadeSuspended || current.overlay.primaryPhase == PlayerOverlayPhase.IDLE) {
+                current
+            } else {
+                current.copy(
+                    overlay = current.overlay.copy(
+                        primaryPhase = PlayerOverlayPhase.IDLE,
+                    ),
+                )
+            }
+        }
+    }
+
+    fun setTertiaryOverlayIdle() {
+        _uiState.update { current ->
+            if (current.overlay.fadeSuspended || current.overlay.tertiaryPhase == PlayerOverlayPhase.IDLE) {
+                current
+            } else {
+                current.copy(
+                    overlay = current.overlay.copy(
+                        tertiaryPhase = PlayerOverlayPhase.IDLE,
+                    ),
+                )
+            }
         }
     }
 }

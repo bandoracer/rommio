@@ -87,6 +87,14 @@ class AuthManager(
 
     suspend fun getProfile(profileId: String): ServerProfile? = serverProfileDao.getById(profileId)?.toModel()
 
+    suspend fun listProfiles(): List<ServerProfile> = serverProfileDao.listAll().map { it.toModel() }
+
+    suspend fun setActiveProfile(profileId: String): ServerProfile {
+        requireNotNull(serverProfileDao.getById(profileId)) { "Unknown server profile." }
+        serverProfileDao.setActiveOnly(profileId, nowIso())
+        return requireProfile(profileId)
+    }
+
     fun hasCloudflareServiceCredentials(profileId: String): Boolean {
         return secretStore.getCloudflareCredentials(profileId) != null
     }

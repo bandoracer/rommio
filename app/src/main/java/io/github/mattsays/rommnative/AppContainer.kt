@@ -28,10 +28,11 @@ class AppContainer(appContext: Context) {
         appContext,
         AppDatabase::class.java,
         "romm_native.db",
-    ).addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3)
+    ).addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4)
         .build()
 
     val downloadedRomDao = database.downloadedRomDao()
+    val downloadRecordDao = database.downloadRecordDao()
     val saveStateDao = database.saveStateDao()
     val serverProfileDao = database.serverProfileDao()
     val touchLayoutProfileDao = database.touchLayoutProfileDao()
@@ -67,6 +68,7 @@ class AppContainer(appContext: Context) {
         authManager = authManager,
         serviceFactory = serviceFactory,
         downloadedRomDao = downloadedRomDao,
+        downloadRecordDao = downloadRecordDao,
         saveStateDao = saveStateDao,
         libraryStore = libraryStore,
         coreResolver = coreResolver,

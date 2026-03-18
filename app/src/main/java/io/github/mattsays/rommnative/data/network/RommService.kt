@@ -5,10 +5,13 @@ import io.github.mattsays.rommnative.model.DeviceRegistrationResponse
 import io.github.mattsays.rommnative.model.HeartbeatDto
 import io.github.mattsays.rommnative.model.ItemsResponse
 import io.github.mattsays.rommnative.model.PlatformDto
+import io.github.mattsays.rommnative.model.CollectionResponseDto
 import io.github.mattsays.rommnative.model.RomDto
 import io.github.mattsays.rommnative.model.SaveDto
+import io.github.mattsays.rommnative.model.SmartCollectionResponseDto
 import io.github.mattsays.rommnative.model.StateDto
 import io.github.mattsays.rommnative.model.UserDto
+import io.github.mattsays.rommnative.model.VirtualCollectionResponseDto
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import retrofit2.http.Body
@@ -33,16 +36,34 @@ interface RommService {
     suspend fun getRecentlyAdded(): ItemsResponse<RomDto>
 
     @GET("api/roms")
-    suspend fun getRomsByPlatform(
-        @Query("platform_ids") platformIds: Int,
-        @Query("platform_id") legacyPlatformId: Int,
+    suspend fun getRoms(
+        @Query("platform_ids") platformIds: Int? = null,
+        @Query("platform_id") legacyPlatformId: Int? = null,
+        @Query("collection_id") collectionId: Int? = null,
+        @Query("smart_collection_id") smartCollectionId: Int? = null,
+        @Query("virtual_collection_id") virtualCollectionId: String? = null,
+        @Query("last_played") lastPlayed: Boolean? = null,
         @Query("limit") limit: Int = 50,
         @Query("offset") offset: Int = 0,
         @Query("group_by_meta_id") groupByMetaId: Int = 1,
+        @Query("order_by") orderBy: String? = null,
+        @Query("order_dir") orderDir: String? = null,
     ): ItemsResponse<RomDto>
 
     @GET("api/roms/{romId}")
     suspend fun getRomById(@retrofit2.http.Path("romId") romId: Int): RomDto
+
+    @GET("api/collections")
+    suspend fun getCollections(): List<CollectionResponseDto>
+
+    @GET("api/collections/smart")
+    suspend fun getSmartCollections(): List<SmartCollectionResponseDto>
+
+    @GET("api/collections/virtual")
+    suspend fun getVirtualCollections(
+        @Query("type") type: String = "all",
+        @Query("limit") limit: Int? = null,
+    ): List<VirtualCollectionResponseDto>
 
     @GET("api/saves")
     suspend fun listSaves(

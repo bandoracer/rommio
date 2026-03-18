@@ -1,16 +1,11 @@
 package io.github.mattsays.rommnative.ui.screen.login
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -34,7 +29,9 @@ import io.github.mattsays.rommnative.model.InteractiveSessionProvider
 import io.github.mattsays.rommnative.model.OriginAuthMode
 import io.github.mattsays.rommnative.model.ServerAccessStatus
 import io.github.mattsays.rommnative.model.ServerProfile
-import io.github.mattsays.rommnative.ui.theme.BrandCanvas
+import io.github.mattsays.rommnative.ui.screen.auth.OnboardingFrame
+import io.github.mattsays.rommnative.ui.screen.auth.OnboardingPanelCard
+import io.github.mattsays.rommnative.ui.screen.auth.OnboardingStep
 import io.github.mattsays.rommnative.util.getServerSecurityNotice
 import kotlinx.coroutines.launch
 
@@ -78,74 +75,67 @@ fun LoginScreen(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(BrandCanvas)
-            .verticalScroll(rememberScrollState())
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+    OnboardingFrame(
+        step = OnboardingStep.Login,
+        title = "Authenticate with RomM.",
+        subtitle = "Server access is ready. Finish RomM sign-in and the app will open into the new library shell.",
     ) {
-        Text(
-            text = "RomM sign-in",
-            style = MaterialTheme.typography.headlineLarge,
-        )
-        Text(
-            text = "Step 2 of 2: authenticate with the RomM server after native access is ready.",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
         if (hasDebugTestCredentials && needsDirectCredentials) {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TextButton(
-                    onClick = {
-                        username = BuildConfig.DEBUG_TEST_USERNAME
-                        password = BuildConfig.DEBUG_TEST_PASSWORD
-                        errorMessage = null
-                    },
-                ) {
-                    Text("Use debug test account")
-                }
-                TextButton(
-                    onClick = {
-                        val active = profile ?: return@TextButton
-                        scope.launch {
-                            isSubmitting = true
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "Debug shortcuts",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TextButton(
+                        onClick = {
+                            username = BuildConfig.DEBUG_TEST_USERNAME
+                            password = BuildConfig.DEBUG_TEST_PASSWORD
                             errorMessage = null
-                            runCatching {
-                                container.repository.loginWithDirectCredentials(
-                                    active.id,
-                                    DirectLoginCredentials(
-                                        username = BuildConfig.DEBUG_TEST_USERNAME,
-                                        password = BuildConfig.DEBUG_TEST_PASSWORD,
-                                    ),
+                        },
+                    ) {
+                        Text("Use debug test account")
+                    }
+                    TextButton(
+                        onClick = {
+                            val active = profile ?: return@TextButton
+                            scope.launch {
+                                isSubmitting = true
+                                errorMessage = null
+                                runCatching {
+                                    container.repository.loginWithDirectCredentials(
+                                        active.id,
+                                        DirectLoginCredentials(
+                                            username = BuildConfig.DEBUG_TEST_USERNAME,
+                                            password = BuildConfig.DEBUG_TEST_PASSWORD,
+                                        ),
+                                    )
+                                }.fold(
+                                    onSuccess = { onLoginSuccess() },
+                                    onFailure = { error ->
+                                        errorMessage = error.message ?: "Unable to sign in with the debug test account."
+                                    },
                                 )
-                            }.fold(
-                                onSuccess = { onLoginSuccess() },
-                                onFailure = { error ->
-                                    errorMessage = error.message ?: "Unable to sign in with the debug test account."
-                                },
-                            )
-                            isSubmitting = false
-                        }
-                    },
-                    enabled = !isSubmitting,
-                ) {
-                    Text("Sign in with debug test account")
+                                isSubmitting = false
+                            }
+                        },
+                        enabled = !isSubmitting,
+                    ) {
+                        Text("Sign in with debug test account")
+                    }
                 }
             }
         }
 
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Connection summary", style = MaterialTheme.typography.titleMedium)
-                SummaryRow("Server", profile?.label ?: "Unknown")
-                SummaryRow("URL", profile?.baseUrl ?: "Unavailable")
-                SummaryRow("Server access", profile?.serverAccess?.status?.name ?: "Unknown")
-                SummaryRow("RomM auth", originAuthLabel(originAuthMode))
-                TextButton(onClick = onBackToServerAccess) {
-                    Text("Change server access")
-                }
+        OnboardingPanelCard {
+            Text("Connection summary", style = MaterialTheme.typography.titleMedium)
+            SummaryRow("Server", profile?.label ?: "Unknown")
+            SummaryRow("URL", profile?.baseUrl ?: "Unavailable")
+            SummaryRow("Server access", profile?.serverAccess?.status?.name ?: "Unknown")
+            SummaryRow("RomM auth", originAuthLabel(originAuthMode))
+            TextButton(onClick = onBackToServerAccess) {
+                Text("Change server access")
             }
         }
 
@@ -157,99 +147,97 @@ fun LoginScreen(
             )
         }
 
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Authentication", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    text = when (originAuthMode) {
-                        OriginAuthMode.ROMM_OIDC_SESSION -> "This RomM server uses interactive sign-in. Continue below to finish authentication."
-                        OriginAuthMode.ROMM_BASIC_LEGACY -> "This server falls back to legacy Basic auth. Use the same username and password that work on the web."
-                        OriginAuthMode.ROMM_BEARER_PASSWORD -> "Use the same username and password that work in the RomM web app."
-                        OriginAuthMode.NONE -> "No RomM sign-in mechanism was detected. The app will try to validate the current session directly."
+        OnboardingPanelCard {
+            Text("Authentication", style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = when (originAuthMode) {
+                    OriginAuthMode.ROMM_OIDC_SESSION -> "This RomM server uses interactive sign-in. Continue below to finish authentication."
+                    OriginAuthMode.ROMM_BASIC_LEGACY -> "This server falls back to legacy Basic auth. Use the same username and password that work on the web."
+                    OriginAuthMode.ROMM_BEARER_PASSWORD -> "Use the same username and password that work in the RomM web app."
+                    OriginAuthMode.NONE -> "No RomM sign-in mechanism was detected. The app will try to validate the current session directly."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            if (needsDirectCredentials) {
+                OutlinedTextField(
+                    value = username,
+                    onValueChange = {
+                        username = it
+                        errorMessage = null
                     },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    label = { Text("Username") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
                 )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = {
+                        password = it
+                        errorMessage = null
+                    },
+                    label = { Text("Password") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
 
-                if (needsDirectCredentials) {
-                    OutlinedTextField(
-                        value = username,
-                        onValueChange = {
-                            username = it
-                            errorMessage = null
-                        },
-                        label = { Text("Username") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    OutlinedTextField(
-                        value = password,
-                        onValueChange = {
-                            password = it
-                            errorMessage = null
-                        },
-                        label = { Text("Password") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+            errorMessage?.let { message ->
+                Text(message, color = MaterialTheme.colorScheme.error)
+            }
+
+            if (requiresInteractiveOrigin) {
+                Button(
+                    onClick = { onInteractiveAuthRequested(InteractiveSessionProvider.ORIGIN) },
+                    enabled = !isSubmitting && securityNotice == null,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Continue with RomM SSO")
                 }
-
-                errorMessage?.let { message ->
-                    Text(message, color = MaterialTheme.colorScheme.error)
-                }
-
-                if (requiresInteractiveOrigin) {
-                    Button(
-                        onClick = { onInteractiveAuthRequested(InteractiveSessionProvider.ORIGIN) },
-                        enabled = !isSubmitting && securityNotice == null,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Continue with RomM SSO")
-                    }
-                } else {
-                    Button(
-                        onClick = {
-                            if (securityNotice != null) {
-                                errorMessage = securityNotice
-                                return@Button
-                            }
-                            val active = profile ?: return@Button
-                            scope.launch {
-                                isSubmitting = true
-                                errorMessage = null
-                                runCatching {
-                                    if (originAuthMode == OriginAuthMode.NONE) {
-                                        val status = container.repository.validateProfile(active.id)
-                                        require(status == io.github.mattsays.rommnative.model.AuthStatus.CONNECTED) {
-                                            "The current session is not authenticated with RomM yet."
-                                        }
-                                    } else {
-                                        if (username.isBlank() || password.isBlank()) {
-                                            error("Enter both your RomM username and password.")
-                                        }
-                                        container.repository.loginWithDirectCredentials(
-                                            active.id,
-                                            DirectLoginCredentials(
-                                                username = username.trim(),
-                                                password = password,
-                                            ),
-                                        )
+            } else {
+                Button(
+                    onClick = {
+                        if (securityNotice != null) {
+                            errorMessage = securityNotice
+                            return@Button
+                        }
+                        val active = profile ?: return@Button
+                        scope.launch {
+                            isSubmitting = true
+                            errorMessage = null
+                            runCatching {
+                                if (originAuthMode == OriginAuthMode.NONE) {
+                                    val status = container.repository.validateProfile(active.id)
+                                    require(status == io.github.mattsays.rommnative.model.AuthStatus.CONNECTED) {
+                                        "The current session is not authenticated with RomM yet."
                                     }
-                                }.fold(
-                                    onSuccess = { onLoginSuccess() },
-                                    onFailure = { error ->
-                                        errorMessage = error.message ?: "Unable to sign in to RomM."
-                                    },
-                                )
-                                isSubmitting = false
-                            }
-                        },
-                        enabled = !isSubmitting,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(if (isSubmitting) "Signing in…" else "Sign in")
-                    }
+                                } else {
+                                    if (username.isBlank() || password.isBlank()) {
+                                        error("Enter both your RomM username and password.")
+                                    }
+                                    container.repository.loginWithDirectCredentials(
+                                        active.id,
+                                        DirectLoginCredentials(
+                                            username = username.trim(),
+                                            password = password,
+                                        ),
+                                    )
+                                }
+                            }.fold(
+                                onSuccess = { onLoginSuccess() },
+                                onFailure = { error ->
+                                    errorMessage = error.message ?: "Unable to sign in to RomM."
+                                },
+                            )
+                            isSubmitting = false
+                        }
+                    },
+                    enabled = !isSubmitting,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (isSubmitting) "Signing in…" else "Sign in")
                 }
             }
         }

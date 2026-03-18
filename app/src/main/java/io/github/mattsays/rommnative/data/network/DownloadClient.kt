@@ -19,6 +19,7 @@ class DownloadClient(
         absoluteUrl: String,
         target: File,
         includeOriginAuth: Boolean = true,
+        onProgress: suspend (bytesDownloaded: Long, totalBytes: Long) -> Unit = { _, _ -> },
     ) = withContext(Dispatchers.IO) {
         target.parentFile?.mkdirs()
         val decoration = authManager.decorateRequest(
@@ -45,8 +46,19 @@ class DownloadClient(
             }
 
             val body = response.body ?: error("Download returned an empty body.")
+            val totalBytes = body.contentLength().coerceAtLeast(0L)
             target.outputStream().use { output ->
-                body.byteStream().copyTo(output)
+                body.byteStream().use { input ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var downloaded = 0L
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read == -1) break
+                        output.write(buffer, 0, read)
+                        downloaded += read
+                        onProgress(downloaded, totalBytes)
+                    }
+                }
             }
         }
     }
