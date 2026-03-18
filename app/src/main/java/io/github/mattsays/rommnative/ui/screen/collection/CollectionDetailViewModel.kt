@@ -3,6 +3,7 @@ package io.github.mattsays.rommnative.ui.screen.collection
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.mattsays.rommnative.data.repository.RommRepository
+import io.github.mattsays.rommnative.domain.player.EmbeddedSupportTier
 import io.github.mattsays.rommnative.model.CollectionKind
 import io.github.mattsays.rommnative.model.RomDto
 import io.github.mattsays.rommnative.model.RommCollectionDto
@@ -17,7 +18,8 @@ data class CollectionDetailUiState(
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
     val collection: RommCollectionDto? = null,
-    val supportedRoms: List<RomDto> = emptyList(),
+    val touchSupportedRoms: List<RomDto> = emptyList(),
+    val controllerSupportedRoms: List<RomDto> = emptyList(),
     val unsupportedRoms: List<RomDto> = emptyList(),
     val errorMessage: String? = null,
 )
@@ -39,12 +41,18 @@ class CollectionDetailViewModel(
             ) { collection, roms ->
                 collection to roms
             }.collect { (collection, roms) ->
-                val (unsupportedRoms, supportedRoms) = roms.partition(repository::isUnsupportedInApp)
                 _uiState.update {
                     it.copy(
                         collection = collection,
-                        supportedRoms = supportedRoms,
-                        unsupportedRoms = unsupportedRoms,
+                        touchSupportedRoms = roms.filter { rom ->
+                            repository.embeddedSupportTier(rom) == EmbeddedSupportTier.TOUCH_SUPPORTED
+                        },
+                        controllerSupportedRoms = roms.filter { rom ->
+                            repository.embeddedSupportTier(rom) == EmbeddedSupportTier.CONTROLLER_SUPPORTED
+                        },
+                        unsupportedRoms = roms.filter { rom ->
+                            repository.embeddedSupportTier(rom) == EmbeddedSupportTier.UNSUPPORTED
+                        },
                         isLoading = if (collection != null || roms.isNotEmpty()) false else it.isLoading,
                     )
                 }
@@ -97,5 +105,8 @@ class CollectionDetailViewModel(
 }
 
 private fun CollectionDetailUiState.hasContent(): Boolean {
-    return collection != null || supportedRoms.isNotEmpty() || unsupportedRoms.isNotEmpty()
+    return collection != null ||
+        touchSupportedRoms.isNotEmpty() ||
+        controllerSupportedRoms.isNotEmpty() ||
+        unsupportedRoms.isNotEmpty()
 }

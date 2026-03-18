@@ -1,6 +1,7 @@
 package io.github.mattsays.rommnative.domain.input
 
 import android.view.KeyEvent
+import io.github.mattsays.rommnative.domain.player.EmbeddedSupportTier
 import io.github.mattsays.rommnative.domain.player.PlayerMotionSource
 
 enum class TouchSupportMode {
@@ -17,6 +18,7 @@ enum class ActiveInputMode {
 
 enum class PlayerOrientationPolicy {
     AUTO,
+    PORTRAIT_ONLY,
     LANDSCAPE_ONLY,
 }
 
@@ -114,6 +116,7 @@ data class PlatformControlProfile(
     val familyId: String,
     val displayName: String,
     val platformSlugs: Set<String>,
+    val supportTier: EmbeddedSupportTier,
     val touchSupportMode: TouchSupportMode,
     val playerOrientationPolicy: PlayerOrientationPolicy = PlayerOrientationPolicy.AUTO,
     val preferredViewportAspectRatio: Float? = null,

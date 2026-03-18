@@ -17,6 +17,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.mattsays.rommnative.AppContainer
+import io.github.mattsays.rommnative.domain.player.EmbeddedSupportTier
 import io.github.mattsays.rommnative.model.PlatformDto
 import io.github.mattsays.rommnative.model.RomDto
 import io.github.mattsays.rommnative.ui.component.LoadingSkeletonPanel
@@ -55,6 +56,7 @@ fun LibraryScreen(
                             rom = rom,
                             imageBaseUrl = imageBaseUrl,
                             installed = true,
+                            supportTier = state.recentInstalledSupport[rom.id] ?: EmbeddedSupportTier.UNSUPPORTED,
                             onClick = { onRomSelected(rom) },
                             modifier = Modifier.width(216.dp),
                         )
@@ -67,20 +69,39 @@ fun LibraryScreen(
             item { LoadingSkeletonPanel(lines = 4) }
         }
 
-        if (state.supportedPlatforms.isNotEmpty()) {
+        if (state.touchSupportedPlatforms.isNotEmpty()) {
             item {
                 SectionHeader(
-                    title = "Supported platforms",
-                    meta = state.supportedPlatforms.size.toString(),
-                    supportingText = "Ready for embedded play once compatible files and runtime support are available locally.",
+                    title = "Touch-ready in app",
+                    meta = state.touchSupportedPlatforms.size.toString(),
+                    supportingText = "These platforms already have embedded runtimes and first-class mobile control layouts.",
                 )
             }
-            items(state.supportedPlatforms, key = { it.id }) { platform ->
+            items(state.touchSupportedPlatforms, key = { it.id }) { platform ->
                 PlatformSpotlightCard(
                     platform = platform,
                     imageBaseUrl = imageBaseUrl,
                     summary = state.installedPlatformSummaries.firstOrNull { it.platformSlug == platform.slug || it.platformSlug == platform.fsSlug },
-                    unsupported = false,
+                    supportTier = EmbeddedSupportTier.TOUCH_SUPPORTED,
+                    onClick = { onPlatformSelected(platform) },
+                )
+            }
+        }
+
+        if (state.controllerSupportedPlatforms.isNotEmpty()) {
+            item {
+                SectionHeader(
+                    title = "Controller play in app",
+                    meta = state.controllerSupportedPlatforms.size.toString(),
+                    supportingText = "These platforms now have embedded runtimes, but they still need a controller-first validation and touch pass.",
+                )
+            }
+            items(state.controllerSupportedPlatforms, key = { it.id }) { platform ->
+                PlatformSpotlightCard(
+                    platform = platform,
+                    imageBaseUrl = imageBaseUrl,
+                    summary = state.installedPlatformSummaries.firstOrNull { it.platformSlug == platform.slug || it.platformSlug == platform.fsSlug },
+                    supportTier = EmbeddedSupportTier.CONTROLLER_SUPPORTED,
                     onClick = { onPlatformSelected(platform) },
                 )
             }
@@ -99,7 +120,7 @@ fun LibraryScreen(
                     platform = platform,
                     imageBaseUrl = imageBaseUrl,
                     summary = state.installedPlatformSummaries.firstOrNull { it.platformSlug == platform.slug || it.platformSlug == platform.fsSlug },
-                    unsupported = true,
+                    supportTier = EmbeddedSupportTier.UNSUPPORTED,
                     onClick = { onPlatformSelected(platform) },
                 )
             }

@@ -1,6 +1,6 @@
 # Embedded Player Validation Matrix
 
-Use this matrix before marking a platform as fully supported in the native player.
+Use this matrix before promoting a platform from backlog or research into the user-facing native player catalog.
 
 ## Required checks
 
@@ -25,25 +25,52 @@ Use this matrix before marking a platform as fully supported in the native playe
 - `UNSUPPORTED`
   Platform is intentionally out of scope for the first milestone or does not pass validation.
 
-## Initial runtime targets
+## Promotion rules
+
+- `Controller supported`
+  The libretro runtime exists, Android validation passes, and the family is ready to show in-app without a dedicated touch layout.
+- `Touch supported`
+  Everything required for `Controller supported` passes, and the family also has a validated mobile touch/control layout.
+- `Unsupported`
+  The runtime is absent, intentionally hidden, or has not passed the required Android validation yet.
+
+## Current touch-ready catalog
 
 - NES / Famicom
 - SNES / Super Famicom
 - GB / GBC / GBA
 - Genesis / SMS / Game Gear / Sega CD
-- Atari 2600 / 7800 / Lynx
-- N64
 - PS1
-- PSP
-- NDS
+- Atari 2600 / 7800 / Lynx
 - Arcade
-- DOS
-- TG16
+- PC Engine / TurboGrafx-16
 - Neo Geo Pocket
 - WonderSwan
 
-## Deferred until a later milestone
+## Current controller-first catalog
 
-- Systems requiring non-libretro runtimes
+- N64
+- PSP
+- NDS
+- DSi-enhanced content under the DS family
+- DOS
+- Sega 32X
+- Dreamcast / NAOMI
+- 3DO
+- Virtual Boy
+- GameCube / Wii
+- 3DS
+
+## Research tier
+
+- PS2 via `Play!`
+- Saturn via `Kronos` / `Beetle Saturn`
+- Any libretro family that still fails the required Android validation checks
+
+## Explicitly out of scope
+
+- Systems requiring non-libretro runtimes for practical Android support
+- PS3
+- Wii U
 - Systems that cannot maintain stable performance or state integrity on the reference device set
-- Any platform that needs a more complex multi-screen, motion, or per-core UI than the first milestone provides
+- Any platform that needs a more complex multi-screen, motion, or per-core UI than the current milestone provides

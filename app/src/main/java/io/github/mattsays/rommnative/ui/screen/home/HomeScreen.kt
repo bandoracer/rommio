@@ -31,6 +31,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.mattsays.rommnative.AppContainer
+import io.github.mattsays.rommnative.domain.player.EmbeddedSupportTier
 import io.github.mattsays.rommnative.model.RomDto
 import io.github.mattsays.rommnative.model.RommCollectionDto
 import io.github.mattsays.rommnative.ui.component.CollectionSpotlightCard
@@ -143,6 +144,7 @@ fun HomeScreen(
                             rom = rom,
                             imageBaseUrl = imageBaseUrl,
                             installed = true,
+                            supportTier = state.continuePlayingSupport[rom.id] ?: EmbeddedSupportTier.UNSUPPORTED,
                             onClick = { onRomSelected(rom) },
                             modifier = Modifier.width(216.dp),
                         )
@@ -179,6 +181,7 @@ fun HomeScreen(
                             rom = rom,
                             imageBaseUrl = imageBaseUrl,
                             installed = false,
+                            supportTier = state.recentRomsSupport[rom.id] ?: EmbeddedSupportTier.UNSUPPORTED,
                             onClick = { onRomSelected(rom) },
                             modifier = Modifier.width(216.dp),
                         )

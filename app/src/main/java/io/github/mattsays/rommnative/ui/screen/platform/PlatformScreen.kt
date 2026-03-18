@@ -18,6 +18,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.mattsays.rommnative.AppContainer
+import io.github.mattsays.rommnative.domain.player.EmbeddedSupportTier
 import io.github.mattsays.rommnative.model.RomDto
 import io.github.mattsays.rommnative.ui.component.EmptyStatePanel
 import io.github.mattsays.rommnative.ui.component.FeaturePanel
@@ -52,12 +53,12 @@ fun PlatformScreen(
         item {
             FeaturePanel(
                 title = URLDecoder.decode(platformName, Charsets.UTF_8.name()),
-                subtitle = "Browse the full platform catalog with a denser poster view and explicit embedded-player support bands.",
-                badge = "${state.supportedRoms.size + state.unsupportedRoms.size} games",
+                subtitle = "Browse the full platform catalog with explicit touch, controller, and unsupported embedded-player bands.",
+                badge = "${state.touchSupportedRoms.size + state.controllerSupportedRoms.size + state.unsupportedRoms.size} games",
                 eyebrow = "Platform",
             ) {
                 Text(
-                    "${state.supportedRoms.size} supported • ${state.unsupportedRoms.size} not supported in app yet",
+                    "${state.touchSupportedRoms.size} touch • ${state.controllerSupportedRoms.size} controller • ${state.unsupportedRoms.size} unsupported",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -65,7 +66,7 @@ fun PlatformScreen(
         if (state.isLoading) {
             item { LoadingSkeletonPanel(showArtwork = true, lines = 4) }
         }
-        if (state.supportedRoms.isEmpty() && state.unsupportedRoms.isEmpty() && state.errorMessage == null) {
+        if (state.touchSupportedRoms.isEmpty() && state.controllerSupportedRoms.isEmpty() && state.unsupportedRoms.isEmpty() && state.errorMessage == null) {
             item {
                 EmptyStatePanel(
                     title = "No games surfaced yet",
@@ -75,20 +76,37 @@ fun PlatformScreen(
                 )
             }
         }
-        if (state.supportedRoms.isNotEmpty()) {
+        if (state.touchSupportedRoms.isNotEmpty()) {
             item {
                 SectionHeader(
-                    title = "Playable in app",
-                    meta = state.supportedRoms.size.toString(),
-                    supportingText = "Compatible with the embedded player once the right file is installed locally.",
+                    title = "Touch-ready in app",
+                    meta = state.touchSupportedRoms.size.toString(),
+                    supportingText = "These games already have embedded runtime support plus touch-friendly controls.",
                 )
             }
         }
-        items(state.supportedRoms.chunked(2), key = { chunk -> chunk.joinToString("-") { it.id.toString() } }) { row ->
+        items(state.touchSupportedRoms.chunked(2), key = { chunk -> chunk.joinToString("-") { it.id.toString() } }) { row ->
             RomGridRow(
                 roms = row,
                 imageBaseUrl = imageBaseUrl,
-                unsupported = false,
+                supportTier = EmbeddedSupportTier.TOUCH_SUPPORTED,
+                onRomSelected = onRomSelected,
+            )
+        }
+        if (state.controllerSupportedRoms.isNotEmpty()) {
+            item {
+                SectionHeader(
+                    title = "Controller play in app",
+                    meta = state.controllerSupportedRoms.size.toString(),
+                    supportingText = "These games can run in the embedded player, but they still rely on a controller-first setup.",
+                )
+            }
+        }
+        items(state.controllerSupportedRoms.chunked(2), key = { chunk -> "controller-" + chunk.joinToString("-") { it.id.toString() } }) { row ->
+            RomGridRow(
+                roms = row,
+                imageBaseUrl = imageBaseUrl,
+                supportTier = EmbeddedSupportTier.CONTROLLER_SUPPORTED,
                 onRomSelected = onRomSelected,
             )
         }
@@ -105,7 +123,7 @@ fun PlatformScreen(
             RomGridRow(
                 roms = row,
                 imageBaseUrl = imageBaseUrl,
-                unsupported = true,
+                supportTier = EmbeddedSupportTier.UNSUPPORTED,
                 onRomSelected = onRomSelected,
             )
         }
@@ -121,7 +139,7 @@ fun PlatformScreen(
 private fun RomGridRow(
     roms: List<RomDto>,
     imageBaseUrl: String?,
-    unsupported: Boolean,
+    supportTier: EmbeddedSupportTier,
     onRomSelected: (RomDto) -> Unit,
 ) {
     Row(
@@ -133,7 +151,7 @@ private fun RomGridRow(
                 rom = rom,
                 imageBaseUrl = imageBaseUrl,
                 installed = false,
-                unsupported = unsupported,
+                supportTier = supportTier,
                 onClick = { onRomSelected(rom) },
                 modifier = Modifier.weight(1f),
             )

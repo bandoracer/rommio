@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.mattsays.rommnative.data.repository.CachedHomeSnapshot
 import io.github.mattsays.rommnative.data.repository.RommRepository
+import io.github.mattsays.rommnative.domain.player.EmbeddedSupportTier
 import io.github.mattsays.rommnative.model.DownloadRecord
 import io.github.mattsays.rommnative.model.DownloadStatus
 import io.github.mattsays.rommnative.model.LibraryStorageSummary
@@ -20,7 +21,9 @@ data class HomeUiState(
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
     val continuePlaying: List<RomDto> = emptyList(),
+    val continuePlayingSupport: Map<Int, EmbeddedSupportTier> = emptyMap(),
     val recentRoms: List<RomDto> = emptyList(),
+    val recentRomsSupport: Map<Int, EmbeddedSupportTier> = emptyMap(),
     val featuredCollections: List<RommCollectionDto> = emptyList(),
     val collectionPreviewCoverUrls: Map<String, List<String>> = emptyMap(),
     val storageSummary: LibraryStorageSummary = LibraryStorageSummary(),
@@ -46,7 +49,13 @@ class HomeViewModel(
                 _uiState.update {
                     it.copy(
                         continuePlaying = snapshot.continuePlaying,
+                        continuePlayingSupport = snapshot.continuePlaying.associate { rom ->
+                            rom.id to repository.embeddedSupportTier(rom)
+                        },
                         recentRoms = snapshot.recentRoms,
+                        recentRomsSupport = snapshot.recentRoms.associate { rom ->
+                            rom.id to repository.embeddedSupportTier(rom)
+                        },
                         featuredCollections = snapshot.featuredCollections,
                         collectionPreviewCoverUrls = snapshot.collectionPreviewCoverUrls,
                         isLoading = if (snapshot.hasContent()) false else it.isLoading,

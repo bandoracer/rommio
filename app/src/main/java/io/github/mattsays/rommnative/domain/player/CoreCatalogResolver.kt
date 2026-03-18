@@ -7,7 +7,78 @@ class CoreCatalogResolver(
     private val context: Context,
     private val libraryStore: LibraryStore,
 ) : CoreResolver {
-    private val families = listOf(
+    private val families = buildPlatformRuntimeFamilies()
+
+    private val familyBySlug = families.flatMap { family ->
+        family.platformSlugs.map { slug -> slug to family }
+    }.toMap()
+
+    override fun resolve(platformSlug: String, fileExtension: String?): CoreResolution {
+        val family = platformSupport(platformSlug)
+            ?: return CoreResolution(
+                capability = PlayerCapability.UNSUPPORTED,
+                message = "This platform is not enabled in the embedded player yet.",
+            )
+        val profile = family.runtimeOptions.firstOrNull { it.runtimeId == family.defaultRuntimeId }
+            ?: family.runtimeOptions.firstOrNull()
+            ?: return CoreResolution(
+                capability = PlayerCapability.UNSUPPORTED,
+                platformFamily = family,
+                availableProfiles = family.runtimeOptions,
+                message = "No embedded core has been configured for ${family.displayName}.",
+            )
+
+        if (profile.supportedExtensions.isNotEmpty() && fileExtension != null && fileExtension !in profile.supportedExtensions) {
+            return CoreResolution(
+                capability = PlayerCapability.UNSUPPORTED,
+                platformFamily = family,
+                runtimeProfile = profile,
+                availableProfiles = family.runtimeOptions,
+                message = "This file type is not enabled for ${profile.displayName} yet.",
+            )
+        }
+
+        val missingBios = profile.requiredBiosFiles.filterNot { fileName ->
+            java.io.File(libraryStore.biosDirectory(), fileName).exists()
+        }
+        if (missingBios.isNotEmpty()) {
+            return CoreResolution(
+                capability = PlayerCapability.MISSING_BIOS,
+                platformFamily = family,
+                runtimeProfile = profile,
+                availableProfiles = family.runtimeOptions,
+                missingBios = missingBios,
+                message = "Install BIOS files in app-managed storage before launching this game.",
+            )
+        }
+
+        val coreLibrary = libraryStore.resolveCoreLibrary(context, profile.libraryFileName)
+            ?: return CoreResolution(
+                capability = PlayerCapability.MISSING_CORE,
+                platformFamily = family,
+                runtimeProfile = profile,
+                availableProfiles = family.runtimeOptions,
+                message = "Download the recommended ${profile.displayName} core to launch this game inside the app.",
+            )
+
+        return CoreResolution(
+            capability = PlayerCapability.READY,
+            platformFamily = family,
+            runtimeProfile = profile,
+            availableProfiles = family.runtimeOptions,
+            coreLibrary = coreLibrary,
+            message = null,
+        )
+    }
+
+    override fun platformSupport(platformSlug: String): PlatformRuntimeFamily? {
+        return familyBySlug[platformSlug.lowercase()]
+    }
+
+    override fun supportedPlatforms(): List<PlatformRuntimeFamily> = families
+}
+
+internal fun buildPlatformRuntimeFamilies(): List<PlatformRuntimeFamily> = listOf(
         family(
             familyId = "nes",
             displayName = "NES / Famicom",
@@ -129,9 +200,27 @@ class CoreCatalogResolver(
             ),
         ),
         family(
+            familyId = "sega32x",
+            displayName = "Sega 32X",
+            platformSlugs = setOf("32x", "sega32x", "sega-32x"),
+            supportTier = EmbeddedSupportTier.CONTROLLER_SUPPORTED,
+            defaultRuntimeId = "picodrive",
+            runtimeOptions = listOf(
+                libretroProfile(
+                    runtimeId = "picodrive",
+                    displayName = "PicoDrive",
+                    platformSlugs = setOf("32x", "sega32x", "sega-32x"),
+                    artifactBaseName = "picodrive",
+                    shader = PlayerShader.CRT,
+                    documentationUrl = "https://docs.libretro.com/library/picodrive/",
+                ),
+            ),
+        ),
+        family(
             familyId = "n64",
             displayName = "Nintendo 64",
             platformSlugs = setOf("n64"),
+            supportTier = EmbeddedSupportTier.CONTROLLER_SUPPORTED,
             defaultRuntimeId = "mupen64plus_next_gles3",
             runtimeOptions = listOf(
                 libretroProfile(
@@ -185,6 +274,7 @@ class CoreCatalogResolver(
             familyId = "psp",
             displayName = "PlayStation Portable",
             platformSlugs = setOf("psp"),
+            supportTier = EmbeddedSupportTier.CONTROLLER_SUPPORTED,
             defaultRuntimeId = "ppsspp",
             runtimeOptions = listOf(
                 libretroProfile(
@@ -200,28 +290,31 @@ class CoreCatalogResolver(
         ),
         family(
             familyId = "nds",
-            displayName = "Nintendo DS",
-            platformSlugs = setOf("nds"),
-            defaultRuntimeId = "melonds",
+            displayName = "Nintendo DS / DSi-enhanced",
+            platformSlugs = setOf("nds", "dsi", "nintendo-dsi"),
+            supportTier = EmbeddedSupportTier.TOUCH_SUPPORTED,
+            defaultRuntimeId = "melonds_ds",
             runtimeOptions = listOf(
                 libretroProfile(
-                    runtimeId = "melonds",
-                    displayName = "melonDS",
-                    platformSlugs = setOf("nds"),
-                    artifactBaseName = "melonds",
+                    runtimeId = "melonds_ds",
+                    displayName = "melonDS DS",
+                    platformSlugs = setOf("nds", "dsi", "nintendo-dsi"),
+                    artifactBaseName = "melondsds",
                     defaultVariables = mapOf(
                         "melonds_number_of_screen_layouts" to "1",
                         "melonds_touch_mode" to "Touch",
                         "melonds_threaded_renderer" to "enabled",
                     ),
+                    supportedExtensions = setOf("nds"),
                     shader = PlayerShader.LCD,
                     documentationUrl = "https://docs.libretro.com/library/melonds_ds/",
                 ),
                 libretroProfile(
                     runtimeId = "desmume",
                     displayName = "DeSmuME",
-                    platformSlugs = setOf("nds"),
+                    platformSlugs = setOf("nds", "dsi", "nintendo-dsi"),
                     artifactBaseName = "desmume",
+                    supportedExtensions = setOf("nds"),
                     shader = PlayerShader.LCD,
                     documentationUrl = "https://docs.libretro.com/library/desmume/",
                 ),
@@ -303,6 +396,7 @@ class CoreCatalogResolver(
             familyId = "dos",
             displayName = "DOS",
             platformSlugs = setOf("dos"),
+            supportTier = EmbeddedSupportTier.CONTROLLER_SUPPORTED,
             defaultRuntimeId = "dosbox_pure",
             runtimeOptions = listOf(
                 libretroProfile(
@@ -371,81 +465,105 @@ class CoreCatalogResolver(
                 ),
             ),
         ),
+        family(
+            familyId = "dreamcast",
+            displayName = "Dreamcast / NAOMI",
+            platformSlugs = setOf("dreamcast", "naomi"),
+            supportTier = EmbeddedSupportTier.CONTROLLER_SUPPORTED,
+            defaultRuntimeId = "flycast",
+            runtimeOptions = listOf(
+                libretroProfile(
+                    runtimeId = "flycast",
+                    displayName = "Flycast",
+                    platformSlugs = setOf("dreamcast", "naomi"),
+                    artifactBaseName = "flycast",
+                    supportedExtensions = setOf("cdi", "gdi", "chd", "cue", "bin", "elf", "zip", "7z", "lst", "dat", "m3u"),
+                    requiredBiosFiles = listOf("dc_boot.bin", "dc_flash.bin"),
+                    shader = PlayerShader.CRT,
+                    documentationUrl = "https://docs.libretro.com/library/flycast/",
+                ),
+            ),
+        ),
+        family(
+            familyId = "3do",
+            displayName = "3DO",
+            platformSlugs = setOf("3do"),
+            supportTier = EmbeddedSupportTier.CONTROLLER_SUPPORTED,
+            defaultRuntimeId = "opera",
+            runtimeOptions = listOf(
+                libretroProfile(
+                    runtimeId = "opera",
+                    displayName = "Opera",
+                    platformSlugs = setOf("3do"),
+                    artifactBaseName = "opera",
+                    supportedExtensions = setOf("cue", "iso", "bin", "chd", "m3u"),
+                    shader = PlayerShader.CRT,
+                    documentationUrl = "https://docs.libretro.com/library/opera/",
+                ),
+            ),
+        ),
+        family(
+            familyId = "virtualboy",
+            displayName = "Virtual Boy",
+            platformSlugs = setOf("virtualboy", "virtual-boy"),
+            supportTier = EmbeddedSupportTier.CONTROLLER_SUPPORTED,
+            defaultRuntimeId = "beetle_vb",
+            runtimeOptions = listOf(
+                libretroProfile(
+                    runtimeId = "beetle_vb",
+                    displayName = "Beetle VB",
+                    platformSlugs = setOf("virtualboy", "virtual-boy"),
+                    artifactBaseName = "mednafen_vb",
+                    supportedExtensions = setOf("vb", "vboy", "bin"),
+                    shader = PlayerShader.DEFAULT,
+                    documentationUrl = "https://docs.libretro.com/library/beetle_vb/",
+                ),
+            ),
+        ),
+        family(
+            familyId = "dolphin",
+            displayName = "GameCube / Wii",
+            platformSlugs = setOf("gamecube", "ngc", "wii"),
+            supportTier = EmbeddedSupportTier.CONTROLLER_SUPPORTED,
+            defaultRuntimeId = "dolphin",
+            runtimeOptions = listOf(
+                libretroProfile(
+                    runtimeId = "dolphin",
+                    displayName = "Dolphin",
+                    platformSlugs = setOf("gamecube", "ngc", "wii"),
+                    artifactBaseName = "dolphin",
+                    supportedExtensions = setOf("elf", "dol", "gcm", "iso", "tgc", "ciso", "gcz", "wbfs", "wia", "rvz"),
+                    shader = PlayerShader.DEFAULT,
+                    documentationUrl = "https://docs.libretro.com/library/dolphin/",
+                ),
+            ),
+        ),
+        family(
+            familyId = "3ds",
+            displayName = "Nintendo 3DS",
+            platformSlugs = setOf("3ds", "new-nintendo-3ds"),
+            supportTier = EmbeddedSupportTier.CONTROLLER_SUPPORTED,
+            defaultRuntimeId = "citra",
+            runtimeOptions = listOf(
+                libretroProfile(
+                    runtimeId = "citra",
+                    displayName = "Citra Canary/Experimental",
+                    platformSlugs = setOf("3ds", "new-nintendo-3ds"),
+                    artifactBaseName = "citra",
+                    supportedExtensions = setOf("3ds", "3dsx", "elf", "axf", "cci", "cxi", "app"),
+                    shader = PlayerShader.DEFAULT,
+                    supportsSaveStates = false,
+                    documentationUrl = "https://docs.libretro.com/library/citra_canary/",
+                ),
+            ),
+        ),
     )
-
-    private val familyBySlug = families.flatMap { family ->
-        family.platformSlugs.map { slug -> slug to family }
-    }.toMap()
-
-    override fun resolve(platformSlug: String, fileExtension: String?): CoreResolution {
-        val family = platformSupport(platformSlug)
-            ?: return CoreResolution(
-                capability = PlayerCapability.UNSUPPORTED,
-                message = "This platform is not enabled in the embedded player yet.",
-            )
-        val profile = family.runtimeOptions.firstOrNull { it.runtimeId == family.defaultRuntimeId }
-            ?: family.runtimeOptions.firstOrNull()
-            ?: return CoreResolution(
-                capability = PlayerCapability.UNSUPPORTED,
-                platformFamily = family,
-                availableProfiles = family.runtimeOptions,
-                message = "No embedded core has been configured for ${family.displayName}.",
-            )
-
-        if (profile.supportedExtensions.isNotEmpty() && fileExtension != null && fileExtension !in profile.supportedExtensions) {
-            return CoreResolution(
-                capability = PlayerCapability.UNSUPPORTED,
-                platformFamily = family,
-                runtimeProfile = profile,
-                availableProfiles = family.runtimeOptions,
-                message = "This file type is not enabled for ${profile.displayName} yet.",
-            )
-        }
-
-        val missingBios = profile.requiredBiosFiles.filterNot { fileName ->
-            java.io.File(libraryStore.biosDirectory(), fileName).exists()
-        }
-        if (missingBios.isNotEmpty()) {
-            return CoreResolution(
-                capability = PlayerCapability.MISSING_BIOS,
-                platformFamily = family,
-                runtimeProfile = profile,
-                availableProfiles = family.runtimeOptions,
-                missingBios = missingBios,
-                message = "Install BIOS files in app-managed storage before launching this game.",
-            )
-        }
-
-        val coreLibrary = libraryStore.resolveCoreLibrary(context, profile.libraryFileName)
-            ?: return CoreResolution(
-                capability = PlayerCapability.MISSING_CORE,
-                platformFamily = family,
-                runtimeProfile = profile,
-                availableProfiles = family.runtimeOptions,
-                message = "Download the recommended ${profile.displayName} core to launch this game inside the app.",
-            )
-
-        return CoreResolution(
-            capability = PlayerCapability.READY,
-            platformFamily = family,
-            runtimeProfile = profile,
-            availableProfiles = family.runtimeOptions,
-            coreLibrary = coreLibrary,
-            message = null,
-        )
-    }
-
-    override fun platformSupport(platformSlug: String): PlatformRuntimeFamily? {
-        return familyBySlug[platformSlug]
-    }
-
-    override fun supportedPlatforms(): List<PlatformRuntimeFamily> = families
-}
 
 private fun family(
     familyId: String,
     displayName: String,
     platformSlugs: Set<String>,
+    supportTier: EmbeddedSupportTier = EmbeddedSupportTier.TOUCH_SUPPORTED,
     defaultRuntimeId: String,
     runtimeOptions: List<RuntimeProfile>,
 ): PlatformRuntimeFamily {
@@ -453,6 +571,7 @@ private fun family(
         familyId = familyId,
         displayName = displayName,
         platformSlugs = platformSlugs,
+        supportTier = supportTier,
         defaultRuntimeId = defaultRuntimeId,
         runtimeOptions = runtimeOptions,
     )

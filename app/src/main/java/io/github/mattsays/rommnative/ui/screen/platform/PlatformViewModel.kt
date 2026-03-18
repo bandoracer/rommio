@@ -3,6 +3,7 @@ package io.github.mattsays.rommnative.ui.screen.platform
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.mattsays.rommnative.data.repository.RommRepository
+import io.github.mattsays.rommnative.domain.player.EmbeddedSupportTier
 import io.github.mattsays.rommnative.model.RomDto
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,7 +14,8 @@ import kotlinx.coroutines.launch
 data class PlatformUiState(
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
-    val supportedRoms: List<RomDto> = emptyList(),
+    val touchSupportedRoms: List<RomDto> = emptyList(),
+    val controllerSupportedRoms: List<RomDto> = emptyList(),
     val unsupportedRoms: List<RomDto> = emptyList(),
     val errorMessage: String? = null,
 )
@@ -28,11 +30,17 @@ class PlatformViewModel(
     init {
         viewModelScope.launch {
             repository.observeCachedPlatformRoms(platformId).collect { roms ->
-                val (unsupportedRoms, supportedRoms) = roms.partition(repository::isUnsupportedInApp)
                 _uiState.update {
                     it.copy(
-                        supportedRoms = supportedRoms,
-                        unsupportedRoms = unsupportedRoms,
+                        touchSupportedRoms = roms.filter { rom ->
+                            repository.embeddedSupportTier(rom) == EmbeddedSupportTier.TOUCH_SUPPORTED
+                        },
+                        controllerSupportedRoms = roms.filter { rom ->
+                            repository.embeddedSupportTier(rom) == EmbeddedSupportTier.CONTROLLER_SUPPORTED
+                        },
+                        unsupportedRoms = roms.filter { rom ->
+                            repository.embeddedSupportTier(rom) == EmbeddedSupportTier.UNSUPPORTED
+                        },
                         isLoading = if (roms.isNotEmpty()) false else it.isLoading,
                     )
                 }
@@ -85,5 +93,5 @@ class PlatformViewModel(
 }
 
 private fun PlatformUiState.hasContent(): Boolean {
-    return supportedRoms.isNotEmpty() || unsupportedRoms.isNotEmpty()
+    return touchSupportedRoms.isNotEmpty() || controllerSupportedRoms.isNotEmpty() || unsupportedRoms.isNotEmpty()
 }

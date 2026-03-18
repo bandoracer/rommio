@@ -35,6 +35,7 @@ import io.github.mattsays.rommnative.data.work.OfflineSyncWorker
 import io.github.mattsays.rommnative.domain.player.CoreInstaller
 import io.github.mattsays.rommnative.domain.player.CoreResolution
 import io.github.mattsays.rommnative.domain.player.CoreResolver
+import io.github.mattsays.rommnative.domain.player.EmbeddedSupportTier
 import io.github.mattsays.rommnative.domain.player.PlayerCapability
 import io.github.mattsays.rommnative.domain.player.PlayerSession
 import io.github.mattsays.rommnative.domain.player.RuntimeProfile
@@ -89,6 +90,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import retrofit2.HttpException
 
 data class CachedHomeSnapshot(
     val continuePlaying: List<RomDto> = emptyList(),
@@ -477,7 +479,14 @@ class RommRepository(
         if (!isOnline()) return
         runTargetedRefresh(profile, "${profile.id}:rom:$romId") {
             val service = createService(profile)
-            val rom = fetchDetailedRom(service, romId)
+            val rom = try {
+                fetchDetailedRom(service, romId)
+            } catch (error: HttpException) {
+                if (error.code() == 404) {
+                    cachedRomDao.deleteById(profile.id, romId)
+                }
+                throw error
+            }
             cacheRoms(profile, listOf(rom))
             warmRomMedia(profile, listOf(rom), pinnedRomIds = setOf(romId))
             markRefreshSucceeded(profile.id, updateFullSync = true, updateMediaSync = true)
@@ -720,12 +729,26 @@ class RommRepository(
         return resolveCoreSupport(rom, rom.files.firstOrNull())
     }
 
+    fun embeddedSupportTier(platform: PlatformDto): EmbeddedSupportTier {
+        return coreResolver.platformSupport(platform.slug)?.supportTier
+            ?: coreResolver.platformSupport(platform.fsSlug)?.supportTier
+            ?: EmbeddedSupportTier.UNSUPPORTED
+    }
+
+    fun embeddedSupportTier(rom: RomDto): EmbeddedSupportTier {
+        val resolution = embeddedPlayerSupport(rom)
+        if (resolution.capability == PlayerCapability.UNSUPPORTED) {
+            return EmbeddedSupportTier.UNSUPPORTED
+        }
+        return resolution.platformFamily?.supportTier ?: EmbeddedSupportTier.UNSUPPORTED
+    }
+
     fun supportsEmbeddedPlayer(platform: PlatformDto): Boolean {
-        return coreResolver.platformSupport(platform.slug) != null || coreResolver.platformSupport(platform.fsSlug) != null
+        return embeddedSupportTier(platform) != EmbeddedSupportTier.UNSUPPORTED
     }
 
     fun isUnsupportedInApp(rom: RomDto): Boolean {
-        return embeddedPlayerSupport(rom).capability == PlayerCapability.UNSUPPORTED
+        return embeddedSupportTier(rom) == EmbeddedSupportTier.UNSUPPORTED
     }
 
     suspend fun getCollectionPreviewCoverUrls(
@@ -1113,10 +1136,7 @@ class RommRepository(
     }
 
     suspend fun deleteLocalDownload(record: DownloadRecord) {
-        record.localPath?.let { path ->
-            runCatching { File(path).delete() }
-        }
-        downloadedRomDao.delete(record.romId, record.fileId)
+        clearLocalInstall(record.romId, record.fileId, record.localPath)
         val existing = downloadRecordDao.getByIds(record.romId, record.fileId) ?: return
         downloadRecordDao.upsert(
             existing.copy(
@@ -1124,6 +1144,18 @@ class RommRepository(
                 updatedAtEpochMs = System.currentTimeMillis(),
             ),
         )
+    }
+
+    suspend fun deleteInstalledFile(installation: DownloadedRomEntity) {
+        clearLocalInstall(installation.romId, installation.fileId, installation.localPath)
+        downloadRecordDao.getByIds(installation.romId, installation.fileId)?.let { existing ->
+            downloadRecordDao.upsert(
+                existing.copy(
+                    localPath = null,
+                    updatedAtEpochMs = System.currentTimeMillis(),
+                ),
+            )
+        }
     }
 
     suspend fun recordSaveState(installation: DownloadedRomEntity, slot: Int, file: File) {
@@ -1156,6 +1188,13 @@ class RommRepository(
     private suspend fun requireActiveProfile(): ServerProfile {
         return authManager.getActiveProfile()
             ?: error("Configure server access before using the RomM library.")
+    }
+
+    private suspend fun clearLocalInstall(romId: Int, fileId: Int, localPath: String?) {
+        localPath?.let { path ->
+            runCatching { File(path).delete() }
+        }
+        downloadedRomDao.delete(romId, fileId)
     }
 
     private suspend fun isOnline(): Boolean = connectivityMonitor.currentState() == ConnectivityState.ONLINE

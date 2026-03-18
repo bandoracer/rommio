@@ -37,13 +37,16 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import coil.compose.AsyncImage
 import io.github.mattsays.rommnative.AppContainer
+import io.github.mattsays.rommnative.domain.player.EmbeddedSupportTier
 import io.github.mattsays.rommnative.domain.player.PlayerCapability
 import io.github.mattsays.rommnative.model.DownloadStatus
 import io.github.mattsays.rommnative.model.RomFileDto
 import io.github.mattsays.rommnative.ui.component.CompactPanel
+import io.github.mattsays.rommnative.ui.component.EmptyStatePanel
 import io.github.mattsays.rommnative.ui.component.FeaturePanel
 import io.github.mattsays.rommnative.ui.component.LoadingSkeletonPanel
 import io.github.mattsays.rommnative.ui.component.SectionHeader
+import io.github.mattsays.rommnative.ui.component.SupportBadge
 import io.github.mattsays.rommnative.ui.component.formatBytes
 import io.github.mattsays.rommnative.ui.screen.collectAsStateWithLifecycleCompat
 import io.github.mattsays.rommnative.ui.theme.BrandPanel
@@ -85,8 +88,8 @@ fun GameDetailScreen(
             item {
                 FeaturePanel(
                     title = game.displayName,
-                    subtitle = game.platformName,
-                    badge = if (selectedInstall != null) "Installed" else "Remote only",
+                    subtitle = if (state.isLocalOnly) "${game.platformName} • local only" else game.platformName,
+                    badge = supportBadgeLabel(state.supportTier),
                     eyebrow = "Game",
                 ) {
                     Row(
@@ -106,6 +109,16 @@ fun GameDetailScreen(
                             modifier = Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
+                            SupportBadge(state.supportTier)
+                            Text(
+                                text = when {
+                                    state.isLocalOnly -> "Installed locally • removed from RomM"
+                                    selectedInstall != null -> "Installed locally"
+                                    else -> "Remote only"
+                                },
+                                style = MaterialTheme.typography.labelMedium,
+                                color = BrandSeed,
+                            )
                             support?.message?.let { message ->
                                 Text(
                                     text = message,
@@ -122,11 +135,7 @@ fun GameDetailScreen(
                                     overflow = TextOverflow.Ellipsis,
                                 )
                             }
-                            Text(
-                                text = "${game.files.size} files available",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = BrandSeed,
-                            )
+                            Text(text = "${game.files.size} files available", style = MaterialTheme.typography.labelMedium, color = BrandSeed)
                         }
                     }
                 }
@@ -213,7 +222,18 @@ fun GameDetailScreen(
             }
         }
         state.errorMessage?.let { message ->
-            item { Text(message, color = MaterialTheme.colorScheme.error) }
+            item {
+                if (rom == null) {
+                    EmptyStatePanel(
+                        title = "Title unavailable",
+                        subtitle = message,
+                        badge = "Unavailable",
+                        supportingText = "If this game was removed from RomM, any remaining local copy can still be managed from Downloads until it is offloaded.",
+                    )
+                } else {
+                    Text(message, color = MaterialTheme.colorScheme.error)
+                }
+            }
         }
     }
 }
@@ -230,9 +250,18 @@ private fun handleAction(
         GameDetailActionKind.DOWNLOAD_NOW -> viewModel.downloadNow()
         GameDetailActionKind.DOWNLOAD_CORE -> viewModel.downloadRecommendedCore()
         GameDetailActionKind.QUEUE -> viewModel.enqueueDownload()
+        GameDetailActionKind.DELETE_LOCAL -> viewModel.deleteLocal()
         GameDetailActionKind.CANCEL -> viewModel.cancelDownload()
         GameDetailActionKind.RETRY -> viewModel.retryDownload()
         GameDetailActionKind.SYNC -> viewModel.syncNow()
+    }
+}
+
+private fun supportBadgeLabel(supportTier: EmbeddedSupportTier): String {
+    return when (supportTier) {
+        EmbeddedSupportTier.TOUCH_SUPPORTED -> "Touch"
+        EmbeddedSupportTier.CONTROLLER_SUPPORTED -> "Controller"
+        EmbeddedSupportTier.UNSUPPORTED -> "Unsupported"
     }
 }
 

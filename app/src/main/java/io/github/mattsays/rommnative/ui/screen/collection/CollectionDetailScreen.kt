@@ -17,6 +17,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.mattsays.rommnative.AppContainer
+import io.github.mattsays.rommnative.domain.player.EmbeddedSupportTier
 import io.github.mattsays.rommnative.model.RomDto
 import io.github.mattsays.rommnative.ui.component.EmptyStatePanel
 import io.github.mattsays.rommnative.ui.component.FeaturePanel
@@ -61,7 +62,7 @@ fun CollectionDetailScreen(
                 eyebrow = "Collection",
             ) {
                 Text(
-                    "${state.supportedRoms.size} supported • ${state.unsupportedRoms.size} not supported in app yet",
+                    "${state.touchSupportedRoms.size} touch • ${state.controllerSupportedRoms.size} controller • ${state.unsupportedRoms.size} unsupported",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -69,20 +70,37 @@ fun CollectionDetailScreen(
         if (state.isLoading) {
             item { LoadingSkeletonPanel(showArtwork = true, lines = 4) }
         }
-        if (state.supportedRoms.isNotEmpty()) {
+        if (state.touchSupportedRoms.isNotEmpty()) {
             item {
                 SectionHeader(
-                    title = "Playable in app",
-                    meta = state.supportedRoms.size.toString(),
-                    supportingText = "These entries are compatible with the embedded player once the right file is installed locally.",
+                    title = "Touch-ready in app",
+                    meta = state.touchSupportedRoms.size.toString(),
+                    supportingText = "These entries have embedded runtime support plus first-class mobile controls.",
                 )
             }
         }
-        items(state.supportedRoms.chunked(2), key = { chunk -> chunk.joinToString("-") { it.id.toString() } }) { row ->
+        items(state.touchSupportedRoms.chunked(2), key = { chunk -> chunk.joinToString("-") { it.id.toString() } }) { row ->
             CollectionRomGridRow(
                 roms = row,
                 imageBaseUrl = imageBaseUrl,
-                unsupported = false,
+                supportTier = EmbeddedSupportTier.TOUCH_SUPPORTED,
+                onRomSelected = onRomSelected,
+            )
+        }
+        if (state.controllerSupportedRoms.isNotEmpty()) {
+            item {
+                SectionHeader(
+                    title = "Controller play in app",
+                    meta = state.controllerSupportedRoms.size.toString(),
+                    supportingText = "These entries can run in the embedded player, but they still need controller-first validation.",
+                )
+            }
+        }
+        items(state.controllerSupportedRoms.chunked(2), key = { chunk -> "controller-" + chunk.joinToString("-") { it.id.toString() } }) { row ->
+            CollectionRomGridRow(
+                roms = row,
+                imageBaseUrl = imageBaseUrl,
+                supportTier = EmbeddedSupportTier.CONTROLLER_SUPPORTED,
                 onRomSelected = onRomSelected,
             )
         }
@@ -99,11 +117,11 @@ fun CollectionDetailScreen(
             CollectionRomGridRow(
                 roms = row,
                 imageBaseUrl = imageBaseUrl,
-                unsupported = true,
+                supportTier = EmbeddedSupportTier.UNSUPPORTED,
                 onRomSelected = onRomSelected,
             )
         }
-        if (!state.isLoading && state.supportedRoms.isEmpty() && state.unsupportedRoms.isEmpty() && state.errorMessage == null) {
+        if (!state.isLoading && state.touchSupportedRoms.isEmpty() && state.controllerSupportedRoms.isEmpty() && state.unsupportedRoms.isEmpty() && state.errorMessage == null) {
             item {
                 EmptyStatePanel(
                     title = "Nothing here yet",
@@ -123,7 +141,7 @@ fun CollectionDetailScreen(
 private fun CollectionRomGridRow(
     roms: List<RomDto>,
     imageBaseUrl: String?,
-    unsupported: Boolean,
+    supportTier: EmbeddedSupportTier,
     onRomSelected: (RomDto) -> Unit,
 ) {
     Row(
@@ -135,7 +153,7 @@ private fun CollectionRomGridRow(
                 rom = rom,
                 imageBaseUrl = imageBaseUrl,
                 installed = false,
-                unsupported = unsupported,
+                supportTier = supportTier,
                 onClick = { onRomSelected(rom) },
                 modifier = Modifier.weight(1f),
             )

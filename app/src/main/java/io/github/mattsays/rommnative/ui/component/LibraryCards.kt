@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -41,6 +42,7 @@ import coil.decode.SvgDecoder
 import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
+import io.github.mattsays.rommnative.domain.player.EmbeddedSupportTier
 import io.github.mattsays.rommnative.model.InstalledPlatformSummary
 import io.github.mattsays.rommnative.model.PlatformDto
 import io.github.mattsays.rommnative.model.RomDto
@@ -56,7 +58,7 @@ fun PlatformSpotlightCard(
     platform: PlatformDto,
     imageBaseUrl: String?,
     summary: InstalledPlatformSummary?,
-    unsupported: Boolean,
+    supportTier: EmbeddedSupportTier,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -67,7 +69,10 @@ fun PlatformSpotlightCard(
             containerColor = BrandPanelAlt.copy(alpha = 0.88f),
             contentColor = BrandText,
         ),
-        border = if (unsupported) BorderStroke(1.dp, UnsupportedAccent.copy(alpha = 0.65f)) else null,
+        border = when (supportTier) {
+            EmbeddedSupportTier.TOUCH_SUPPORTED -> null
+            else -> BorderStroke(1.dp, supportAccent(supportTier).copy(alpha = 0.7f))
+        },
         shape = RoundedCornerShape(24.dp),
     ) {
         Row(
@@ -81,13 +86,13 @@ fun PlatformSpotlightCard(
                 modifier = Modifier
                     .size(64.dp)
                     .clip(RoundedCornerShape(16.dp))
-                    .background(if (unsupported) BrandPanel.copy(alpha = 0.72f) else BrandPanel),
+                    .background(if (supportTier == EmbeddedSupportTier.UNSUPPORTED) BrandPanel.copy(alpha = 0.72f) else BrandPanel),
                 contentAlignment = Alignment.Center,
             ) {
                 PlatformLogo(
                     platform = platform,
                     imageBaseUrl = imageBaseUrl,
-                    unsupported = unsupported,
+                    supportTier = supportTier,
                 )
             }
             Column(
@@ -106,9 +111,7 @@ fun PlatformSpotlightCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                 )
-                if (unsupported) {
-                    SupportNotice("Not playable in app yet")
-                }
+                SupportBadge(supportTier)
                 summary?.let {
                     Text(
                         "${it.installedGameCount} installed • ${formatBytes(it.totalBytes)} local",
@@ -126,7 +129,7 @@ fun RomPosterCard(
     rom: RomDto,
     imageBaseUrl: String?,
     installed: Boolean,
-    unsupported: Boolean = false,
+    supportTier: EmbeddedSupportTier,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -137,7 +140,10 @@ fun RomPosterCard(
             containerColor = BrandPanelAlt.copy(alpha = 0.9f),
             contentColor = BrandText,
         ),
-        border = if (unsupported) BorderStroke(1.dp, UnsupportedAccent.copy(alpha = 0.65f)) else null,
+        border = when (supportTier) {
+            EmbeddedSupportTier.TOUCH_SUPPORTED -> null
+            else -> BorderStroke(1.dp, supportAccent(supportTier).copy(alpha = 0.7f))
+        },
         shape = RoundedCornerShape(20.dp),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -148,7 +154,13 @@ fun RomPosterCard(
                     .fillMaxWidth()
                     .aspectRatio(0.76f)
                     .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
-                    .alpha(if (unsupported) 0.58f else 1f),
+                    .alpha(
+                        when (supportTier) {
+                            EmbeddedSupportTier.UNSUPPORTED -> 0.58f
+                            EmbeddedSupportTier.CONTROLLER_SUPPORTED -> 0.92f
+                            EmbeddedSupportTier.TOUCH_SUPPORTED -> 1f
+                        },
+                    ),
                 contentScale = ContentScale.Crop,
             )
             Column(
@@ -174,16 +186,15 @@ fun RomPosterCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    SupportBadge(supportTier)
                 }
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(34.dp),
+                    .height(34.dp),
                     contentAlignment = Alignment.CenterStart,
                 ) {
-                    if (unsupported) {
-                        SupportNotice("Not playable in app yet")
-                    } else if (installed) {
+                    if (installed) {
                         Surface(
                             color = BrandSeed.copy(alpha = 0.16f),
                             contentColor = BrandSeed,
@@ -401,14 +412,22 @@ private fun CollectionCoverFallback(
 }
 
 @Composable
-private fun SupportNotice(label: String) {
+fun SupportBadge(
+    supportTier: EmbeddedSupportTier,
+    modifier: Modifier = Modifier,
+) {
     Surface(
-        color = UnsupportedAccent.copy(alpha = 0.16f),
-        contentColor = UnsupportedAccent,
+        modifier = modifier,
+        color = supportAccent(supportTier).copy(alpha = 0.16f),
+        contentColor = supportAccent(supportTier),
         shape = RoundedCornerShape(999.dp),
     ) {
         Text(
-            text = label,
+            text = when (supportTier) {
+                EmbeddedSupportTier.TOUCH_SUPPORTED -> "Touch"
+                EmbeddedSupportTier.CONTROLLER_SUPPORTED -> "Controller"
+                EmbeddedSupportTier.UNSUPPORTED -> "Unsupported"
+            },
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.SemiBold,
@@ -420,7 +439,7 @@ private fun SupportNotice(label: String) {
 private fun PlatformLogo(
     platform: PlatformDto,
     imageBaseUrl: String?,
-    unsupported: Boolean,
+    supportTier: EmbeddedSupportTier,
 ) {
     val context = LocalContext.current
     val candidates = remember(platform.id, platform.slug, platform.fsSlug, platform.urlLogo, imageBaseUrl) {
@@ -459,7 +478,7 @@ private fun PlatformLogo(
             contentDescription = null,
             modifier = Modifier
                 .size(48.dp)
-                .alpha(if (unsupported) 0.6f else 1f),
+                .alpha(if (supportTier == EmbeddedSupportTier.UNSUPPORTED) 0.6f else 1f),
             onError = {
                 val current = candidates.getOrNull(candidateIndex)
                 if (current?.lowercase()?.endsWith(".svg") == true && useSvgDecoder) {
@@ -483,4 +502,14 @@ private fun firstNonBlank(vararg values: String?): String? {
     return values.firstOrNull { !it.isNullOrBlank() }
 }
 
+private fun supportAccent(supportTier: EmbeddedSupportTier): Color {
+    return when (supportTier) {
+        EmbeddedSupportTier.TOUCH_SUPPORTED -> TouchAccent
+        EmbeddedSupportTier.CONTROLLER_SUPPORTED -> ControllerAccent
+        EmbeddedSupportTier.UNSUPPORTED -> UnsupportedAccent
+    }
+}
+
+private val TouchAccent = Color(0xFF6EDB83)
+private val ControllerAccent = Color(0xFF7CB8FF)
 private val UnsupportedAccent = BrandSeed.copy(red = 0.93f, green = 0.68f, blue = 0.34f)

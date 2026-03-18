@@ -305,14 +305,29 @@ fun PlayerScreen(
                             },
                     )
 
-                    if (controls?.showTouchControls == true && controls.touchLayout != null) {
+                    val overlayLayout = controls?.touchLayout
+                        ?: controls?.platformProfile?.let { platformProfile ->
+                            if (platformProfile.touchSupportMode == TouchSupportMode.CONTROLLER_FIRST) {
+                                TouchLayoutProfile(
+                                    platformFamilyId = platformProfile.familyId,
+                                    presetId = "controller-overlay",
+                                    elementStates = emptyList(),
+                                    updatedAtEpochMs = 0L,
+                                )
+                            } else {
+                                null
+                            }
+                        }
+
+                    if (controls != null && overlayLayout != null && (controls.showTouchControls || controls.platformProfile.touchSupportMode == TouchSupportMode.CONTROLLER_FIRST)) {
                         TouchControlsOverlay(
                             controlsState = controls,
-                            layout = controls.touchLayout,
+                            layout = overlayLayout,
                             visualTheme = visualTheme,
                             viewportFrame = viewportFrame,
                             isLandscape = isLandscape,
                             bottomInset = bottomInset,
+                            showPrimaryControls = controls.showTouchControls,
                             primaryControlsAlpha = primaryOverlayAlpha,
                             tertiaryControlsAlpha = tertiaryOverlayAlpha,
                             modifier = Modifier
@@ -326,18 +341,6 @@ fun PlayerScreen(
                             },
                             onPrimaryInteraction = viewModel::markPrimaryOverlayInteraction,
                             onTertiaryInteraction = viewModel::markTertiaryOverlayInteraction,
-                        )
-                    }
-
-                    if (controls?.inputMode == ActiveInputMode.CONTROLLER_REQUIRED) {
-                        ControllerFirstHint(
-                            message = controls.platformProfile.controllerFallbackMessage
-                                ?: "Connect a controller for this platform.",
-                            visualTheme = visualTheme,
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .alpha(primaryOverlayAlpha)
-                                .padding(bottom = 32.dp + bottomInset),
                         )
                     }
                 }
@@ -473,6 +476,7 @@ private fun PlayerOrientationMode(
             val originalOrientation = activity.requestedOrientation
             activity.requestedOrientation = when (policy) {
                 PlayerOrientationPolicy.AUTO -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                PlayerOrientationPolicy.PORTRAIT_ONLY -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
                 PlayerOrientationPolicy.LANDSCAPE_ONLY -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             }
             onDispose {
@@ -835,12 +839,6 @@ private fun ControlsSheet(
             Text("No controller connected.", style = MaterialTheme.typography.bodyMedium)
         }
 
-        controls.platformProfile.controllerFallbackMessage?.let { message ->
-            if (controls.platformProfile.touchSupportMode != io.github.mattsays.rommnative.domain.input.TouchSupportMode.FULL) {
-                Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary)
-            }
-        }
-
         if (currentLayout != null) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -955,21 +953,6 @@ private fun ControlsSheet(
         Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
             Text("Done")
         }
-    }
-}
-
-@Composable
-private fun ControllerFirstHint(
-    message: String,
-    visualTheme: PlayerVisualTheme,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier = modifier
-            .background(visualTheme.panelAltColor.copy(alpha = 0.9f), MaterialTheme.shapes.large)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-    ) {
-        Text(message, style = MaterialTheme.typography.bodyMedium, color = visualTheme.textColor)
     }
 }
 

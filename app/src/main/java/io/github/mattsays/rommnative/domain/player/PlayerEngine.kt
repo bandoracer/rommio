@@ -14,6 +14,12 @@ enum class PlayerCapability {
     UNSUPPORTED,
 }
 
+enum class EmbeddedSupportTier {
+    TOUCH_SUPPORTED,
+    CONTROLLER_SUPPORTED,
+    UNSUPPORTED,
+}
+
 enum class PlayerShader {
     DEFAULT,
     CRT,
@@ -74,6 +80,7 @@ data class PlatformRuntimeFamily(
     val familyId: String,
     val displayName: String,
     val platformSlugs: Set<String>,
+    val supportTier: EmbeddedSupportTier,
     val defaultRuntimeId: String,
     val runtimeOptions: List<RuntimeProfile>,
 )

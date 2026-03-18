@@ -176,6 +176,9 @@ interface CachedRomDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(entities: List<CachedRomEntity>)
 
+    @Query("DELETE FROM cached_roms WHERE profileId = :profileId AND romId = :romId")
+    suspend fun deleteById(profileId: String, romId: Int)
+
     @Query("DELETE FROM cached_roms WHERE profileId = :profileId")
     suspend fun deleteByProfile(profileId: String)
 }

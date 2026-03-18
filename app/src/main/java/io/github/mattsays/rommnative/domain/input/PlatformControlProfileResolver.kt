@@ -1,6 +1,7 @@
 package io.github.mattsays.rommnative.domain.input
 
 import android.view.KeyEvent
+import io.github.mattsays.rommnative.domain.player.EmbeddedSupportTier
 
 class PlatformControlProfileResolver : ControlProfileResolver {
     private val profiles = listOf(
@@ -127,6 +128,11 @@ class PlatformControlProfileResolver : ControlProfileResolver {
                 ),
             ),
         ),
+        controllerFirstProfile(
+            familyId = "sega32x",
+            displayName = "Sega 32X",
+            platformSlugs = setOf("32x", "sega32x", "sega-32x"),
+        ),
         touchProfile(
             familyId = "psx",
             displayName = "PlayStation",
@@ -238,11 +244,53 @@ class PlatformControlProfileResolver : ControlProfileResolver {
             displayName = "PlayStation Portable",
             platformSlugs = setOf("psp"),
         ),
-        controllerFirstProfile(
+        touchProfile(
             familyId = "nds",
-            displayName = "Nintendo DS",
-            platformSlugs = setOf("nds"),
-            message = "Connect a controller for DS for now. Touch and dual-screen layouts ship after the baseline controls pass validation.",
+            displayName = "Nintendo DS / DSi-enhanced",
+            platformSlugs = setOf("nds", "dsi", "nintendo-dsi"),
+            orientationPolicy = PlayerOrientationPolicy.PORTRAIT_ONLY,
+            presets = listOf(
+                TouchLayoutPreset(
+                    presetId = "portrait-handheld",
+                    displayName = "Portrait handheld",
+                    elements = listOf(
+                        standardDpad().copy(centerX = 0.19f, centerY = 0.80f),
+                        faceFour(
+                            left = "Y" to KeyEvent.KEYCODE_BUTTON_Y,
+                            bottom = "B" to KeyEvent.KEYCODE_BUTTON_B,
+                            right = "A" to KeyEvent.KEYCODE_BUTTON_A,
+                            top = "X" to KeyEvent.KEYCODE_BUTTON_X,
+                        ).copy(centerX = 0.81f, centerY = 0.79f, baseScale = 0.94f),
+                        standardShoulders(labels = "L" to "R").copy(centerY = 0.11f, baseScale = 0.86f),
+                        standardStartSelect().copy(centerY = 0.72f, baseScale = 0.82f),
+                    ),
+                ),
+            ),
+        ),
+        controllerFirstProfile(
+            familyId = "dreamcast",
+            displayName = "Dreamcast / NAOMI",
+            platformSlugs = setOf("dreamcast", "naomi"),
+        ),
+        controllerFirstProfile(
+            familyId = "3do",
+            displayName = "3DO",
+            platformSlugs = setOf("3do"),
+        ),
+        controllerFirstProfile(
+            familyId = "virtualboy",
+            displayName = "Virtual Boy",
+            platformSlugs = setOf("virtualboy", "virtual-boy"),
+        ),
+        controllerFirstProfile(
+            familyId = "dolphin",
+            displayName = "GameCube / Wii",
+            platformSlugs = setOf("gamecube", "ngc", "wii"),
+        ),
+        controllerFirstProfile(
+            familyId = "3ds",
+            displayName = "Nintendo 3DS",
+            platformSlugs = setOf("3ds", "new-nintendo-3ds"),
         ),
         controllerFirstProfile(
             familyId = "dos",
@@ -255,11 +303,11 @@ class PlatformControlProfileResolver : ControlProfileResolver {
     override fun resolve(platformSlug: String): PlatformControlProfile {
         return profiles.firstOrNull { profile ->
             platformSlug.lowercase() in profile.platformSlugs
-        } ?: controllerFirstProfile(
+        } ?: unsupportedProfile(
             familyId = platformSlug.lowercase(),
             displayName = platformSlug.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() },
             platformSlugs = setOf(platformSlug.lowercase()),
-            message = "This platform still needs a validated touch layout. Use a controller for now.",
+            message = "This platform is not enabled in the embedded player yet.",
         )
     }
 
@@ -276,12 +324,14 @@ class PlatformControlProfileResolver : ControlProfileResolver {
             familyId = familyId,
             displayName = displayName,
             platformSlugs = platformSlugs,
+            supportTier = EmbeddedSupportTier.TOUCH_SUPPORTED,
             touchSupportMode = TouchSupportMode.FULL,
             playerOrientationPolicy = orientationPolicy,
             preferredViewportAspectRatio = when (familyId) {
                 "nes", "snes", "sega16", "psx", "atari", "tg16", "arcade" -> 4f / 3f
                 "gb" -> 10f / 9f
                 "gba" -> 3f / 2f
+                "nds" -> 2f / 3f
                 else -> null
             },
             defaultPresetId = presets.firstOrNull()?.presetId,
@@ -299,6 +349,24 @@ class PlatformControlProfileResolver : ControlProfileResolver {
             familyId = familyId,
             displayName = displayName,
             platformSlugs = platformSlugs,
+            supportTier = EmbeddedSupportTier.CONTROLLER_SUPPORTED,
+            touchSupportMode = TouchSupportMode.CONTROLLER_FIRST,
+            playerOrientationPolicy = PlayerOrientationPolicy.AUTO,
+            controllerFallbackMessage = message,
+        )
+    }
+
+    private fun unsupportedProfile(
+        familyId: String,
+        displayName: String,
+        platformSlugs: Set<String>,
+        message: String,
+    ): PlatformControlProfile {
+        return PlatformControlProfile(
+            familyId = familyId,
+            displayName = displayName,
+            platformSlugs = platformSlugs,
+            supportTier = EmbeddedSupportTier.UNSUPPORTED,
             touchSupportMode = TouchSupportMode.CONTROLLER_FIRST,
             playerOrientationPolicy = PlayerOrientationPolicy.AUTO,
             controllerFallbackMessage = message,

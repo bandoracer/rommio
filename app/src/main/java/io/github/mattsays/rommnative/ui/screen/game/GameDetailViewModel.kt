@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.mattsays.rommnative.data.repository.RommRepository
 import io.github.mattsays.rommnative.domain.player.CoreResolution
+import io.github.mattsays.rommnative.domain.player.EmbeddedSupportTier
 import io.github.mattsays.rommnative.domain.player.PlayerCapability
 import io.github.mattsays.rommnative.model.DownloadRecord
 import io.github.mattsays.rommnative.model.DownloadStatus
@@ -28,6 +29,8 @@ data class GameDetailUiState(
     val selectedFileId: Int? = null,
     val downloadRecord: DownloadRecord? = null,
     val support: CoreResolution? = null,
+    val supportTier: EmbeddedSupportTier = EmbeddedSupportTier.UNSUPPORTED,
+    val isLocalOnly: Boolean = false,
     val coreMessage: String? = null,
     val syncMessage: String? = null,
     val errorMessage: String? = null,
@@ -50,6 +53,7 @@ enum class GameDetailActionKind {
     DOWNLOAD_NOW,
     DOWNLOAD_CORE,
     QUEUE,
+    DELETE_LOCAL,
     CANCEL,
     RETRY,
     SYNC,
@@ -69,9 +73,10 @@ class GameDetailViewModel(
             combine(
                 repository.observeCachedRom(romId),
                 repository.observeInstalledFiles(romId),
-            ) { rom, files ->
-                rom to files
-            }.collect { (rom, files) ->
+            ) { cachedRom, files ->
+                cachedRom to files
+            }.collect { (cachedRom, files) ->
+                val rom = cachedRom ?: files.toFallbackRom()
                 val nextSelectedFileId = _uiState.value.let { current ->
                     current.selectedFileId?.takeIf { selectedId ->
                         rom?.files?.any { it.id == selectedId } == true
@@ -86,13 +91,16 @@ class GameDetailViewModel(
                         ?: cachedRom.files.firstOrNull()
                     repository.resolveCoreSupport(cachedRom, selectedFile)
                 }
+                val supportTier = rom?.let(repository::embeddedSupportTier) ?: EmbeddedSupportTier.UNSUPPORTED
                 _uiState.updateState { current ->
                     current.copy(
                         rom = rom,
                         installedFiles = files,
                         selectedFileId = nextSelectedFileId,
                         support = support,
-                        isLoading = if (rom != null) false else current.isLoading,
+                        supportTier = supportTier,
+                        isLocalOnly = cachedRom == null && files.isNotEmpty(),
+                        isLoading = false,
                     )
                 }
                 if (nextSelectedFileId != null) {
@@ -123,6 +131,8 @@ class GameDetailViewModel(
                         isRefreshing = false,
                         errorMessage = if (it.rom == null) {
                             "Offline. This title will appear after the profile sync completes."
+                        } else if (it.isLocalOnly) {
+                            "This local copy is no longer available in RomM. You can still play it locally or remove it from the device."
                         } else {
                             null
                         },
@@ -164,6 +174,7 @@ class GameDetailViewModel(
             it.copy(
                 selectedFileId = fileId,
                 support = repository.resolveCoreSupport(rom, file),
+                supportTier = repository.embeddedSupportTier(rom),
                 coreMessage = null,
             )
         }
@@ -259,6 +270,12 @@ class GameDetailViewModel(
     fun syncNow() {
         viewModelScope.launch {
             val state = _uiState.value
+            if (state.isLocalOnly) {
+                _uiState.updateState {
+                    it.copy(syncMessage = "This local copy is no longer in RomM, so cloud sync is unavailable.")
+                }
+                return@launch
+            }
             val rom = state.rom ?: return@launch
             val installed = state.currentInstall() ?: return@launch
             if (repository.currentConnectivityState() != ConnectivityState.ONLINE) {
@@ -278,6 +295,24 @@ class GameDetailViewModel(
                     _uiState.updateState { it.copy(syncMessage = error.message ?: "Sync failed.") }
                 },
             )
+        }
+    }
+
+    fun deleteLocal() {
+        viewModelScope.launch {
+            val installation = _uiState.value.currentInstall() ?: return@launch
+            repository.deleteInstalledFile(installation)
+            _uiState.updateState {
+                it.copy(
+                    coreMessage = null,
+                    syncMessage = null,
+                    errorMessage = if (it.isLocalOnly && it.installedFiles.size <= 1) {
+                        "The local copy was removed from this device."
+                    } else {
+                        null
+                    },
+                )
+            }
         }
     }
 
@@ -317,6 +352,7 @@ private fun GameDetailUiState.withDerivedActions(): GameDetailUiState {
 private fun GameDetailUiState.deriveActionPresentation(): GameActionPresentation {
     val downloadStatus = downloadRecord?.status
     val installed = currentInstall() != null
+    val localOnly = isLocalOnly
     val supportCapability = support?.capability
     val canPlay = installed && supportCapability == PlayerCapability.READY
     val canDownloadCore = supportCapability == PlayerCapability.MISSING_CORE && support?.runtimeProfile?.download != null
@@ -327,6 +363,7 @@ private fun GameDetailUiState.deriveActionPresentation(): GameActionPresentation
             label = if (isDownloadingCore) "Downloading core…" else "Download core",
             enabled = !isDownloadingCore,
         )
+        localOnly -> null
         else -> GameDetailAction(
             kind = GameDetailActionKind.DOWNLOAD_NOW,
             label = if (downloadStatus == DownloadStatus.RUNNING) "Download active" else "Download now",
@@ -335,7 +372,7 @@ private fun GameDetailUiState.deriveActionPresentation(): GameActionPresentation
     }
 
     val secondary = buildList {
-        if (downloadStatus != DownloadStatus.RUNNING && downloadStatus != DownloadStatus.QUEUED) {
+        if (!localOnly && downloadStatus != DownloadStatus.RUNNING && downloadStatus != DownloadStatus.QUEUED) {
             add(
                 GameDetailAction(
                     kind = GameDetailActionKind.QUEUE,
@@ -349,10 +386,38 @@ private fun GameDetailUiState.deriveActionPresentation(): GameActionPresentation
         if (downloadStatus == DownloadStatus.FAILED || downloadStatus == DownloadStatus.CANCELED) {
             add(GameDetailAction(GameDetailActionKind.RETRY, "Retry"))
         }
-        if (installed && support?.runtimeProfile != null) {
+        if (installed) {
+            add(GameDetailAction(GameDetailActionKind.DELETE_LOCAL, "Delete local"))
+        }
+        if (!localOnly && installed && support?.runtimeProfile != null) {
             add(GameDetailAction(GameDetailActionKind.SYNC, "Sync now"))
         }
     }
 
     return GameActionPresentation(primary = primary, secondary = secondary)
+}
+
+private fun List<DownloadedRomEntity>.toFallbackRom(): RomDto? {
+    val primary = firstOrNull() ?: return null
+    val fallbackFiles = distinctBy { it.fileId }
+        .sortedByDescending { it.downloadedAtEpochMs }
+        .map { install ->
+            val fileExtension = install.fileName.substringAfterLast('.', "")
+            RomFileDto(
+                id = install.fileId,
+                romId = install.romId,
+                fileName = install.fileName,
+                fileExtension = fileExtension,
+                fileSizeBytes = install.fileSizeBytes,
+            )
+        }
+    return RomDto(
+        id = primary.romId,
+        name = primary.romName,
+        platformName = primary.platformSlug.replace('-', ' ').replaceFirstChar { it.uppercase() },
+        platformSlug = primary.platformSlug,
+        fsName = primary.fileName.substringBeforeLast('.'),
+        files = fallbackFiles,
+        urlCover = null,
+    )
 }

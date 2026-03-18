@@ -171,7 +171,7 @@ class PlayerControlsRepository(
         preferences: PlayerControlsPreferences,
         controllerConnected: Boolean,
     ): Boolean {
-        if (profile.touchSupportMode != TouchSupportMode.FULL) return false
+        if (profile.touchSupportMode == TouchSupportMode.CONTROLLER_FIRST) return false
         if (!preferences.touchControlsEnabled) return false
         if (controllerConnected && preferences.autoHideTouchOnController) return false
         return true

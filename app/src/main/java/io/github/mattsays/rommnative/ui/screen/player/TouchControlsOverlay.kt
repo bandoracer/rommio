@@ -35,14 +35,19 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInteropFilter
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import android.view.KeyEvent
+import io.github.mattsays.rommnative.domain.input.ControlAction
 import io.github.mattsays.rommnative.domain.input.PlatformControlProfile
 import io.github.mattsays.rommnative.domain.input.PlayerControlsState
 import io.github.mattsays.rommnative.domain.input.TouchButtonSpec
 import io.github.mattsays.rommnative.domain.input.TouchLayoutProfile
+import io.github.mattsays.rommnative.domain.input.TouchSupportMode
 
 data class PlayerViewportFrame(
     val left: Dp,
@@ -63,6 +68,7 @@ fun TouchControlsOverlay(
     viewportFrame: PlayerViewportFrame,
     isLandscape: Boolean,
     bottomInset: Dp,
+    showPrimaryControls: Boolean,
     primaryControlsAlpha: Float,
     tertiaryControlsAlpha: Float,
     modifier: Modifier = Modifier,
@@ -91,6 +97,7 @@ fun TouchControlsOverlay(
                 viewportFrame = viewportFrame,
                 bottomInset = bottomInset,
                 metrics = metrics,
+                showPrimaryControls = showPrimaryControls,
                 primaryControlsAlpha = primaryControlsAlpha,
                 tertiaryControlsAlpha = tertiaryControlsAlpha,
                 onDigitalInput = onDigitalInput,
@@ -106,6 +113,7 @@ fun TouchControlsOverlay(
                 viewportFrame = viewportFrame,
                 bottomInset = bottomInset,
                 metrics = metrics,
+                showPrimaryControls = showPrimaryControls,
                 primaryControlsAlpha = primaryControlsAlpha,
                 tertiaryControlsAlpha = tertiaryControlsAlpha,
                 onDigitalInput = onDigitalInput,
@@ -125,6 +133,7 @@ private fun PortraitTouchOverlay(
     viewportFrame: PlayerViewportFrame,
     bottomInset: Dp,
     metrics: FixedTouchMetrics,
+    showPrimaryControls: Boolean,
     primaryControlsAlpha: Float,
     tertiaryControlsAlpha: Float,
     onDigitalInput: (keyCode: Int, pressed: Boolean) -> Unit,
@@ -147,7 +156,35 @@ private fun PortraitTouchOverlay(
     val systemClusterLeft = viewportFrame.centerX - (systemClusterWidth / 2f)
     val controlRowTop = viewportFrame.bottom + metrics.controlRowTopOffset
 
-    if (bindings.dpadButtons.size == 4) {
+    if (bindings.leftTriggers.isNotEmpty()) {
+        TriggerZoneRenderer(
+            buttons = bindings.leftTriggers,
+            style = visualTheme.neutralControlStyle,
+            zoneWidth = metrics.portraitTriggerWidth,
+            zoneHeight = metrics.portraitTriggerHeight,
+            modifier = Modifier
+                .offset(x = dpadX, y = controlRowTop + 38.dp)
+                .alpha(primaryControlsAlpha),
+            onDigitalInput = onDigitalInput,
+            onInteraction = onPrimaryInteraction,
+        )
+    }
+
+    if (bindings.rightTriggers.isNotEmpty()) {
+        TriggerZoneRenderer(
+            buttons = bindings.rightTriggers,
+            style = visualTheme.neutralControlStyle,
+            zoneWidth = metrics.portraitTriggerWidth,
+            zoneHeight = metrics.portraitTriggerHeight,
+            modifier = Modifier
+                .offset(x = buttonX + metrics.zoneSize - metrics.portraitTriggerWidth, y = controlRowTop + 38.dp)
+                .alpha(primaryControlsAlpha),
+            onDigitalInput = onDigitalInput,
+            onInteraction = onPrimaryInteraction,
+        )
+    }
+
+    if (showPrimaryControls && bindings.dpadButtons.size == 4) {
         DpadZoneRenderer(
             buttons = bindings.dpadButtons,
             zoneSize = metrics.zoneSize,
@@ -160,14 +197,16 @@ private fun PortraitTouchOverlay(
         )
     }
 
-    FaceButtonZoneRenderer(
-        bindings = bindings,
-        visualTheme = visualTheme,
-        zoneSize = metrics.zoneSize,
-        modifier = Modifier.offset(x = buttonX, y = zoneTop).alpha(primaryControlsAlpha),
-        onDigitalInput = onDigitalInput,
-        onInteraction = onPrimaryInteraction,
-    )
+    if (showPrimaryControls) {
+        FaceButtonZoneRenderer(
+            bindings = bindings,
+            visualTheme = visualTheme,
+            zoneSize = metrics.zoneSize,
+            modifier = Modifier.offset(x = buttonX, y = zoneTop).alpha(primaryControlsAlpha),
+            onDigitalInput = onDigitalInput,
+            onInteraction = onPrimaryInteraction,
+        )
+    }
 
     if (primarySystemButtons.isNotEmpty()) {
         SystemButtonsRow(
@@ -203,6 +242,7 @@ private fun LandscapeTouchOverlay(
     viewportFrame: PlayerViewportFrame,
     bottomInset: Dp,
     metrics: FixedTouchMetrics,
+    showPrimaryControls: Boolean,
     primaryControlsAlpha: Float,
     tertiaryControlsAlpha: Float,
     onDigitalInput: (keyCode: Int, pressed: Boolean) -> Unit,
@@ -221,7 +261,7 @@ private fun LandscapeTouchOverlay(
         metrics.screenHeight - bottomSafe - metrics.zoneSize,
     )
 
-    if (bindings.leftTriggers.isNotEmpty()) {
+    if (showPrimaryControls && bindings.leftTriggers.isNotEmpty()) {
         TriggerZoneRenderer(
             buttons = bindings.leftTriggers,
             style = visualTheme.neutralControlStyle,
@@ -236,7 +276,7 @@ private fun LandscapeTouchOverlay(
         )
     }
 
-    if (bindings.rightTriggers.isNotEmpty()) {
+    if (showPrimaryControls && bindings.rightTriggers.isNotEmpty()) {
         TriggerZoneRenderer(
             buttons = bindings.rightTriggers,
             style = visualTheme.neutralControlStyle,
@@ -251,7 +291,7 @@ private fun LandscapeTouchOverlay(
         )
     }
 
-    if (bindings.dpadButtons.size == 4) {
+    if (showPrimaryControls && bindings.dpadButtons.size == 4) {
         DpadZoneRenderer(
             buttons = bindings.dpadButtons,
             zoneSize = metrics.zoneSize,
@@ -264,14 +304,16 @@ private fun LandscapeTouchOverlay(
         )
     }
 
-    FaceButtonZoneRenderer(
-        bindings = bindings,
-        visualTheme = visualTheme,
-        zoneSize = metrics.zoneSize,
-        modifier = Modifier.offset(x = buttonX, y = lowerZoneY).alpha(primaryControlsAlpha),
-        onDigitalInput = onDigitalInput,
-        onInteraction = onPrimaryInteraction,
-    )
+    if (showPrimaryControls) {
+        FaceButtonZoneRenderer(
+            bindings = bindings,
+            visualTheme = visualTheme,
+            zoneSize = metrics.zoneSize,
+            modifier = Modifier.offset(x = buttonX, y = lowerZoneY).alpha(primaryControlsAlpha),
+            onDigitalInput = onDigitalInput,
+            onInteraction = onPrimaryInteraction,
+        )
+    }
 
     val systemButtons = bindings.centerSystemButtons
     val menuY = metrics.screenHeight - bottomSafe - metrics.menuButtonSize
@@ -708,35 +750,34 @@ private fun MenuTouchButton(
     onInteraction: () -> Unit,
 ) {
     var isPressed by remember { mutableStateOf(false) }
+    var activePointerId by remember { mutableStateOf<Int?>(null) }
+    var touchBounds by remember { mutableStateOf(IntSize.Zero) }
     Box(
         modifier = modifier
             .size(size)
+            .onSizeChanged { touchBounds = it }
             .clip(CircleShape)
             .background(
                 if (isPressed) style.pressedFillColor else style.fillColor,
             )
             .border(1.dp, if (isPressed) style.pressedBorderColor else style.borderColor, CircleShape)
-            .pointerInteropFilter {
-                when (it.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> {
-                        isPressed = true
-                        onInteraction()
-                        true
-                    }
-
-                    MotionEvent.ACTION_UP -> {
-                        isPressed = false
-                        onClick()
-                        true
-                    }
-
-                    MotionEvent.ACTION_CANCEL -> {
-                        isPressed = false
-                        true
-                    }
-
-                    else -> true
+            .pointerInteropFilter { event ->
+                val result = resolveTouchPressEvent(
+                    event = event,
+                    activePointerId = activePointerId,
+                    currentlyPressed = isPressed,
+                    bounds = touchBounds,
+                    clickOnRelease = true,
+                )
+                activePointerId = result.pointerId
+                isPressed = result.pressed
+                if (result.fireDown) {
+                    onInteraction()
                 }
+                if (result.fireClick) {
+                    onClick()
+                }
+                true
             },
         contentAlignment = Alignment.Center,
     ) {
@@ -764,34 +805,32 @@ private fun LabeledTouchButton(
     onInteraction: () -> Unit,
 ) {
     var buttonWasPressed by remember { mutableStateOf(false) }
+    var activePointerId by remember { mutableStateOf<Int?>(null) }
+    var touchBounds by remember { mutableStateOf(IntSize.Zero) }
     val containerColor = if (buttonWasPressed) style.pressedFillColor else style.fillColor
     val borderColor = if (buttonWasPressed) style.pressedBorderColor else style.borderColor
 
     Box(
         modifier = modifier
             .size(touchWidth, touchHeight)
-            .pointerInteropFilter {
-                when (it.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> {
-                        if (!buttonWasPressed) {
-                            buttonWasPressed = true
-                            onInteraction()
-                            onDigitalInput(true)
-                        }
-                        true
-                    }
-
-                    MotionEvent.ACTION_UP,
-                    MotionEvent.ACTION_CANCEL -> {
-                        if (buttonWasPressed) {
-                            buttonWasPressed = false
-                            onDigitalInput(false)
-                        }
-                        true
-                    }
-
-                    else -> true
+            .onSizeChanged { touchBounds = it }
+            .pointerInteropFilter { event ->
+                val result = resolveTouchPressEvent(
+                    event = event,
+                    activePointerId = activePointerId,
+                    currentlyPressed = buttonWasPressed,
+                    bounds = touchBounds,
+                )
+                activePointerId = result.pointerId
+                buttonWasPressed = result.pressed
+                if (result.fireDown) {
+                    onInteraction()
+                    onDigitalInput(true)
                 }
+                if (result.fireUp) {
+                    onDigitalInput(false)
+                }
+                true
             },
         contentAlignment = Alignment.Center,
     ) {
@@ -830,34 +869,32 @@ private fun DpadPetalButton(
     onInteraction: () -> Unit,
 ) {
     var buttonWasPressed by remember { mutableStateOf(false) }
+    var activePointerId by remember { mutableStateOf<Int?>(null) }
+    var touchBounds by remember { mutableStateOf(IntSize.Zero) }
     val shape = remember(direction) { RoundedCornerShape(18.dp) }
     val touchWidth = width * 1.6f
     val touchHeight = height * 1.6f
     Box(
         modifier = modifier
             .size(touchWidth, touchHeight)
-            .pointerInteropFilter {
-                when (it.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> {
-                        if (!buttonWasPressed) {
-                            buttonWasPressed = true
-                            onInteraction()
-                            onDigitalInput(true)
-                        }
-                        true
-                    }
-
-                    MotionEvent.ACTION_UP,
-                    MotionEvent.ACTION_CANCEL -> {
-                        if (buttonWasPressed) {
-                            buttonWasPressed = false
-                            onDigitalInput(false)
-                        }
-                        true
-                    }
-
-                    else -> true
+            .onSizeChanged { touchBounds = it }
+            .pointerInteropFilter { event ->
+                val result = resolveTouchPressEvent(
+                    event = event,
+                    activePointerId = activePointerId,
+                    currentlyPressed = buttonWasPressed,
+                    bounds = touchBounds,
+                )
+                activePointerId = result.pointerId
+                buttonWasPressed = result.pressed
+                if (result.fireDown) {
+                    onInteraction()
+                    onDigitalInput(true)
                 }
+                if (result.fireUp) {
+                    onDigitalInput(false)
+                }
+                true
             },
         contentAlignment = Alignment.Center,
     ) {
@@ -880,6 +917,90 @@ private fun DpadPetalButton(
     }
 }
 
+private data class TouchPressResult(
+    val pointerId: Int?,
+    val pressed: Boolean,
+    val fireDown: Boolean = false,
+    val fireUp: Boolean = false,
+    val fireClick: Boolean = false,
+)
+
+private fun resolveTouchPressEvent(
+    event: MotionEvent,
+    activePointerId: Int?,
+    currentlyPressed: Boolean,
+    bounds: IntSize,
+    clickOnRelease: Boolean = false,
+): TouchPressResult {
+    fun pointerInside(index: Int): Boolean {
+        if (bounds == IntSize.Zero) return false
+        val x = event.getX(index)
+        val y = event.getY(index)
+        return x >= 0f && x < bounds.width.toFloat() && y >= 0f && y < bounds.height.toFloat()
+    }
+
+    return when (event.actionMasked) {
+        MotionEvent.ACTION_DOWN,
+        MotionEvent.ACTION_POINTER_DOWN -> {
+            if (activePointerId == null && pointerInside(event.actionIndex)) {
+                TouchPressResult(
+                    pointerId = event.getPointerId(event.actionIndex),
+                    pressed = true,
+                    fireDown = !currentlyPressed,
+                )
+            } else {
+                TouchPressResult(activePointerId, currentlyPressed)
+            }
+        }
+
+        MotionEvent.ACTION_MOVE -> {
+            if (activePointerId == null) {
+                TouchPressResult(activePointerId, currentlyPressed)
+            } else {
+                val pointerIndex = event.findPointerIndex(activePointerId)
+                if (pointerIndex < 0 || !pointerInside(pointerIndex)) {
+                    TouchPressResult(
+                        pointerId = null,
+                        pressed = false,
+                        fireUp = currentlyPressed,
+                    )
+                } else {
+                    TouchPressResult(activePointerId, currentlyPressed)
+                }
+            }
+        }
+
+        MotionEvent.ACTION_UP,
+        MotionEvent.ACTION_POINTER_UP -> {
+            val releasedPointerId = event.getPointerId(event.actionIndex)
+            if (activePointerId != null && releasedPointerId == activePointerId) {
+                TouchPressResult(
+                    pointerId = null,
+                    pressed = false,
+                    fireUp = currentlyPressed,
+                    fireClick = clickOnRelease && pointerInside(event.actionIndex),
+                )
+            } else {
+                TouchPressResult(activePointerId, currentlyPressed)
+            }
+        }
+
+        MotionEvent.ACTION_CANCEL -> {
+            if (currentlyPressed || activePointerId != null) {
+                TouchPressResult(
+                    pointerId = null,
+                    pressed = false,
+                    fireUp = currentlyPressed,
+                )
+            } else {
+                TouchPressResult(activePointerId, currentlyPressed)
+            }
+        }
+
+        else -> TouchPressResult(activePointerId, currentlyPressed)
+    }
+}
+
 private data class FixedTouchMetrics(
     val screenWidth: Dp,
     val screenHeight: Dp,
@@ -889,6 +1010,8 @@ private data class FixedTouchMetrics(
     val zoneSize: Dp = 141.dp * clampedScale
     val triggerZoneWidth: Dp = 96.dp * clampedScale
     val triggerZoneHeight: Dp = 40.dp * clampedScale
+    val portraitTriggerWidth: Dp = 68.dp * clampedScale
+    val portraitTriggerHeight: Dp = 28.dp * clampedScale
     val controlButtonWidth: Dp = 41.6.dp * clampedScale
     val controlButtonHeight: Dp = 24.dp * clampedScale
     val portraitControlButtonWidth: Dp = 52.dp * clampedScale
@@ -928,7 +1051,23 @@ private data class FixedTouchBindings(
 )
 
 private fun fixedTouchBindingsFor(profile: PlatformControlProfile): FixedTouchBindings? {
-    val preset = profile.presets.firstOrNull { it.presetId == profile.defaultPresetId } ?: profile.presets.firstOrNull() ?: return null
+    val preset = profile.presets.firstOrNull { it.presetId == profile.defaultPresetId } ?: profile.presets.firstOrNull()
+    if (preset == null) {
+        return if (profile.touchSupportMode == TouchSupportMode.CONTROLLER_FIRST) {
+            FixedTouchBindings(
+                dpadButtons = emptyList(),
+                faceButtons = emptyList(),
+                leftTriggers = emptyList(),
+                rightTriggers = emptyList(),
+                leftSystemButtons = emptyList(),
+                centerSystemButtons = emptyList(),
+                rightSystemButtons = emptyList(),
+                faceStyle = FaceZoneStyle.TWO_DIAGONAL,
+            )
+        } else {
+            null
+        }
+    }
     val dpadButtons = preset.elements.firstOrNull {
         it.id.contains("dpad", ignoreCase = true) || it.label.equals("D-Pad", ignoreCase = true)
     }?.buttons.orEmpty()
@@ -970,6 +1109,22 @@ private fun fixedTouchBindingsFor(profile: PlatformControlProfile): FixedTouchBi
         centerSystemButtons = systemButtons,
         rightSystemButtons = if (startButtons.isEmpty()) systemButtons else startButtons,
         faceStyle = faceStyle,
+    )
+}
+
+private fun digitalTouchButton(
+    id: String,
+    label: String,
+    keyCode: Int,
+): TouchButtonSpec {
+    return TouchButtonSpec(
+        id = id,
+        label = label,
+        action = ControlAction.Digital(
+            actionId = id,
+            keyCode = keyCode,
+            label = label,
+        ),
     )
 }
 

@@ -3,6 +3,7 @@ package io.github.mattsays.rommnative.ui.screen.library
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.mattsays.rommnative.data.repository.RommRepository
+import io.github.mattsays.rommnative.domain.player.EmbeddedSupportTier
 import io.github.mattsays.rommnative.model.InstalledPlatformSummary
 import io.github.mattsays.rommnative.model.PlatformDto
 import io.github.mattsays.rommnative.model.RomDto
@@ -16,9 +17,11 @@ import kotlinx.coroutines.launch
 data class LibraryUiState(
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
-    val supportedPlatforms: List<PlatformDto> = emptyList(),
+    val touchSupportedPlatforms: List<PlatformDto> = emptyList(),
+    val controllerSupportedPlatforms: List<PlatformDto> = emptyList(),
     val unsupportedPlatforms: List<PlatformDto> = emptyList(),
     val recentInstalled: List<RomDto> = emptyList(),
+    val recentInstalledSupport: Map<Int, EmbeddedSupportTier> = emptyMap(),
     val installedPlatformSummaries: List<InstalledPlatformSummary> = emptyList(),
     val errorMessage: String? = null,
 )
@@ -39,9 +42,19 @@ class LibraryViewModel(
                 val sortedPlatforms = platforms.sortedBy { platform -> platform.name.lowercase() }
                 _uiState.update {
                     it.copy(
-                        supportedPlatforms = sortedPlatforms.filter(repository::supportsEmbeddedPlayer),
-                        unsupportedPlatforms = sortedPlatforms.filterNot(repository::supportsEmbeddedPlayer),
+                        touchSupportedPlatforms = sortedPlatforms.filter { platform ->
+                            repository.embeddedSupportTier(platform) == EmbeddedSupportTier.TOUCH_SUPPORTED
+                        },
+                        controllerSupportedPlatforms = sortedPlatforms.filter { platform ->
+                            repository.embeddedSupportTier(platform) == EmbeddedSupportTier.CONTROLLER_SUPPORTED
+                        },
+                        unsupportedPlatforms = sortedPlatforms.filter { platform ->
+                            repository.embeddedSupportTier(platform) == EmbeddedSupportTier.UNSUPPORTED
+                        },
                         recentInstalled = recentInstalled,
+                        recentInstalledSupport = recentInstalled.associate { rom ->
+                            rom.id to repository.embeddedSupportTier(rom)
+                        },
                         installedPlatformSummaries = summaries,
                         isLoading = if (sortedPlatforms.isNotEmpty() || recentInstalled.isNotEmpty()) false else it.isLoading,
                     )
@@ -95,5 +108,8 @@ class LibraryViewModel(
 }
 
 private fun LibraryUiState.hasContent(): Boolean {
-    return supportedPlatforms.isNotEmpty() || unsupportedPlatforms.isNotEmpty() || recentInstalled.isNotEmpty()
+    return touchSupportedPlatforms.isNotEmpty() ||
+        controllerSupportedPlatforms.isNotEmpty() ||
+        unsupportedPlatforms.isNotEmpty() ||
+        recentInstalled.isNotEmpty()
 }
