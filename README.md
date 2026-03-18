@@ -1,416 +1,79 @@
 # Rommio
 
-Rommio is the standalone Android-native client for [RomM](https://github.com/rommapp/romm). It focuses on native Android ergonomics instead of a wrapped web view: guided setup, an authenticated app shell, app-managed downloads, embedded libretro playback, and touch controls tuned for phone-sized devices.
+Rommio is a native Android companion for [RomM](https://github.com/rommapp/romm): a fast, touch-friendly client for browsing your library, downloading games, and launching supported titles with an embedded libretro player.
 
-This repository is the canonical home for the Android app. The project lives at the repository root.
+## Get the APK
 
-## Current product surface
+Download the latest APK from [GitHub Releases](https://github.com/bandoracer/rommio/releases).
 
-Rommio currently includes:
+Rommio requires your own RomM server. It does not provide ROMs, BIOS files, or emulator cores.
 
-- A guided onboarding flow that walks through server discovery, edge access, RomM authentication, and resumable setup
-- An authenticated app shell with bottom-tab navigation for `Home`, `Library`, `Collections`, and `Settings`
-- Offline-first browsing for previously hydrated profiles, including cached library metadata, cached collections, cached thumbnails, and offline app-shell entry
-- A download manager with queue state, progress, retry/cancel flows, and local library tracking
-- RomM-backed collections, including collection detail views and preview artwork fallbacks
-- An embedded libretro player with:
-  - on-demand core downloads
-  - local save/state sync plumbing with reconnect-aware queueing
-  - controller-first fallbacks where needed
-  - fixed-zone touch controls for supported platforms
-  - player-only visual themes such as OLED black mode and console-color control accents
-- Local persistence for installed ROM metadata, offline catalog state, download history, player/control preferences, and auth/session state
+## Screenshots
 
-## Tech stack
+<table>
+  <tr>
+    <td><img src="docs/images/readme/home.png" alt="Rommio home screen" width="240" /></td>
+    <td><img src="docs/images/readme/library.png" alt="Rommio library screen" width="240" /></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/readme/collections.png" alt="Rommio collections screen" width="240" /></td>
+    <td><img src="docs/images/readme/game-detail.png" alt="Rommio game detail screen" width="240" /></td>
+  </tr>
+</table>
 
-- Kotlin
-- Jetpack Compose + Material 3
-- Navigation Compose
-- Retrofit + OkHttp + Moshi
-- Room
-- DataStore
-- WorkManager
-- Coil
-- LibretroDroid
+## Why Rommio
 
-## Project layout
+- Native Android shell with a real app layout instead of a wrapped web view
+- Offline-first browsing once a profile has been hydrated online at least once
+- Download queue management with progress, retry, cancel, and local install tracking
+- Embedded libretro play for supported platform families
+- Touch controls on mobile-friendly platforms and controller-first support for heavier systems
+- Local storage for installs, saves, save states, profile cache data, and player preferences
 
-- [`app/`](app): Android application module
-- [`docs/`](docs): runtime policy and validation notes
-- [`scripts/android/`](scripts/android): local emulator/device workflow helpers
+## What You Need
 
-Important app areas:
+- An Android phone or tablet running Android 8.0+ (`minSdk 26`)
+- A working [RomM](https://github.com/rommapp/romm) server
+- A first online session so Rommio can cache your library for offline use
 
-- [`app/src/main/java/io/github/mattsays/rommnative/data/`](app/src/main/java/io/github/mattsays/rommnative/data): auth, networking, Room, repository, downloads, background work
-- [`app/src/main/java/io/github/mattsays/rommnative/domain/`](app/src/main/java/io/github/mattsays/rommnative/domain): input models, core resolution, player/runtime abstractions, storage
-- [`app/src/main/java/io/github/mattsays/rommnative/ui/`](app/src/main/java/io/github/mattsays/rommnative/ui): Compose shell, screens, and shared components
-- [`app/src/test/`](app/src/test): unit tests for repository logic, auth routing, collection mapping, and queue ordering
+Rommio is designed to complement RomM, not replace it. Server administration, library scanning, metadata enrichment, and multi-user management still live in RomM itself.
 
-## Requirements
+## Platform Support At A Glance
 
-- macOS or Linux with the Android SDK installed
-- JDK 17
-- Android platform tools
-- An Android device or emulator running API 26+
+Rommio uses three support tiers in the app:
 
-The helper scripts assume an SDK that includes:
+- `Touch`: embedded runtime plus first-class touch controls
+- `Controller`: embedded runtime exists, but the platform is still controller-first
+- `Unsupported`: browseable in RomM, but not enabled for embedded playback in Rommio
 
-- `platform-tools`
-- `emulator`
-- Android API `36`
-- `google_apis` arm64 system image
+The current runtime matrix, recommended cores, and validation status live in [docs/core-matrix.md](docs/core-matrix.md).
 
-Default emulator values come from [`scripts/android/common.sh`](scripts/android/common.sh):
+## Offline And Player Highlights
 
-- API level: `36`
-- Image tag: `google_apis`
-- Arch: `arm64-v8a`
-- Device: `pixel_8`
-- AVD name: `romm-native-api36`
+- Browse Home, Library, Collections, platform detail, collection detail, and game detail from local cache
+- Launch installed titles without a live RomM lookup when the metadata has already been hydrated
+- Keep ROM downloads queued while offline and resume automatically when the network returns
+- Queue save/state sync and core download work for reconnect instead of failing immediately
+- Cache thumbnails for platforms, collections, and games locally so the app still feels complete offline
+- Tune the player with touch layout options, OLED black mode, and optional console-inspired control colors
 
-These can be overridden with environment variables such as `ANDROID_API_LEVEL`, `ANDROID_IMAGE_TAG`, `ANDROID_ARCH`, `ANDROID_DEVICE_NAME`, `ANDROID_AVD_NAME`, and `ANDROID_SERIAL`.
+## Acknowledgements And Licensing
 
-## Build
+Rommio is licensed under [GPL-3.0-or-later](LICENSE).
 
-Build the debug APK from the repository root:
+This app is built to work with [RomM](https://github.com/rommapp/romm), which is licensed under the GNU Affero General Public License v3.0. Rommio is a separate Android client and is not a ROM source.
 
-```bash
-./gradlew assembleDebug
-```
+Rommio uses [LibretroDroid](https://github.com/Swordfish90/LibretroDroid) for embedded libretro playback. LibretroDroid is licensed under the GNU General Public License v3.0. Rommio also relies on the broader libretro ecosystem for downloadable cores. Those cores, along with any BIOS files you provide, remain separate upstream components with their own licenses and redistribution terms; they are not bundled by default with this repository or release APK.
 
-Debug APK output:
+For direct shipped dependency notices, see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-- `app/build/outputs/apk/debug/app-debug.apk`
+## For Developers
 
-Build an installable release APK from the repository root:
+If you want to build, test, or release the app yourself, start with [docs/development.md](docs/development.md).
 
-```bash
-./gradlew assembleRelease
-```
+Other useful references:
 
-Release APK output:
-
-- `app/build/outputs/apk/release/app-release.apk`
-
-By default, local release builds fall back to the standard Android debug signing config so the APK is installable for smoke testing. To sign releases with a dedicated key, create a root-level `.env.release.local` file or export matching environment variables:
-
-```bash
-ROMMIO_RELEASE_KEYSTORE_PATH=
-ROMMIO_RELEASE_STORE_PASSWORD=
-ROMMIO_RELEASE_KEY_ALIAS=
-ROMMIO_RELEASE_KEY_PASSWORD=
-```
-
-If these values are present, `assembleRelease` signs the APK with that keystore instead of the debug key.
-
-## Test
-
-Run unit tests from the repository root:
-
-```bash
-./gradlew testDebugUnitTest
-```
-
-Install to a connected device or booted emulator:
-
-```bash
-./gradlew installDebug
-```
-
-## Quick start
-
-### 1. Check your Android toolchain
-
-```bash
-scripts/android/doctor.sh
-```
-
-### 2. Install emulator dependencies
-
-```bash
-scripts/android/install_sdk_packages.sh
-```
-
-### 3. Create the default AVD
-
-```bash
-scripts/android/create_avd.sh
-```
-
-### 4. Boot the emulator
-
-```bash
-scripts/android/start_emulator.sh --background
-```
-
-### 5. Build, install, and launch the app
-
-```bash
-scripts/android/install_and_launch.sh
-```
-
-## Emulator and device workflows
-
-All helper scripts are intended to be run from the repository root.
-
-### Android environment doctor
-
-```bash
-scripts/android/doctor.sh
-```
-
-Reports:
-
-- detected SDK root
-- `adb`, `sdkmanager`, `avdmanager`, and emulator paths
-- installed system image and AVD status
-- attached devices
-
-### Install required SDK packages
-
-```bash
-scripts/android/install_sdk_packages.sh
-```
-
-Optional overrides:
-
-```bash
-scripts/android/install_sdk_packages.sh --api 36 --image-tag google_apis --arch arm64-v8a
-```
-
-### Create or replace the default AVD
-
-```bash
-scripts/android/create_avd.sh
-```
-
-Example:
-
-```bash
-scripts/android/create_avd.sh --name romm-native-api36 --device pixel_8
-```
-
-### Start the emulator
-
-```bash
-scripts/android/start_emulator.sh --background
-```
-
-Useful variants:
-
-```bash
-scripts/android/start_emulator.sh --foreground
-scripts/android/start_emulator.sh --headless
-scripts/android/start_emulator.sh --wipe-data
-```
-
-### Install and launch on a specific target
-
-```bash
-scripts/android/install_and_launch.sh --serial emulator-5554
-scripts/android/install_and_launch.sh --serial R5CY841NYQR
-```
-
-Skip rebuilding when the APK already exists:
-
-```bash
-scripts/android/install_and_launch.sh --serial emulator-5554 --skip-build
-```
-
-### Tail logs
-
-```bash
-scripts/android/logcat_romm_native.sh
-```
-
-For full logcat instead of the crash-focused fallback:
-
-```bash
-scripts/android/logcat_romm_native.sh --all
-```
-
-### Push runtime assets into app storage
-
-This is useful when testing embedded playback locally without building full in-app download flows around every asset.
-
-```bash
-scripts/android/push_runtime_assets.sh --core ~/Downloads/snes9x_libretro_android.so
-scripts/android/push_runtime_assets.sh --bios ~/Downloads/scph5501.bin
-scripts/android/push_runtime_assets.sh --platform snes --rom ~/Downloads/smw.sfc
-```
-
-The script writes into the app's internal storage via `run-as`.
-
-## Local debug auth
-
-Debug builds can read credentials from a root-level `.env.test.local` file:
-
-```bash
-ROMM_TEST_BASE_URL=
-ROMM_TEST_CLIENT_ID=
-ROMM_TEST_CLIENT_SECRET=
-ROMM_TEST_USERNAME=
-ROMM_TEST_PASSWORD=
-```
-
-These values are used by debug-only onboarding shortcuts and by smoke/instrumentation flows.
-
-If your RomM server runs on the same host as the Android emulator, use `http://10.0.2.2:<port>` inside the emulator instead of `localhost`.
-
-## GitHub releases
-
-This repository includes a GitHub Actions workflow at [`.github/workflows/android-release.yml`](.github/workflows/android-release.yml).
-
-- Pushing a tag like `v0.1.0` builds `app-release.apk`
-- The workflow uploads the APK as both a build artifact and a GitHub release asset
-- If the repository has release-signing secrets configured, the workflow uses them
-- Without those secrets, the workflow still produces an installable APK signed with the debug key for testing/pre-release distribution
-
-Optional GitHub Actions secrets for production signing:
-
-- `ROMMIO_RELEASE_KEYSTORE_BASE64`
-- `ROMMIO_RELEASE_STORE_PASSWORD`
-- `ROMMIO_RELEASE_KEY_ALIAS`
-- `ROMMIO_RELEASE_KEY_PASSWORD`
-
-## Authentication model
-
-Rommio mirrors RomM's existing auth expectations rather than inventing a client-specific auth layer.
-
-Supported flows include:
-
-- direct server access with no extra edge auth
-- protected cookie/SSO-style access handoff
-- Cloudflare Access and related protected-edge flows
-- RomM-origin sign-in flows, including bearer/password and interactive session completion
-
-The onboarding flow makes these steps explicit:
-
-1. discover server capabilities
-2. choose or validate edge access mode
-3. verify native reachability from the Android app
-4. complete RomM authentication
-5. enter the authenticated app shell
-
-## Embedded player
-
-The embedded player is built around LibretroDroid plus an app-managed runtime catalog.
-
-Current player capabilities:
-
-- recommended-core download flow
-- local core and BIOS storage under app-managed files
-- save and save-state sync plumbing
-- platform support gating via runtime/core validation
-- touch controls for supported platform families
-- fixed portrait/landscape control zones
-- per-player control tuning for:
-  - opacity
-  - global size
-  - left-handed swap
-  - controller auto-hide
-  - rumble
-  - OLED black mode
-  - console-color styling
-
-Touch controls are intentionally limited to supported families. Controller-first platforms stay browsable in the app but require external input to play.
-
-See:
-
-- [`docs/core-matrix.md`](docs/core-matrix.md)
-- [`docs/validation-matrix.md`](docs/validation-matrix.md)
-
-## Runtime assets and storage
-
-Rommio uses app-managed storage for:
-
-- libretro core binaries
-- BIOS files
-- downloaded ROM files
-- synced saves and save states
-
-Important notes:
-
-- core binaries are not bundled by default
-- some platforms require BIOS files before they can be considered playable
-- download/install state is persisted locally and surfaced throughout Home, Library, Downloads, and Settings
-- profile-specific offline catalog data and thumbnail media are cached locally so previously hydrated profiles can browse and launch installed titles without a network connection
-
-## Offline-first behavior
-
-Rommio now treats the active profile as an offline-capable catalog once it has been hydrated successfully online at least once.
-
-Current offline behavior:
-
-- app launch skips remote validation when the device is offline and the active profile already has a ready local catalog
-- Home, Library, Collections, platform detail, collection detail, and game detail read from local cache first and refresh in the background when the network returns
-- installed titles can still open from cached/local metadata without a live RomM lookup
-- ROM downloads remain queued behind network constraints instead of failing immediately while offline
-- save/state sync and recommended-core download requests queue automatically and drain on reconnect
-- thumbnail artwork for platforms, collections, and ROMs is cached locally with eviction, so metadata stays available even if some media falls back to placeholders later
-
-Profile/offline cache notes:
-
-- offline readiness is tracked per saved profile
-- deleting a saved profile clears that profile's cached catalog, thumbnail media, and pending remote actions
-- logging out clears auth and queued remote work for the active profile
-
-## UI structure
-
-The authenticated shell currently uses:
-
-- `Home`: dashboard, continue-playing rows, recent additions, collection highlights, download summary
-- `Library`: platform-first browsing and installed-recent rows
-- `Collections`: RomM-backed collection browsing
-- `Settings`: account/profile, storage, and global control settings
-
-Settings also surfaces:
-
-- current online/offline status
-- offline readiness for the active profile
-- last successful catalog/media sync timestamps
-- local cache usage
-
-Deeper routes include:
-
-- platform detail
-- collection detail
-- game detail
-- downloads manager
-- embedded player
-
-## Testing notes
-
-The repo includes unit coverage for core app logic, including:
-
-- collection model mapping
-- download ordering and aggregate repository behavior
-- auth gate routing
-
-Live smoke or instrumentation tasks should still be run from the repository root with `./gradlew ...`.
-
-Example connected test:
-
-```bash
-./gradlew connectedDebugAndroidTest \
-  -Pandroid.testInstrumentationRunnerArguments.class=io.github.mattsays.rommnative.auth.AuthLiveSmokeTest
-```
-
-## Known limitations
-
-- Core binaries are not bundled by default.
-- BIOS management is still only partially modeled in the UI.
-- Not every RomM platform is validated for embedded playback yet.
-- Some systems remain intentionally controller-first or unsupported in the embedded player.
-- The player runtime remains oriented around a recommended-core UX rather than exposing advanced per-game or per-core configuration.
-
-## Additional documentation
-
-- [`docs/core-matrix.md`](docs/core-matrix.md): recommended/alternate runtime policy by platform family
-- [`docs/validation-matrix.md`](docs/validation-matrix.md): criteria for promoting a platform to fully supported embedded playback
-
-## Repository scope notes
-
-- This repo is only for the Android-native RomM client and its supporting docs/tooling.
-- The Android project lives at the repository root.
-- Do not reintroduce old workspace paths such as `apps/romm-android-native/`.
+- [docs/core-matrix.md](docs/core-matrix.md)
+- [docs/validation-matrix.md](docs/validation-matrix.md)
+- [app/](app)
+- [scripts/android/](scripts/android/)
