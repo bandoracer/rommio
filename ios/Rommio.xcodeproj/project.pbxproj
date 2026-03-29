@@ -1,0 +1,557 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 46;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		1799A608A416DBA18B729BF3 /* RommioContract in Frameworks */ = {isa = PBXBuildFile; productRef = 5A9EAEE26FD3E72BD2D3D7C1 /* RommioContract */; };
+		17BB98DF4CF3DD5539EEB67A /* RommioFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 7DC22E88B88B22BD629D1BA0 /* RommioFoundation */; };
+		2C2862353D87E4EA3522BF71 /* CoreLicenses.json in Resources */ = {isa = PBXBuildFile; fileRef = 2D5577282282207C79916844 /* CoreLicenses.json */; };
+		3E875DC13B63083B84B09A47 /* fceumm.LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = F49891E49BAD04DBCC64EAAD /* fceumm.LICENSE.txt */; };
+		4335ACE1860B67184B13C573 /* fbneo.dylib in Resources */ = {isa = PBXBuildFile; fileRef = 955CD266A182DA2033ADE975 /* fbneo.dylib */; };
+		4CA8EDE28814FC68F0B6D39A /* RommioPlayerBridge in Frameworks */ = {isa = PBXBuildFile; productRef = B795FCC72C350CD13CE8BA81 /* RommioPlayerBridge */; };
+		92A0527A685F328F90C38B70 /* RommioUI in Frameworks */ = {isa = PBXBuildFile; productRef = AECC7FD5F1DF7511A2D0B176 /* RommioUI */; };
+		98D92E4D2236F2255DCFA4E8 /* fceumm.dylib in Resources */ = {isa = PBXBuildFile; fileRef = 5852C1D6611D6EFD45902D4D /* fceumm.dylib */; };
+		AED898F6835AC51B7BEDCABB /* RommioPlayerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 0A09049B574799CDF7866284 /* RommioPlayerKit */; };
+		B8CA50408692DEE13F72E9D6 /* RommioApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A86F5FDA5DF82F50FA905B7 /* RommioApp.swift */; };
+		C2427D64646183E160F80E2B /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 13736E960ED710B323F8A88E /* GRDB */; };
+		F763F625836D1161C2F2FDFC /* fbneo.LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 1B99FFAAD6F4B10E7E58B412 /* fbneo.LICENSE.txt */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		7BD8DC19107AF007EF580ACD /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8DC649F4C1F856CBE54BF30F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E79D2E3940FA8DC82110D81D;
+			remoteInfo = Rommio;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		1B99FFAAD6F4B10E7E58B412 /* fbneo.LICENSE.txt */ = {isa = PBXFileReference; includeInIndex = 1; name = fbneo.LICENSE.txt; path = Cores/licenses/fbneo.LICENSE.txt; sourceTree = "<group>"; };
+		2A86F5FDA5DF82F50FA905B7 /* RommioApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RommioApp.swift; sourceTree = "<group>"; };
+		2D5577282282207C79916844 /* CoreLicenses.json */ = {isa = PBXFileReference; includeInIndex = 1; name = CoreLicenses.json; path = Cores/CoreLicenses.json; sourceTree = "<group>"; };
+		5852C1D6611D6EFD45902D4D /* fceumm.dylib */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "compiled.mach-o.dylib"; name = fceumm.dylib; path = Cores/fceumm.dylib; sourceTree = "<group>"; };
+		69033BA4EE6A1EB851441BBA /* Rommio.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Rommio.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		690C82A670E2B38A00DE2DF7 /* RommioAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RommioAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		955CD266A182DA2033ADE975 /* fbneo.dylib */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "compiled.mach-o.dylib"; name = fbneo.dylib; path = Cores/fbneo.dylib; sourceTree = "<group>"; };
+		F49891E49BAD04DBCC64EAAD /* fceumm.LICENSE.txt */ = {isa = PBXFileReference; includeInIndex = 1; name = fceumm.LICENSE.txt; path = Cores/licenses/fceumm.LICENSE.txt; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		584FE4067682EDF8C3353890 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1799A608A416DBA18B729BF3 /* RommioContract in Frameworks */,
+				17BB98DF4CF3DD5539EEB67A /* RommioFoundation in Frameworks */,
+				4CA8EDE28814FC68F0B6D39A /* RommioPlayerBridge in Frameworks */,
+				AED898F6835AC51B7BEDCABB /* RommioPlayerKit in Frameworks */,
+				92A0527A685F328F90C38B70 /* RommioUI in Frameworks */,
+				C2427D64646183E160F80E2B /* GRDB in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		61B83A05B5D3734AD96ECBCB /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		07D7508C221E08906E277B72 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				2A86F5FDA5DF82F50FA905B7 /* RommioApp.swift */,
+				D599D71B580CEDF684227EE8 /* Resources */,
+			);
+			name = App;
+			path = App;
+			sourceTree = "<group>";
+		};
+		2528D472A8EE4F8AAF2FA870 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				69033BA4EE6A1EB851441BBA /* Rommio.app */,
+				690C82A670E2B38A00DE2DF7 /* RommioAppUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		36DEC7074FC46D12DBF13942 = {
+			isa = PBXGroup;
+			children = (
+				2528D472A8EE4F8AAF2FA870 /* Products */,
+				976A2954CD19CD4AB7F6CD3C /* Frameworks */,
+				07D7508C221E08906E277B72 /* App */,
+				5C63E7A38F643CDAB069E5D5 /* AppUITests */,
+			);
+			sourceTree = "<group>";
+		};
+		5C63E7A38F643CDAB069E5D5 /* AppUITests */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = AppUITests;
+			path = AppUITests;
+			sourceTree = "<group>";
+		};
+		72C2098D135B94421429B8AF /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = iOS;
+			sourceTree = "<group>";
+		};
+		976A2954CD19CD4AB7F6CD3C /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				72C2098D135B94421429B8AF /* iOS */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		D599D71B580CEDF684227EE8 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				2D5577282282207C79916844 /* CoreLicenses.json */,
+				955CD266A182DA2033ADE975 /* fbneo.dylib */,
+				5852C1D6611D6EFD45902D4D /* fceumm.dylib */,
+				1B99FFAAD6F4B10E7E58B412 /* fbneo.LICENSE.txt */,
+				F49891E49BAD04DBCC64EAAD /* fceumm.LICENSE.txt */,
+			);
+			name = Resources;
+			path = Resources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		639C40602F0D8B76EC3E57D8 /* RommioAppUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 89F3B9BAE814DCFE0C2CB41C /* Build configuration list for PBXNativeTarget "RommioAppUITests" */;
+			buildPhases = (
+				294111AE47ACC79DFB0FA39A /* Sources */,
+				61B83A05B5D3734AD96ECBCB /* Frameworks */,
+				BE2D5A3933CAEAD8F094B341 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				1672FC4030506303B20E6017 /* PBXTargetDependency */,
+			);
+			name = RommioAppUITests;
+			productName = RommioAppUITests;
+			productReference = 690C82A670E2B38A00DE2DF7 /* RommioAppUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		E79D2E3940FA8DC82110D81D /* Rommio */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3EDF47EB541C5388D18A6292 /* Build configuration list for PBXNativeTarget "Rommio" */;
+			buildPhases = (
+				871D21A5BEFA36467231D533 /* Sources */,
+				584FE4067682EDF8C3353890 /* Frameworks */,
+				41B8A10FEAC792A52907DAD9 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Rommio;
+			packageProductDependencies = (
+				5A9EAEE26FD3E72BD2D3D7C1 /* RommioContract */,
+				7DC22E88B88B22BD629D1BA0 /* RommioFoundation */,
+				B795FCC72C350CD13CE8BA81 /* RommioPlayerBridge */,
+				0A09049B574799CDF7866284 /* RommioPlayerKit */,
+				AECC7FD5F1DF7511A2D0B176 /* RommioUI */,
+				13736E960ED710B323F8A88E /* GRDB */,
+			);
+			productName = Rommio;
+			productReference = 69033BA4EE6A1EB851441BBA /* Rommio.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		8DC649F4C1F856CBE54BF30F /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					639C40602F0D8B76EC3E57D8 = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = E79D2E3940FA8DC82110D81D;
+					};
+					E79D2E3940FA8DC82110D81D = {
+						CreatedOnToolsVersion = 16.0;
+					};
+				};
+			};
+			buildConfigurationList = 07F8EB0EEFE5EDB3221DEE3C /* Build configuration list for PBXProject "Rommio" */;
+			compatibilityVersion = "Xcode 3.2";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 36DEC7074FC46D12DBF13942;
+			minimizedProjectReferenceProxies = 0;
+			packageReferences = (
+				74BB7B89FC06F45D15CECD35 /* XCLocalSwiftPackageReference "." */,
+				121BAA7185E8FB3976192D1C /* XCRemoteSwiftPackageReference "GRDB.swift" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 2528D472A8EE4F8AAF2FA870 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				E79D2E3940FA8DC82110D81D /* Rommio */,
+				639C40602F0D8B76EC3E57D8 /* RommioAppUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		41B8A10FEAC792A52907DAD9 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2C2862353D87E4EA3522BF71 /* CoreLicenses.json in Resources */,
+				4335ACE1860B67184B13C573 /* fbneo.dylib in Resources */,
+				98D92E4D2236F2255DCFA4E8 /* fceumm.dylib in Resources */,
+				F763F625836D1161C2F2FDFC /* fbneo.LICENSE.txt in Resources */,
+				3E875DC13B63083B84B09A47 /* fceumm.LICENSE.txt in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BE2D5A3933CAEAD8F094B341 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		294111AE47ACC79DFB0FA39A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		871D21A5BEFA36467231D533 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B8CA50408692DEE13F72E9D6 /* RommioApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		1672FC4030506303B20E6017 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = Rommio;
+			target = E79D2E3940FA8DC82110D81D /* Rommio */;
+			targetProxy = 7BD8DC19107AF007EF580ACD /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		0026077BB3476F246ED01D55 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				PRODUCT_BUNDLE_IDENTIFIER = "io.github.mattsays.rommio.ios.ui-tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Rommio;
+			};
+			name = Debug;
+		};
+		1A055EBA9466CA2DB55BE127 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Rommio;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.mattsays.rommio.ios;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		22BB26CB18CBABDB8EF63777 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		2EFA23E137F4F7028C38BCF9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Rommio;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.entertainment";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.mattsays.rommio.ios;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		314DB96CFC0186332BCB0EE2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		F758380231E0F2B96A83F9B5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				PRODUCT_BUNDLE_IDENTIFIER = "io.github.mattsays.rommio.ios.ui-tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Rommio;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		07F8EB0EEFE5EDB3221DEE3C /* Build configuration list for PBXProject "Rommio" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				22BB26CB18CBABDB8EF63777 /* Debug */,
+				314DB96CFC0186332BCB0EE2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		3EDF47EB541C5388D18A6292 /* Build configuration list for PBXNativeTarget "Rommio" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1A055EBA9466CA2DB55BE127 /* Release */,
+				2EFA23E137F4F7028C38BCF9 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		89F3B9BAE814DCFE0C2CB41C /* Build configuration list for PBXNativeTarget "RommioAppUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F758380231E0F2B96A83F9B5 /* Release */,
+				0026077BB3476F246ED01D55 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		74BB7B89FC06F45D15CECD35 /* XCLocalSwiftPackageReference "." */ = {
+			isa = XCLocalSwiftPackageReference;
+			path = .;
+			relativePath = .;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		121BAA7185E8FB3976192D1C /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/groue/GRDB.swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 7.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		0A09049B574799CDF7866284 /* RommioPlayerKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 74BB7B89FC06F45D15CECD35 /* XCLocalSwiftPackageReference "." */;
+			productName = RommioPlayerKit;
+		};
+		13736E960ED710B323F8A88E /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 121BAA7185E8FB3976192D1C /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			productName = GRDB;
+		};
+		5A9EAEE26FD3E72BD2D3D7C1 /* RommioContract */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 74BB7B89FC06F45D15CECD35 /* XCLocalSwiftPackageReference "." */;
+			productName = RommioContract;
+		};
+		7DC22E88B88B22BD629D1BA0 /* RommioFoundation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 74BB7B89FC06F45D15CECD35 /* XCLocalSwiftPackageReference "." */;
+			productName = RommioFoundation;
+		};
+		AECC7FD5F1DF7511A2D0B176 /* RommioUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 74BB7B89FC06F45D15CECD35 /* XCLocalSwiftPackageReference "." */;
+			productName = RommioUI;
+		};
+		B795FCC72C350CD13CE8BA81 /* RommioPlayerBridge */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 74BB7B89FC06F45D15CECD35 /* XCLocalSwiftPackageReference "." */;
+			productName = RommioPlayerBridge;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 8DC649F4C1F856CBE54BF30F /* Project object */;
+}

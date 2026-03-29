@@ -1,0 +1,14 @@
+[
+  {
+    "id": "fceumm",
+    "binary_path": "Cores/fceumm.dylib",
+    "license_path": "Cores/licenses/fceumm.LICENSE.txt",
+    "imported_at": "2026-03-19T05:57:22Z"
+  },
+  {
+    "id": "fbneo",
+    "binary_path": "Cores/fbneo.dylib",
+    "license_path": "Cores/licenses/fbneo.LICENSE.txt",
+    "imported_at": "2026-03-19T06:46:15Z"
+  }
+]

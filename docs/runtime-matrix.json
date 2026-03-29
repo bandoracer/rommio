@@ -1,0 +1,358 @@
+{
+  "families": [
+    {
+      "family_id": "nes",
+      "display_name": "NES / Famicom",
+      "platform_slugs": ["nes", "famicom"],
+      "support_tier": "touch",
+      "default_runtime_id": "fceumm",
+      "ios": {
+        "render_backend": "SOFTWARE_FRAMEBUFFER",
+        "interaction_profile": "TOUCH",
+        "bundle_relative_path": "Cores/fceumm.dylib",
+        "supported_extensions": ["nes"],
+        "required_bios_files": [],
+        "validation_state": "PLAYABLE"
+      }
+    },
+    {
+      "family_id": "snes",
+      "display_name": "SNES / Super Famicom",
+      "platform_slugs": ["snes", "sfam"],
+      "support_tier": "touch",
+      "default_runtime_id": "snes9x",
+      "ios": {
+        "render_backend": "SOFTWARE_FRAMEBUFFER",
+        "interaction_profile": "TOUCH",
+        "bundle_relative_path": "Cores/snes9x.dylib",
+        "supported_extensions": ["smc", "sfc"],
+        "required_bios_files": [],
+        "validation_state": "PLAYABLE"
+      }
+    },
+    {
+      "family_id": "gb",
+      "display_name": "Game Boy / Game Boy Color",
+      "platform_slugs": ["gb", "gbc"],
+      "support_tier": "touch",
+      "default_runtime_id": "gambatte",
+      "ios": {
+        "render_backend": "SOFTWARE_FRAMEBUFFER",
+        "interaction_profile": "TOUCH",
+        "bundle_relative_path": "Cores/gambatte.dylib",
+        "supported_extensions": ["gb", "gbc"],
+        "required_bios_files": [],
+        "validation_state": "PLAYABLE"
+      }
+    },
+    {
+      "family_id": "gba",
+      "display_name": "Game Boy Advance",
+      "platform_slugs": ["gba"],
+      "support_tier": "touch",
+      "default_runtime_id": "mgba",
+      "ios": {
+        "render_backend": "SOFTWARE_FRAMEBUFFER",
+        "interaction_profile": "TOUCH",
+        "bundle_relative_path": "Cores/mgba.dylib",
+        "supported_extensions": ["gba"],
+        "required_bios_files": [],
+        "validation_state": "PLAYABLE"
+      }
+    },
+    {
+      "family_id": "sega16",
+      "display_name": "Sega 8/16-bit",
+      "platform_slugs": ["genesis", "sms", "gamegear", "segacd"],
+      "support_tier": "touch",
+      "default_runtime_id": "genesis_plus_gx",
+      "ios": {
+        "render_backend": "SOFTWARE_FRAMEBUFFER",
+        "interaction_profile": "TOUCH",
+        "bundle_relative_path": "Cores/genesis_plus_gx.dylib",
+        "supported_extensions": [],
+        "required_bios_files": [],
+        "validation_state": "PLAYABLE"
+      }
+    },
+    {
+      "family_id": "sega32x",
+      "display_name": "Sega 32X",
+      "platform_slugs": ["32x", "sega32x", "sega-32x"],
+      "support_tier": "controller",
+      "default_runtime_id": "picodrive",
+      "ios": {
+        "render_backend": "SOFTWARE_FRAMEBUFFER",
+        "interaction_profile": "CONTROLLER",
+        "bundle_relative_path": "Cores/picodrive.dylib",
+        "supported_extensions": [],
+        "required_bios_files": [],
+        "validation_state": "BLOCKED_BY_VALIDATION",
+        "validation_block_reason": "Controller-first iOS runtime validation is still pending for Sega 32X."
+      }
+    },
+    {
+      "family_id": "n64",
+      "display_name": "Nintendo 64",
+      "platform_slugs": ["n64"],
+      "support_tier": "controller",
+      "default_runtime_id": "mupen64plus_next_gles3",
+      "ios": {
+        "render_backend": "HARDWARE_RENDER",
+        "interaction_profile": "CONTROLLER",
+        "bundle_relative_path": "Cores/mupen64plus_next_gles3.dylib",
+        "supported_extensions": [],
+        "required_bios_files": [],
+        "validation_state": "BLOCKED_BY_VALIDATION",
+        "validation_block_reason": "The iOS hardware-render host is not implemented for Nintendo 64 yet."
+      }
+    },
+    {
+      "family_id": "psx",
+      "display_name": "PlayStation",
+      "platform_slugs": ["psx", "ps1", "playstation"],
+      "support_tier": "touch",
+      "default_runtime_id": "pcsx_rearmed",
+      "ios": {
+        "render_backend": "SOFTWARE_FRAMEBUFFER",
+        "interaction_profile": "TOUCH",
+        "bundle_relative_path": "Cores/pcsx_rearmed.dylib",
+        "supported_extensions": ["cue", "bin", "img", "iso", "pbp"],
+        "required_bios_files": ["scph5501.bin"],
+        "validation_state": "PLAYABLE"
+      }
+    },
+    {
+      "family_id": "psp",
+      "display_name": "PlayStation Portable",
+      "platform_slugs": ["psp"],
+      "support_tier": "controller",
+      "default_runtime_id": "ppsspp",
+      "ios": {
+        "render_backend": "HARDWARE_RENDER",
+        "interaction_profile": "CONTROLLER",
+        "bundle_relative_path": "Cores/ppsspp.dylib",
+        "supported_extensions": [],
+        "required_bios_files": [],
+        "validation_state": "BLOCKED_BY_VALIDATION",
+        "validation_block_reason": "The iOS hardware-render host is not implemented for PSP yet."
+      }
+    },
+    {
+      "family_id": "nds",
+      "display_name": "Nintendo DS / DSi-enhanced",
+      "platform_slugs": ["nds", "dsi", "nintendo-dsi"],
+      "support_tier": "touch",
+      "default_runtime_id": "melonds_ds",
+      "ios": {
+        "render_backend": "SOFTWARE_FRAMEBUFFER",
+        "interaction_profile": "DUAL_SCREEN_TOUCH",
+        "bundle_relative_path": "Cores/melonds_ds.dylib",
+        "supported_extensions": ["nds"],
+        "required_bios_files": [],
+        "validation_state": "PLAYABLE"
+      }
+    },
+    {
+      "family_id": "atari2600",
+      "display_name": "Atari 2600",
+      "platform_slugs": ["atari2600"],
+      "support_tier": "touch",
+      "default_runtime_id": "stella",
+      "ios": {
+        "render_backend": "SOFTWARE_FRAMEBUFFER",
+        "interaction_profile": "TOUCH",
+        "bundle_relative_path": "Cores/stella.dylib",
+        "supported_extensions": [],
+        "required_bios_files": [],
+        "validation_state": "PLAYABLE"
+      }
+    },
+    {
+      "family_id": "atari7800",
+      "display_name": "Atari 7800",
+      "platform_slugs": ["atari7800"],
+      "support_tier": "touch",
+      "default_runtime_id": "prosystem",
+      "ios": {
+        "render_backend": "SOFTWARE_FRAMEBUFFER",
+        "interaction_profile": "TOUCH",
+        "bundle_relative_path": "Cores/prosystem.dylib",
+        "supported_extensions": [],
+        "required_bios_files": [],
+        "validation_state": "PLAYABLE"
+      }
+    },
+    {
+      "family_id": "lynx",
+      "display_name": "Atari Lynx",
+      "platform_slugs": ["lynx"],
+      "support_tier": "touch",
+      "default_runtime_id": "handy",
+      "ios": {
+        "render_backend": "SOFTWARE_FRAMEBUFFER",
+        "interaction_profile": "TOUCH",
+        "bundle_relative_path": "Cores/handy.dylib",
+        "supported_extensions": [],
+        "required_bios_files": [],
+        "validation_state": "PLAYABLE"
+      }
+    },
+    {
+      "family_id": "arcade",
+      "display_name": "Arcade",
+      "platform_slugs": ["arcade"],
+      "support_tier": "touch",
+      "default_runtime_id": "fbneo",
+      "ios": {
+        "render_backend": "SOFTWARE_FRAMEBUFFER",
+        "interaction_profile": "TOUCH",
+        "bundle_relative_path": "Cores/fbneo.dylib",
+        "supported_extensions": [],
+        "required_bios_files": [],
+        "validation_state": "PLAYABLE"
+      }
+    },
+    {
+      "family_id": "dos",
+      "display_name": "DOS",
+      "platform_slugs": ["dos"],
+      "support_tier": "controller",
+      "default_runtime_id": "dosbox_pure",
+      "ios": {
+        "render_backend": "SOFTWARE_FRAMEBUFFER",
+        "interaction_profile": "KEYBOARD_MOUSE",
+        "bundle_relative_path": "Cores/dosbox_pure.dylib",
+        "supported_extensions": [],
+        "required_bios_files": [],
+        "validation_state": "BLOCKED_BY_VALIDATION",
+        "validation_block_reason": "Keyboard and mouse overlay support has not been implemented for DOS yet."
+      }
+    },
+    {
+      "family_id": "tg16",
+      "display_name": "PC Engine / TurboGrafx-16",
+      "platform_slugs": ["tg16"],
+      "support_tier": "touch",
+      "default_runtime_id": "mednafen_pce_fast",
+      "ios": {
+        "render_backend": "SOFTWARE_FRAMEBUFFER",
+        "interaction_profile": "TOUCH",
+        "bundle_relative_path": "Cores/mednafen_pce_fast.dylib",
+        "supported_extensions": [],
+        "required_bios_files": [],
+        "validation_state": "PLAYABLE"
+      }
+    },
+    {
+      "family_id": "ngp",
+      "display_name": "Neo Geo Pocket",
+      "platform_slugs": ["neo-geo-pocket", "neo-geo-pocket-color"],
+      "support_tier": "touch",
+      "default_runtime_id": "mednafen_ngp",
+      "ios": {
+        "render_backend": "SOFTWARE_FRAMEBUFFER",
+        "interaction_profile": "TOUCH",
+        "bundle_relative_path": "Cores/mednafen_ngp.dylib",
+        "supported_extensions": [],
+        "required_bios_files": [],
+        "validation_state": "PLAYABLE"
+      }
+    },
+    {
+      "family_id": "wswan",
+      "display_name": "WonderSwan",
+      "platform_slugs": ["wonderswan", "wonderswan-color"],
+      "support_tier": "touch",
+      "default_runtime_id": "mednafen_wswan",
+      "ios": {
+        "render_backend": "SOFTWARE_FRAMEBUFFER",
+        "interaction_profile": "TOUCH",
+        "bundle_relative_path": "Cores/mednafen_wswan.dylib",
+        "supported_extensions": [],
+        "required_bios_files": [],
+        "validation_state": "PLAYABLE"
+      }
+    },
+    {
+      "family_id": "dreamcast",
+      "display_name": "Dreamcast / NAOMI",
+      "platform_slugs": ["dreamcast", "naomi"],
+      "support_tier": "controller",
+      "default_runtime_id": "flycast",
+      "ios": {
+        "render_backend": "HARDWARE_RENDER",
+        "interaction_profile": "CONTROLLER",
+        "bundle_relative_path": "Cores/flycast.dylib",
+        "supported_extensions": [],
+        "required_bios_files": ["dc_boot.bin", "dc_flash.bin"],
+        "validation_state": "BLOCKED_BY_VALIDATION",
+        "validation_block_reason": "The iOS hardware-render host is not implemented for Dreamcast / NAOMI yet."
+      }
+    },
+    {
+      "family_id": "3do",
+      "display_name": "3DO",
+      "platform_slugs": ["3do"],
+      "support_tier": "controller",
+      "default_runtime_id": "opera",
+      "ios": {
+        "render_backend": "SOFTWARE_FRAMEBUFFER",
+        "interaction_profile": "CONTROLLER",
+        "bundle_relative_path": "Cores/opera.dylib",
+        "supported_extensions": [],
+        "required_bios_files": [],
+        "validation_state": "BLOCKED_BY_VALIDATION",
+        "validation_block_reason": "Controller-first iOS runtime validation is still pending for 3DO."
+      }
+    },
+    {
+      "family_id": "virtualboy",
+      "display_name": "Virtual Boy",
+      "platform_slugs": ["virtualboy", "virtual-boy"],
+      "support_tier": "controller",
+      "default_runtime_id": "beetle_vb",
+      "ios": {
+        "render_backend": "SOFTWARE_FRAMEBUFFER",
+        "interaction_profile": "CONTROLLER",
+        "bundle_relative_path": "Cores/beetle_vb.dylib",
+        "supported_extensions": [],
+        "required_bios_files": [],
+        "validation_state": "BLOCKED_BY_VALIDATION",
+        "validation_block_reason": "Controller-first iOS runtime validation is still pending for Virtual Boy."
+      }
+    },
+    {
+      "family_id": "dolphin",
+      "display_name": "GameCube / Wii",
+      "platform_slugs": ["gamecube", "ngc", "wii"],
+      "support_tier": "controller",
+      "default_runtime_id": "dolphin",
+      "ios": {
+        "render_backend": "HARDWARE_RENDER",
+        "interaction_profile": "CONTROLLER",
+        "bundle_relative_path": "Cores/dolphin.dylib",
+        "supported_extensions": [],
+        "required_bios_files": [],
+        "validation_state": "BLOCKED_BY_VALIDATION",
+        "validation_block_reason": "The iOS hardware-render host is not implemented for GameCube / Wii yet."
+      }
+    },
+    {
+      "family_id": "3ds",
+      "display_name": "Nintendo 3DS",
+      "platform_slugs": ["3ds", "new-nintendo-3ds"],
+      "support_tier": "controller",
+      "default_runtime_id": "citra",
+      "ios": {
+        "render_backend": "HARDWARE_RENDER",
+        "interaction_profile": "CONTROLLER",
+        "bundle_relative_path": "Cores/citra.dylib",
+        "supported_extensions": [],
+        "required_bios_files": [],
+        "validation_state": "BLOCKED_BY_VALIDATION",
+        "validation_block_reason": "The iOS hardware-render host is not implemented for Nintendo 3DS yet."
+      }
+    }
+  ]
+}
