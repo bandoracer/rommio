@@ -31,13 +31,29 @@ Run package tests:
 swift test --package-path ios
 ```
 
-Import a bundled iOS libretro core and its license into the app resources:
+Fetch the shipped signed iOS bundled cores declared in the release manifest:
+
+```bash
+scripts/ios/fetch_bundled_cores.sh
+```
+
+Stage a freshly signed bundled core artifact and its license into a temporary
+packaging directory before publishing it to the shared GitHub Release tag:
 
 ```bash
 scripts/ios/import_bundled_core.sh \
   /path/to/fceumm_libretro_ios.dylib \
   fceumm \
   /path/to/fceumm.LICENSE.txt
+```
+
+Publish one or more staged bundled cores to GitHub Releases and refresh the
+shipped-core manifest plus `CoreLicenses.json`:
+
+```bash
+scripts/ios/publish_bundled_cores.sh \
+  --staging-dir build/ios/bundled-core-staging \
+  --release-tag ios-bundled-cores-v20260328-1
 ```
 
 Validate that the parity build manifest accounts for every Android-default
@@ -61,9 +77,10 @@ gem install xcodeproj
 ruby scripts/ios/generate_xcodeproj.rb
 ```
 
-Verify that every tracked bundled core, license file, and `CoreLicenses.json`
-entry is still wired into the Rommio app target's `Resources` phase before
-shipping or after refreshing a signed core:
+Verify that every shipped bundled core declared in the release manifest,
+`CoreLicenses.json`, and its tracked license file are still wired into the
+Rommio app target's `Resources` phase before shipping or after refreshing a
+signed core:
 
 ```bash
 scripts/ios/verify_bundled_core_resources.sh
@@ -116,11 +133,13 @@ provisioning now happens automatically on demand when a title is downloaded or
 launched, which mirrors Android's integrated core flow without downloading
 executable code at runtime on iOS.
 
-The signed dylibs under `ios/App/Resources/Cores/`, `CoreLicenses.json`, and
-the corresponding license files are repo-tracked build inputs. Keep them in Git
-and keep them bundled through the Rommio app target `Resources` phase. Do not
-move them into SwiftPM artifacts, generated build directories, or runtime
-downloads.
+The main repo tracks the shipped-core manifest, `CoreLicenses.json`, and the
+corresponding license files, but not the signed dylib blobs themselves. The
+signed bundled cores live in GitHub Release assets declared in
+`scripts/ios/bundled-core-release-manifest.json` and are fetched into
+`ios/App/Resources/Cores/` locally and in CI. Keep those fetched dylibs bundled
+through the Rommio app target `Resources` phase. Do not move them into SwiftPM
+artifacts, generated build directories, or runtime downloads.
 
 Generated SwiftPM and Xcode outputs are always local-only and must never be
 tracked. That includes `ios/.build`, `ios/build`, `ios/build-logs`,

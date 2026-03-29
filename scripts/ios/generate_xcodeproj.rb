@@ -1,12 +1,14 @@
 #!/usr/bin/env ruby
 
 require 'fileutils'
+require 'json'
 require 'xcodeproj'
 
 repo_root = File.expand_path('../..', __dir__)
 ios_root = File.join(repo_root, 'ios')
 project_path = File.join(ios_root, 'Rommio.xcodeproj')
 workspace_path = File.join(ios_root, 'Rommio.xcworkspace')
+bundled_core_manifest_path = File.join(repo_root, 'scripts', 'ios', 'bundled-core-release-manifest.json')
 
 FileUtils.rm_rf(project_path)
 FileUtils.rm_rf(workspace_path)
@@ -19,12 +21,30 @@ app_group = project.main_group.new_group('App', 'App')
 app_source = app_group.new_file('RommioApp.swift')
 app_source.path = 'RommioApp.swift'
 resources_group = app_group.new_group('Resources', 'Resources')
-resource_files = Dir[File.join(ios_root, 'App', 'Resources', '**', '*')].sort.filter_map do |path|
-    next if File.directory?(path)
+resource_root = File.join(ios_root, 'App', 'Resources')
+manifest_resource_paths =
+    if File.exist?(bundled_core_manifest_path)
+        JSON.parse(File.read(bundled_core_manifest_path)).flat_map do |entry|
+            [entry.fetch('bundle_relative_path'), entry.fetch('license_file')]
+        end
+    else
+        []
+    end
 
-    relative_path = path.delete_prefix(File.join(ios_root, 'App', 'Resources') + '/')
+resource_paths = (
+    Dir[File.join(resource_root, '**', '*')].sort.filter_map do |path|
+        next if File.directory?(path)
+
+        path.delete_prefix(resource_root + '/')
+    end +
+    manifest_resource_paths +
+    ['Cores/CoreLicenses.json']
+).uniq.sort
+
+resource_files = resource_paths.map do |relative_path|
     file = resources_group.new_file(relative_path)
     file.path = relative_path
+    file.last_known_file_type = 'compiled.mach-o.dylib' if relative_path.end_with?('.dylib')
     file
 end
 

@@ -45,6 +45,8 @@ if [[ "${regenerate_xcodeproj}" == "1" || ! -d "${ios_root}/Rommio.xcodeproj" ]]
     ruby "${script_dir}/generate_xcodeproj.rb"
 fi
 
+"${script_dir}/fetch_bundled_cores.sh" --if-missing
+
 xcodebuild_args=(
     xcodebuild
     -project "${ios_root}/Rommio.xcodeproj"

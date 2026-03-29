@@ -59,3 +59,8 @@ It preserves the same product-facing runtime families as Android, but changes de
 - Keep the canonical family/runtime map in `docs/runtime-matrix.json` and the
   iOS build recipe inventory in `scripts/ios/core-build-manifest.json` so
   Android parity and iOS packaging verification can be tested independently.
+- Keep the shipped bundled-core release set in
+  `scripts/ios/bundled-core-release-manifest.json`. The signed dylib binaries
+  themselves are hosted as GitHub Release assets and fetched locally or in CI
+  before iOS app builds; they are no longer tracked as normal Git blobs in the
+  main repository.

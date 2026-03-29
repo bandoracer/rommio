@@ -1,0 +1,20 @@
+[
+  {
+    "runtime_id": "fbneo",
+    "release_tag": "ios-bundled-cores-v20260328-1",
+    "asset_name": "bundled-core-fbneo.dylib",
+    "sha256": "b3cd7360af58c7f80c5699b5658d0428146ada988e3779bc074e9cb1d4962ee0",
+    "bundle_relative_path": "Cores/fbneo.dylib",
+    "license_file": "Cores/licenses/fbneo.LICENSE.txt",
+    "imported_at": "2026-03-29T05:58:35Z"
+  },
+  {
+    "runtime_id": "fceumm",
+    "release_tag": "ios-bundled-cores-v20260328-1",
+    "asset_name": "bundled-core-fceumm.dylib",
+    "sha256": "0ce9f91cbf9417ac1447e1890bc9eebcf446e8b19dd6e32391a2723baa745359",
+    "bundle_relative_path": "Cores/fceumm.dylib",
+    "license_file": "Cores/licenses/fceumm.LICENSE.txt",
+    "imported_at": "2026-03-29T05:58:37Z"
+  }
+]

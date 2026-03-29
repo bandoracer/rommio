@@ -18,5 +18,6 @@ ios/Package.resolved
 ios/Rommio.xcworkspace/
 ios/Rommio.xcodeproj/xcuserdata/
 ios/Rommio.xcodeproj/project.xcworkspace/xcuserdata/
+ios/App/Resources/Cores/*.dylib
 third_party/libretro/
 *.xcresult

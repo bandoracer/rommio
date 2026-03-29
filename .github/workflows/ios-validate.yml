@@ -1,0 +1,39 @@
+name: iOS Validate
+
+on:
+  pull_request:
+    paths:
+      - "ios/**"
+      - "scripts/ios/**"
+      - "docs/ios-player-spec.md"
+      - "docs/ios-product-spec.md"
+      - "docs/core-matrix-ios.md"
+      - "docs/runtime-matrix.json"
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: macos-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch bundled cores
+        run: scripts/ios/fetch_bundled_cores.sh --if-missing
+
+      - name: Verify core build manifest
+        run: scripts/ios/verify_core_build_manifest.sh
+
+      - name: Verify bundled core resources
+        run: scripts/ios/verify_bundled_core_resources.sh
+
+      - name: Run Swift package tests
+        run: swift test --package-path ios
+
+      - name: Build simulator app
+        run: scripts/ios/build_simulator_app.sh
+
+      - name: Verify built simulator app code signature
+        run: codesign --verify --deep --strict ios/build/Debug-iphonesimulator/Rommio.app
