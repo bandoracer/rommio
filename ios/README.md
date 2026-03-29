@@ -87,6 +87,14 @@ Build the app for the iOS simulator:
 scripts/ios/build_simulator_app.sh
 ```
 
+That build reuses the tracked `ios/Rommio.xcodeproj` by default so routine
+simulator builds do not churn the repo. Regenerate the project only when the
+tracked project is missing or when you intentionally want to refresh it:
+
+```bash
+REGENERATE_XCODEPROJ=1 scripts/ios/build_simulator_app.sh
+```
+
 Build, install, and launch the app on the booted simulator, or fall back to
 `iPhone Air` when no simulator is booted:
 

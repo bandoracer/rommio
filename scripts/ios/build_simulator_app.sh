@@ -12,6 +12,7 @@ build_products_dir="${ios_root}/build/${configuration}-${sdk}"
 log_dir="${ios_root}/build-logs"
 derived_data="${DERIVED_DATA:-}"
 adhoc_sign_simulator_bundle="${ADHOC_SIGN_SIMULATOR_BUNDLE:-1}"
+regenerate_xcodeproj="${REGENERATE_XCODEPROJ:-0}"
 
 host_arch="$(uname -m)"
 archs="${ARCHS:-$([[ "${host_arch}" == "arm64" ]] && echo "arm64" || echo "x86_64")}"
@@ -40,7 +41,9 @@ done
 
 mkdir -p "${log_dir}" "${build_products_dir}"
 
-ruby "${script_dir}/generate_xcodeproj.rb"
+if [[ "${regenerate_xcodeproj}" == "1" || ! -d "${ios_root}/Rommio.xcodeproj" ]]; then
+    ruby "${script_dir}/generate_xcodeproj.rb"
+fi
 
 xcodebuild_args=(
     xcodebuild
