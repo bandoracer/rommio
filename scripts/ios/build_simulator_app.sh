@@ -11,6 +11,7 @@ sdk="iphonesimulator"
 build_products_dir="${ios_root}/build/${configuration}-${sdk}"
 log_dir="${ios_root}/build-logs"
 derived_data="${DERIVED_DATA:-}"
+adhoc_sign_simulator_bundle="${ADHOC_SIGN_SIMULATOR_BUNDLE:-1}"
 
 host_arch="$(uname -m)"
 archs="${ARCHS:-$([[ "${host_arch}" == "arm64" ]] && echo "arm64" || echo "x86_64")}"
@@ -111,6 +112,14 @@ app_path="${build_products_dir}/Rommio.app"
 if [[ ! -d "${app_path}" ]]; then
     echo "Build completed without producing ${app_path}" >&2
     exit 1
+fi
+
+if [[ "${sdk}" == "iphonesimulator" && "${adhoc_sign_simulator_bundle}" == "1" ]]; then
+    # Xcode leaves simulator builds as linker-signed binaries when code signing is
+    # disabled in project settings. Re-sign the finished app bundle ad hoc so the
+    # shipped dylibs, license files, and other resources satisfy strict verification.
+    codesign --force --sign - --timestamp=none --deep "${app_path}"
+    codesign --verify --deep --strict "${app_path}"
 fi
 
 echo "Built ${app_path}"
