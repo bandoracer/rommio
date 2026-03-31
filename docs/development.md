@@ -10,9 +10,9 @@ This document collects the setup, build, emulator, device, and release details f
 
 Important source areas:
 
-- [`app/src/main/java/io/github/mattsays/rommnative/data/`](../app/src/main/java/io/github/mattsays/rommnative/data)
-- [`app/src/main/java/io/github/mattsays/rommnative/domain/`](../app/src/main/java/io/github/mattsays/rommnative/domain)
-- [`app/src/main/java/io/github/mattsays/rommnative/ui/`](../app/src/main/java/io/github/mattsays/rommnative/ui)
+- [`app/src/main/java/io/github/bandoracer/rommio/data/`](../app/src/main/java/io/github/bandoracer/rommio/data)
+- [`app/src/main/java/io/github/bandoracer/rommio/domain/`](../app/src/main/java/io/github/bandoracer/rommio/domain)
+- [`app/src/main/java/io/github/bandoracer/rommio/ui/`](../app/src/main/java/io/github/bandoracer/rommio/ui)
 - [`app/src/test/`](../app/src/test)
 
 ## Requirements
@@ -41,45 +41,61 @@ These can be overridden with environment variables such as `ANDROID_API_LEVEL`, 
 
 ## Build
 
-Build the debug APK from the repository root:
+Build the renamed standard debug APK from the repository root:
 
 ```bash
-./gradlew assembleDebug
+./gradlew assembleStandardDebug
 ```
 
-Debug APK output:
+Standard debug APK output:
 
-- `app/build/outputs/apk/debug/app-debug.apk`
+- `app/build/outputs/apk/standard/debug/app-standard-debug.apk`
 
-Build a release APK:
+Build the temporary legacy bridge APK that keeps the old package id for export-driven migration:
 
 ```bash
-./gradlew assembleRelease
+./gradlew assembleLegacyBridgeDebug
 ```
 
-Release APK output:
+Legacy bridge debug APK output:
 
-- `app/build/outputs/apk/release/app-release.apk`
+- `app/build/outputs/apk/legacyBridge/debug/app-legacyBridge-debug.apk`
+
+Build the standard release APK:
+
+```bash
+./gradlew assembleStandardRelease
+```
+
+Standard release APK output:
+
+- `app/build/outputs/apk/standard/release/app-standard-release.apk`
 
 ## Test
 
 Run unit tests from the repository root:
 
 ```bash
-./gradlew testDebugUnitTest
+./gradlew testStandardDebugUnitTest
 ```
 
 Install to a connected device or booted emulator:
 
 ```bash
-./gradlew installDebug
+./gradlew installStandardDebug
+```
+
+Install the legacy bridge build over an existing `io.github.mattsays.rommnative` install:
+
+```bash
+./gradlew installLegacyBridgeDebug
 ```
 
 Example connected instrumentation run:
 
 ```bash
-./gradlew connectedDebugAndroidTest \
-  -Pandroid.testInstrumentationRunnerArguments.class=io.github.mattsays.rommnative.auth.AuthLiveSmokeTest
+./gradlew connectedStandardDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=io.github.bandoracer.rommio.auth.AuthLiveSmokeTest
 ```
 
 ## Android Tooling Quick Start
@@ -134,6 +150,12 @@ scripts/android/start_emulator.sh --wipe-data
 
 ```bash
 scripts/android/install_and_launch.sh
+```
+
+Use the legacy bridge variant instead of the renamed standard app:
+
+```bash
+APP_VARIANT=legacyBridge scripts/android/install_and_launch.sh
 ```
 
 Install and launch on a specific target:

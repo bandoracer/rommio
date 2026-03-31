@@ -47,15 +47,16 @@ val hasReleaseSigning = !releaseKeystorePath.isNullOrBlank() &&
     !releaseKeyPassword.isNullOrBlank()
 
 android {
-    namespace = "io.github.mattsays.rommnative"
+    namespace = "io.github.bandoracer.rommio"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "io.github.mattsays.rommnative"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 3
+        versionName = "0.3.0"
+        buildConfigField("String", "LEGACY_PACKAGE_ID", "\"io.github.mattsays.rommnative\"")
+        buildConfigField("boolean", "IS_LEGACY_BRIDGE", "false")
         buildConfigField("String", "DEBUG_TEST_BASE_URL", "\"\"")
         buildConfigField("String", "DEBUG_TEST_CLIENT_ID", "\"\"")
         buildConfigField("String", "DEBUG_TEST_CLIENT_SECRET", "\"\"")
@@ -64,6 +65,24 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+    }
+
+
+    flavorDimensions += "packageId"
+
+    productFlavors {
+        create("standard") {
+            dimension = "packageId"
+            applicationId = "io.github.bandoracer.rommio"
+            buildConfigField("boolean", "IS_LEGACY_BRIDGE", "false")
+        }
+
+        create("legacyBridge") {
+            dimension = "packageId"
+            applicationId = "io.github.mattsays.rommnative"
+            buildConfigField("boolean", "IS_LEGACY_BRIDGE", "true")
+            resValue("string", "app_name", "Rommio Legacy")
+        }
     }
 
     signingConfigs {

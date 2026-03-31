@@ -4,7 +4,23 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 NATIVE_APP_DIR="$REPO_ROOT"
-APP_PACKAGE="io.github.mattsays.rommnative"
+APP_VARIANT="${APP_VARIANT:-standard}"
+case "$APP_VARIANT" in
+  standard)
+    APP_PACKAGE="${APP_PACKAGE:-io.github.bandoracer.rommio}"
+    APP_INSTALL_TASK="${APP_INSTALL_TASK:-installStandardDebug}"
+    APP_APK_PATH="${APP_APK_PATH:-$NATIVE_APP_DIR/app/build/outputs/apk/standard/debug/app-standard-debug.apk}"
+    ;;
+  legacyBridge)
+    APP_PACKAGE="${APP_PACKAGE:-io.github.mattsays.rommnative}"
+    APP_INSTALL_TASK="${APP_INSTALL_TASK:-installLegacyBridgeDebug}"
+    APP_APK_PATH="${APP_APK_PATH:-$NATIVE_APP_DIR/app/build/outputs/apk/legacyBridge/debug/app-legacyBridge-debug.apk}"
+    ;;
+  *)
+    echo "Unknown APP_VARIANT: $APP_VARIANT" >&2
+    exit 1
+    ;;
+esac
 APP_ACTIVITY=".MainActivity"
 
 ANDROID_API_LEVEL="${ANDROID_API_LEVEL:-36}"
@@ -30,6 +46,7 @@ Environment overrides:
   ANDROID_DEVICE_NAME
   ANDROID_AVD_NAME
   ANDROID_SERIAL
+  APP_VARIANT (standard or legacyBridge)
 EOF
 }
 
