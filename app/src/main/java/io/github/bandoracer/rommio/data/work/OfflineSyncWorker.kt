@@ -11,13 +11,10 @@ class OfflineSyncWorker(
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
         val container = (applicationContext as RommNativeApplication).container
-        return runCatching {
-            container.repository.refreshActiveProfileCache(force = true)
-            container.repository.drainPendingRemoteActions()
-            Result.success()
-        }.getOrElse {
-            Result.retry()
-        }
+        return if (runOfflineMaintenance(
+            refresh = { container.repository.refreshActiveProfileCache(force = true) },
+            drain = { container.repository.drainPendingRemoteActions() },
+        )) Result.success() else Result.retry()
     }
 
     companion object {

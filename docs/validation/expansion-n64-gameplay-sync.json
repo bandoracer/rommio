@@ -1,0 +1,26 @@
+{
+  "server": "http://192.168.1.221:30062",
+  "version": "5.2.0",
+  "account": "codex-player-qa",
+  "games": [
+    {
+      "romId": 62,
+      "platform": "n64",
+      "runtime": "mupen64plus_next_gles3",
+      "iosPublication": true,
+      "iosProcessRestart": true,
+      "iosReconnect": true,
+      "iosOfflineCaptureSurvivedTermination": true,
+      "androidLostUploadResponseRecovered": true,
+      "gamePublishedDuringSnapshotFailure": true,
+      "manualGameSaveSession": true,
+      "iosFreshRootSnapshotRestore": true,
+      "androidHandoff": true,
+      "androidFreshStoreSnapshotRestore": true,
+      "gameHash": "53e167414e45ec0da185c5c1778dd238c28ed36cfdfd4c79efd63717eb74667d",
+      "clockHash": "4c76430f9c3f3d651465b7be2b967b0ea1283c83aa72f1b6b273d198d6534e86",
+      "snapshotHash": "1d0496ac5fd9192ff973053f2d498479e25939832fae4e30766077fa935fe1cc"
+    }
+  ],
+  "networkFailure": "application transport injection; server stays online"
+}

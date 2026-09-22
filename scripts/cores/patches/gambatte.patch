@@ -1,0 +1,97 @@
+--- a/libgambatte/src/mem/rtc.h
++++ b/libgambatte/src/mem/rtc.h
+@@ -31,6 +31,9 @@
+    {
+       public:
+          Rtc();
++         void *rommioData();
++         void rommioRestore();
++         unsigned char rommioBytes_[24] = {};
+ 
+          const unsigned char* getActive() const
+          {
+--- a/libgambatte/src/mem/rtc.cpp
++++ b/libgambatte/src/mem/rtc.cpp
+@@ -168,3 +168,22 @@
+       baseTime_ -= new_seconds;
+    }
+ }
++
++// Fixed little-endian wire format; never persist native struct padding or time_t.
++static gambatte::Rtc *rommioRtc = 0;
++void *gambatte::Rtc::rommioData() {
++    rommioRtc = this;
++    for (unsigned i=0;i<8;++i) { rommioBytes_[i] = baseTime_ >> (8*i); rommioBytes_[8+i] = haltTime_ >> (8*i); }
++    rommioBytes_[16]=dataDh_; rommioBytes_[17]=dataDl_; rommioBytes_[18]=dataH_;
++    rommioBytes_[19]=dataM_; rommioBytes_[20]=dataS_; rommioBytes_[21]=lastLatchData_;
++    rommioBytes_[22]=0; rommioBytes_[23]=0;
++    return rommioBytes_;
++}
++void gambatte::Rtc::rommioRestore() {
++    baseTime_=0; haltTime_=0;
++    for (unsigned i=0;i<8;++i) { baseTime_ |= uint64_t(rommioBytes_[i]) << (8*i); haltTime_ |= uint64_t(rommioBytes_[8+i]) << (8*i); }
++    dataDh_=rommioBytes_[16]; dataDl_=rommioBytes_[17]; dataH_=rommioBytes_[18];
++    dataM_=rommioBytes_[19]; dataS_=rommioBytes_[20]; lastLatchData_=rommioBytes_[21];
++    doSwapActive();
++}
++extern "C" void rommio_gambatte_restore_rtc() { if (rommioRtc) rommioRtc->rommioRestore(); }
+--- a/libgambatte/src/mem/cartridge_libretro.cpp
++++ b/libgambatte/src/mem/cartridge_libretro.cpp
+@@ -71,7 +71,7 @@
+          if (isHuC3()) {
+             return &huc3_.getBaseTime();
+          } else {
+-            return &rtc_.getBaseTime();
++            return rtc_.rommioData();
+          }
+       }
+       return 0;
+@@ -85,7 +85,7 @@
+          if (isHuC3()) {
+             return sizeof(huc3_.getBaseTime());
+          } else {
+-            return sizeof(rtc_.getBaseTime());
++            return 24;
+          }
+       }
+       return 0;
+--- a/libgambatte/libretro/libretro.cpp
++++ b/libgambatte/libretro/libretro.cpp
+@@ -81,6 +81,7 @@
+ static unsigned turbo_b_counter      = 0;
+ 
+ static bool rom_loaded = false;
++static unsigned rommioCartType = 0xff;
+ 
+ /* Frame-pacing counters used to detect frame dupes when the
+  * emulator generates audio faster than video. Previously these
+@@ -2850,6 +2851,7 @@
+    bool yes = true;
+    environ_cb(RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS, &yes);
+ 
++   rommioCartType = ((const unsigned char*)info->data)[0x147];
+    rom_loaded = true;
+    return true;
+ }
+@@ -2990,3 +2992,21 @@
+ 
+ unsigned retro_api_version() { return RETRO_API_VERSION; }
+ 
++
++extern "C" void rommio_gambatte_restore_rtc();
++extern "C" RETRO_API const char *retro_rommio_persistence_descriptor() {
++    static char result[128];
++    if (!rom_loaded) return "";
++    switch (rommioCartType) {
++      case 0: case 1: case 2: case 3: case 5: case 6: case 15: case 16: case 17: case 18: case 19:
++      case 25: case 26: case 27: case 28: case 29: case 30: break;
++      default: return ""; // HuC3, MBC7 EEPROM, camera and special boards need separate audits.
++    }
++    snprintf(result,sizeof(result),"rommio-cart-v1:gambatte:gb:%u:%u",gb.savedata_size(),gb.rtcdata_size());
++    return result;
++}
++extern "C" RETRO_API bool retro_rommio_memory_restored() {
++    if (!rom_loaded) return false;
++    if (gb.rtcdata_size()==24) rommio_gambatte_restore_rtc();
++    return true;
++}

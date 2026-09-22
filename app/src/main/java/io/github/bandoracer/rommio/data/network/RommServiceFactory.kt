@@ -22,12 +22,14 @@ class RommServiceFactory(
 
         return cache.getOrPut(cacheKey) {
             val logger = HttpLoggingInterceptor().apply {
-                level = HttpLoggingInterceptor.Level.BASIC
+                // API URLs may contain private identifiers or signed query parameters.
+                level = HttpLoggingInterceptor.Level.NONE
             }
 
             val client = OkHttpClient.Builder()
                 .addInterceptor(AuthRequestInterceptor(authManager, profile.id))
-                .addInterceptor(CookiePersistenceInterceptor())
+                .addNetworkInterceptor(CredentialScopeInterceptor())
+                .addNetworkInterceptor(authManager.cookieInterceptor())
                 .addInterceptor(JsonUnauthorizedInterceptor())
                 .addInterceptor(logger)
                 .build()

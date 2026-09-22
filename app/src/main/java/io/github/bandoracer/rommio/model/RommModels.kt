@@ -7,7 +7,7 @@ import com.squareup.moshi.Json
 data class UserDto(
     val id: Int,
     val username: String,
-    val email: String,
+    val email: String? = null,
     val role: String,
 )
 
@@ -25,6 +25,7 @@ data class ItemsResponse<T>(
     val total: Int? = null,
     val page: Int? = null,
     @Json(name = "per_page") val perPage: Int? = null,
+    @Json(name = "rom_id_index") val romIdIndex: List<Int>? = null,
 )
 
 data class RomFileDto(
@@ -114,7 +115,7 @@ data class StateDto(
     val emulator: String? = null,
 )
 
-@Entity(tableName = "downloaded_roms", primaryKeys = ["romId", "fileId"])
+@Entity(tableName = "downloaded_roms", primaryKeys = ["namespaceKey", "romId", "fileId"])
 data class DownloadedRomEntity(
     val romId: Int,
     val fileId: Int,
@@ -124,9 +125,15 @@ data class DownloadedRomEntity(
     val localPath: String,
     val fileSizeBytes: Long,
     val downloadedAtEpochMs: Long,
+    val ownerProfileId: String? = null,
+    val ownerBaseUrl: String? = null,
+    val ownerAccountId: Int? = null,
+    val contentSha256: String? = null,
+    val namespaceKey: String = InstallIdentity.namespace(ownerBaseUrl, ownerAccountId),
+    val progressScope: String = InstallIdentity.LEGACY,
 )
 
-@Entity(tableName = "save_states", primaryKeys = ["romId", "slot"])
+@Entity(tableName = "save_states", primaryKeys = ["progressScope", "romId", "slot"])
 data class SaveStateEntity(
     val romId: Int,
     val slot: Int,
@@ -134,6 +141,7 @@ data class SaveStateEntity(
     val localPath: String,
     val screenshotPath: String? = null,
     val updatedAtEpochMs: Long,
+    val progressScope: String = InstallIdentity.LEGACY,
 )
 
 data class LocalInstallStatus(

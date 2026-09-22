@@ -16,7 +16,14 @@ public final class KeychainSecretStore: SecretStore, @unchecked Sendable {
     }
 
     public func save(_ value: Data, for key: String) throws {
-        try remove(key: key)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key,
+        ]
+        let updated = SecItemUpdate(query as CFDictionary, [kSecValueData as String: value] as CFDictionary)
+        if updated == errSecSuccess { return }
+        guard updated == errSecItemNotFound else { throw KeychainError(status: updated) }
         let status = SecItemAdd([
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

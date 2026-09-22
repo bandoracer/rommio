@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import Observation
 import RommioContract
 import RommioFoundation
@@ -21,6 +22,7 @@ private final class ApplicationPresentationAnchorProvider: NSObject, Presentatio
 
 public struct RommioRootView: View {
     @State private var model: RommioAppModel
+    @Environment(\.scenePhase) private var scenePhase
 
     public init(
         services: RommioServices,
@@ -57,16 +59,29 @@ public struct RommioRootView: View {
                     .task { await model.refreshShell(forceRemote: false) }
             }
         }
+        .onChange(of: scenePhase) { _, phase in
+            Task {
+                await model.playerSceneChanged(active: phase == .active)
+                if phase == .active { await model.resumeDownloads() }
+            }
+        }
         .rommioPlayerPresentation(model: model, bindable: bindable)
-        .overlay(alignment: .top) {
-            if let message = model.errorMessage ?? model.noticeMessage {
+        .overlay(alignment: .bottom) {
+            // Bottom placement keeps navigation (Back, vertical bars) uncovered.
+            if model.onboardingRoute == nil, let message = model.errorMessage ?? model.noticeMessage {
                 Banner(message: message, isError: model.errorMessage != nil)
-                    .padding(.top, 8)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 88)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .animation(.snappy, value: model.errorMessage)
         .animation(.snappy, value: model.noticeMessage)
+        .task(id: model.noticeMessage) {
+            guard let message = model.noticeMessage else { return }
+            do { try await Task.sleep(for: .seconds(5)) } catch { return }
+            if model.noticeMessage == message { model.noticeMessage = nil }
+        }
     }
 
     private var bindable: Bindable<RommioAppModel> {
@@ -95,130 +110,33 @@ private struct OnboardingFlowView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                switch route {
-                case .welcome:
-                    WelcomeStepView(model: model)
-                case .serverAccess:
-                    ServerAccessStepView(model: model)
-                case .login:
+            VStack(alignment: .leading, spacing: 24) {
+                if route == .login {
                     LoginStepView(model: model)
-                case .success:
-                    SuccessStepView(model: model)
-                }
-            }
-            .padding(20)
-            .accessibilityIdentifier(screenIdentifier)
-        }
-        .navigationTitle(title)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                if model.isBusy {
-                    ProgressView()
-                }
-            }
-        }
-    }
-
-    private var title: String {
-        switch route {
-        case .welcome:
-            "Welcome"
-        case .serverAccess:
-            "Server Access"
-        case .login:
-            "RomM Sign-In"
-        case .success:
-            "Connection Ready"
-        }
-    }
-
-    private var screenIdentifier: String {
-        switch route {
-        case .welcome:
-            "screen.welcome"
-        case .serverAccess:
-            "screen.serverAccess"
-        case .login:
-            "screen.login"
-        case .success:
-            "screen.success"
-        }
-    }
-}
-
-private struct WelcomeStepView: View {
-    let model: RommioAppModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            CardSection(title: "What changes here") {
-                Text("Connect your RomM server, verify protected edge access, and then authenticate with RomM as a separate step.")
-                    .foregroundStyle(.secondary)
-                Text("The app keeps the Android setup semantics, but presents them as a native iOS onboarding flow.")
-                    .foregroundStyle(.secondary)
-            }
-
-            CardSection(title: model.activeProfile == nil ? "First connection" : "Resume setup") {
-                Text(model.activeProfile == nil
-                     ? "Start by configuring server access. Once native access is verified, continue to RomM sign-in."
-                     : "A saved server profile was found. Resume setup or reset server access and start over.")
-                    .foregroundStyle(.secondary)
-
-                HStack {
-                    Button(model.activeProfile == nil ? "Start setup" : "Resume setup") {
-                        if model.activeProfile == nil {
-                            model.beginSetup()
-                        } else {
-                            model.resumeSetup()
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("welcome.primaryAction")
-
-                    if model.activeProfile != nil {
-                        Button("Reconfigure") {
-                            Task { await model.reconfigureSetup() }
-                        }
-                        .accessibilityIdentifier("welcome.reconfigure")
-                    }
-                }
-            }
-
-            CardSection(title: "Saved servers") {
-                if model.profiles.isEmpty {
-                    Label("No saved servers", systemImage: "network.slash")
-                        .foregroundStyle(.secondary)
                 } else {
-                    ForEach(model.profiles) { profile in
-                        HStack(alignment: .top) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(profile.label)
-                                    .font(.headline)
-                                Text(profile.baseURL.absoluteString)
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                                Text(profile.status.rawValue.replacingOccurrences(of: "_", with: " ").lowercased().capitalized)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            if model.activeProfile?.id == profile.id {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
-                            } else {
-                                Button("Activate") {
-                                    Task { await model.switchProfile(to: profile) }
-                                }
-                            }
-                        }
-                        .padding(.vertical, 4)
-                        .swipeActions {
-                            Button("Delete", role: .destructive) {
-                                Task { await model.deleteProfile(profile) }
-                            }
-                        }
+                    ServerAccessStepView(model: model)
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 40)
+            .padding(.bottom, 24)
+            .frame(maxWidth: 560)
+            .frame(maxWidth: .infinity)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(route == .login ? "screen.login" : "screen.serverAccess")
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .background(.background)
+        .toolbar {
+            if route == .login {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        model.changeServerAccess()
+                    } label: {
+                        Label("Server", systemImage: "chevron.left")
                     }
+                    .disabled(model.isBusy)
+                    .accessibilityIdentifier("login.changeServerAccess")
                 }
             }
         }
@@ -226,198 +144,317 @@ private struct WelcomeStepView: View {
 }
 
 private struct ServerAccessStepView: View {
-    let model: RommioAppModel
+    @Bindable var model: RommioAppModel
+    @State private var showsAccessProfile = false
+    @State private var showsOneTouchSetup = false
+    @FocusState private var addressFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            CardSection(title: "Server") {
-                Text("Choose the right edge policy, then confirm that the app can reach RomM from native requests before continuing.")
+        VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 8) {
+                Image(systemName: "gamecontroller.fill")
+                    .font(.system(size: 36))
+                    .foregroundStyle(.tint)
+                    .accessibilityHidden(true)
+                Text("Rommio")
+                    .font(.largeTitle.bold())
+                Text("Connect to your RomM server")
                     .foregroundStyle(.secondary)
-                TextField("https://romm.example.com", text: bindable.serverURL)
-                    .rommioServerURLFieldTraits {
-                        Task { await model.discoverServer() }
-                    }
-                    .accessibilityIdentifier("serverAccess.serverURL")
-                TextField("Label", text: bindable.profileLabel)
-                    .accessibilityIdentifier("serverAccess.profileLabel")
-                Button("Discover policy") {
-                    Task { await model.discoverServer() }
+            }
+
+            VStack(spacing: 12) {
+                Button {
+                    addressFocused = false
+                    showsOneTouchSetup = true
+                } label: {
+                    Label("One-touch setup", systemImage: "qrcode.viewfinder")
+                        .frame(maxWidth: .infinity).padding(.vertical, 8)
                 }
                 .buttonStyle(.borderedProminent)
-                .accessibilityIdentifier("serverAccess.discover")
+                .disabled(model.isBusy)
+                .accessibilityIdentifier("serverAccess.oneTouchSetup")
+                Text("or connect manually").font(.footnote).foregroundStyle(.secondary)
             }
 
-            if let discovery = model.discoveryResult {
-                CardSection(title: "Detected policy") {
-                    LabeledContent("Base URL", value: discovery.baseURL.absoluteString)
-                    LabeledContent("Edge auth", value: edgeAuthLabel(discovery.recommendedEdgeAuthMode))
-                    LabeledContent("Origin auth", value: originAuthLabel(discovery.recommendedOriginAuthMode))
-                    if discovery.capabilities.cloudflareAccessDetected {
-                        Label("Cloudflare Access detected", systemImage: "lock.shield")
-                    }
-                    if discovery.capabilities.genericCookieSSODetected {
-                        Label("Cookie-based SSO detected", systemImage: "key.horizontal")
-                    }
-                    if discovery.capabilities.rommOIDCAvailable {
-                        Label("OIDC sign-in is available", systemImage: "person.crop.circle.badge.checkmark")
-                    }
-                    if discovery.capabilities.rommTokenAvailable {
-                        Label("Token auth is available", systemImage: "key.fill")
-                    }
-                    ForEach(discovery.warnings, id: \.self) { warning in
-                        Label(warning, systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.orange)
-                    }
-                }
-            }
+            VStack(alignment: .leading, spacing: 12) {
+                TextField("romm.example.com", text: $model.serverURL)
+                    .rommioServerURLFieldTraits { connect() }
+                    .focused($addressFocused)
+                    .onboardingField()
+                    .accessibilityLabel("Server address")
+                    .accessibilityIdentifier("serverAccess.serverURL")
 
-            CardSection(title: "Protected server access") {
-                Text("Select the server access mode the app should carry into native requests.")
-                    .foregroundStyle(.secondary)
-                ForEach(EdgeAuthMode.allCases, id: \.self) { mode in
-                    Button {
-                        model.selectEdgeAuthMode(mode)
-                    } label: {
-                        HStack {
-                            Image(systemName: model.selectedEdgeAuthMode == mode ? "largecircle.fill.circle" : "circle")
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(edgeAuthLabel(mode))
-                                Text(edgeAuthDescription(mode))
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("serverAccess.edgeMode.\(mode.rawValue)")
-                    Divider()
-                }
-
-                if let discovery = model.discoveryResult,
-                   model.selectedEdgeAuthMode != discovery.recommendedEdgeAuthMode {
-                    Button("Use detected recommendation") {
-                        model.useDetectedEdgeRecommendation()
-                    }
-                    .accessibilityIdentifier("serverAccess.useRecommendation")
-                }
-
-                if model.selectedEdgeAuthMode == .cloudflareAccessService {
-                    TextField("Cloudflare client ID", text: bindable.cloudflareClientID)
-                        .autocorrectionDisabled()
-                        .accessibilityIdentifier("serverAccess.cloudflareClientID")
-                    SecureField("Cloudflare client secret", text: bindable.cloudflareClientSecret)
-                        .accessibilityIdentifier("serverAccess.cloudflareClientSecret")
-                }
-
-                HStack {
-                    if model.requiresInteractiveEdgeAuth {
-                        Button("Open protected login") {
-                            Task { await model.beginInteractiveEdgeAccess() }
-                        }
-                        .accessibilityIdentifier("serverAccess.openProtectedLogin")
-                    }
-
-                    Button("Test protected access") {
-                        Task { await model.testProtectedAccess() }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("serverAccess.testProtectedAccess")
-                }
-
-                Button("Continue to login") {
-                    model.continueToLogin()
-                }
-                .disabled(!model.canContinueToLogin)
-                .accessibilityIdentifier("serverAccess.continueToLogin")
-            }
-
-            if let profile = model.activeProfile {
-                CardSection(title: "Diagnostics") {
-                    LabeledContent("Server", value: profile.label)
-                    LabeledContent("Status", value: profile.serverAccess.status.rawValue)
-                        .accessibilityIdentifier("serverAccess.diagnostics.status")
-                    if let result = model.serverAccessResult {
-                        LabeledContent("Response kind", value: result.responseKind.rawValue)
-                        if let status = result.httpStatus {
-                            LabeledContent("HTTP status", value: String(status))
-                        }
-                        LabeledContent("Cookies", value: result.cookieNamesSeen.isEmpty ? "None" : result.cookieNamesSeen.joined(separator: ", "))
-                        Text(result.message)
+                Button {
+                    addressFocused = false
+                    showsAccessProfile = true
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "lock.shield")
+                        Text("Access profile")
+                        Spacer()
+                        Text(model.isEdgeAuthModeOverridden ? accessProfileLabel(model.selectedEdgeAuthMode) : "Automatic")
                             .foregroundStyle(.secondary)
-                    } else {
-                        LabeledContent("Cookies", value: profile.serverAccess.cookieNamesSeen.isEmpty ? "None" : profile.serverAccess.cookieNamesSeen.joined(separator: ", "))
-                        if let lastError = profile.serverAccess.lastError {
-                            Text(lastError)
-                                .foregroundStyle(.secondary)
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .onboardingField()
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("serverAccess.accessProfile")
+
+                OnboardingError(message: model.errorMessage)
+
+                Button(action: connect) {
+                    OnboardingButtonLabel(title: "Connect", isBusy: model.isBusy)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(model.serverURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isBusy)
+                .accessibilityIdentifier("serverAccess.connect")
+            }
+            .disabled(model.isBusy)
+
+            if !model.profiles.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Saved servers").font(.headline)
+                    ForEach(model.profiles) { profile in
+                        Button {
+                            addressFocused = false
+                            Task { await model.switchProfile(to: profile) }
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(profile.label).font(.headline)
+                                    Text(profile.baseURL.absoluteString)
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                }
+                                Spacer()
+                                Image(systemName: "arrow.right.circle")
+                                    .foregroundStyle(.tint)
+                            }
+                            .onboardingField()
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(model.isBusy)
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showsAccessProfile) {
+            AccessProfileSheet(model: model)
+        }
+        .sheet(isPresented: $showsOneTouchSetup) {
+            OneTouchSetupView(appModel: model)
+        }
+    }
+
+    private func connect() {
+        addressFocused = false
+        Task { await model.connectServer() }
+    }
+}
+
+private struct AccessProfileSheet: View {
+    let model: RommioAppModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var automatic: Bool
+    @State private var mode: EdgeAuthMode
+    @State private var clientID: String
+    @State private var clientSecret: String
+
+    init(model: RommioAppModel) {
+        self.model = model
+        _automatic = State(initialValue: !model.isEdgeAuthModeOverridden)
+        _mode = State(initialValue: model.selectedEdgeAuthMode)
+        _clientID = State(initialValue: model.cloudflareClientID)
+        _clientSecret = State(initialValue: model.cloudflareClientSecret)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Toggle("Detect automatically", isOn: $automatic)
+                    if !automatic {
+                        Picker("Connection", selection: $mode) {
+                            ForEach(EdgeAuthMode.allCases, id: \.self) { mode in
+                                Text(accessProfileLabel(mode)).tag(mode)
+                            }
                         }
                     }
-                    if let lastTestedAt = profile.serverAccess.lastTestedAt {
-                        LabeledContent("Last test", value: lastTestedAt)
+                } footer: {
+                    Text("Most servers work automatically. Choose a profile if your server requires extra access credentials.")
+                }
+                if !automatic && mode == .cloudflareAccessService {
+                    Section("Cloudflare service token") {
+                        TextField("Client ID", text: $clientID)
+                            .rommioUsernameFieldTraits()
+                            .accessibilityIdentifier("serverAccess.cloudflareClientID")
+                        SecureField("Client secret", text: $clientSecret)
+                            .accessibilityIdentifier("serverAccess.cloudflareClientSecret")
+                    }
+                }
+                if !automatic && (mode == .cloudflareAccessSession || mode == .genericCookieSSO) {
+                    Section {
+                        Text("A browser will open if your server needs you to sign in before connecting.")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .navigationTitle("Access profile")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        model.selectedEdgeAuthMode = automatic ? .none : mode
+                        model.isEdgeAuthModeOverridden = !automatic
+                        model.cloudflareClientID = clientID
+                        model.cloudflareClientSecret = clientSecret
+                        model.errorMessage = nil
+                        dismiss()
                     }
                 }
             }
         }
     }
-
-    private var bindable: Bindable<RommioAppModel> {
-        Bindable(model)
-    }
 }
 
 private struct LoginStepView: View {
-    let model: RommioAppModel
+    @Bindable var model: RommioAppModel
+    @FocusState private var focusedField: Field?
+    private enum Field { case username, password }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            if let profile = model.activeProfile {
-                CardSection(title: "Connection summary") {
-                    LabeledContent("Server", value: profile.label)
-                    LabeledContent("URL", value: profile.baseURL.absoluteString)
-                    LabeledContent("Server access", value: profile.serverAccess.status.rawValue)
-                    LabeledContent("RomM auth", value: originAuthLabel(profile.originAuthMode))
-                    Button("Change server access") {
-                        model.changeServerAccess()
-                    }
-                    .accessibilityIdentifier("login.changeServerAccess")
+        VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Sign in").font(.largeTitle.bold())
+                Text(model.activeProfile?.label ?? "RomM")
+                    .font(.headline)
+                if let url = model.activeProfile?.baseURL {
+                    Text(url.absoluteString)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
             }
-
-            CardSection(title: "Authentication") {
-                Text(originAuthMessage(model.effectiveOriginAuthMode))
-                    .foregroundStyle(.secondary)
-
+            VStack(alignment: .leading, spacing: 12) {
                 switch model.effectiveOriginAuthMode {
                 case .rommBearerPassword, .rommBasicLegacy:
-                    TextField("Username", text: bindable.username)
-                        .autocorrectionDisabled()
+                    TextField("Username", text: $model.username)
+                        .rommioUsernameFieldTraits()
+                        .focused($focusedField, equals: .username)
+                        .submitLabel(.next)
+                        .onSubmit { focusedField = .password }
+                        .onboardingField()
                         .accessibilityIdentifier("login.username")
-                    SecureField("Password", text: bindable.password)
+                    SecureField("Password", text: $model.password)
+                        .rommioPasswordFieldTraits()
+                        .focused($focusedField, equals: .password)
+                        .submitLabel(.go)
+                        .onSubmit { signIn() }
+                        .onboardingField()
                         .accessibilityIdentifier("login.password")
-                    Button("Sign in") {
-                        Task { await model.submitLogin() }
+                    OnboardingError(message: model.errorMessage)
+                    Button(action: signIn) {
+                        OnboardingButtonLabel(title: "Sign in", isBusy: model.isBusy)
                     }
                     .buttonStyle(.borderedProminent)
+                    .disabled(model.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.password.isEmpty || model.isBusy)
                     .accessibilityIdentifier("login.signIn")
                 case .rommOIDCSession:
-                    Button("Continue with RomM SSO") {
+                    OnboardingError(message: model.errorMessage)
+                    Button {
                         model.beginInteractiveOriginLogin()
+                    } label: {
+                        OnboardingButtonLabel(title: "Continue with SSO", isBusy: model.isBusy)
                     }
                     .buttonStyle(.borderedProminent)
                     .accessibilityIdentifier("login.continueWithSSO")
                 case .none:
-                    Button("Validate current session") {
-                        Task { await model.submitLogin() }
+                    OnboardingError(message: model.errorMessage)
+                    Button(action: signIn) {
+                        OnboardingButtonLabel(title: "Continue", isBusy: model.isBusy)
                     }
                     .buttonStyle(.borderedProminent)
                     .accessibilityIdentifier("login.validateCurrentSession")
                 }
             }
+            .disabled(model.isBusy)
         }
     }
 
-    private var bindable: Bindable<RommioAppModel> {
-        Bindable(model)
+    private func signIn() {
+        focusedField = nil
+        Task { await model.submitLogin() }
+    }
+}
+
+private struct OnboardingButtonLabel: View {
+    let title: String
+    let isBusy: Bool
+    var body: some View {
+        HStack(spacing: 8) {
+            if isBusy { ProgressView().tint(.white) }
+            Text(isBusy ? "Connecting…" : title).bold()
+        }
+        .frame(maxWidth: .infinity, minHeight: 32)
+        .padding(.vertical, 6)
+    }
+}
+
+private struct OnboardingError: View {
+    let message: String?
+    var body: some View {
+        if let message {
+            Label(message, systemImage: "exclamationmark.circle")
+                .font(.callout)
+                .foregroundStyle(.red)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("onboarding.error")
+        }
+    }
+}
+
+private func accessProfileLabel(_ mode: EdgeAuthMode) -> String {
+    switch mode {
+    case .none: "Direct"
+    case .cloudflareAccessSession: "Cloudflare login"
+    case .cloudflareAccessService: "Service token"
+    case .genericCookieSSO: "Browser login"
+    }
+}
+
+private extension View {
+    func onboardingField() -> some View {
+        self
+            .padding(16)
+            .frame(minHeight: 52)
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    @ViewBuilder
+    func rommioUsernameFieldTraits() -> some View {
+#if os(iOS)
+        autocorrectionDisabled()
+            .textInputAutocapitalization(.never)
+            .textContentType(.username)
+#else
+        autocorrectionDisabled()
+#endif
+    }
+
+    @ViewBuilder
+    func rommioPasswordFieldTraits() -> some View {
+#if os(iOS)
+        textContentType(.password)
+#else
+        self
+#endif
     }
 }
 
@@ -454,27 +491,6 @@ private extension View {
     }
 }
 
-private struct SuccessStepView: View {
-    let model: RommioAppModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            CardSection(title: "Connection ready") {
-                Text("Protected server access and RomM authentication are active.")
-                    .foregroundStyle(.secondary)
-                Text("The native shell can now refresh the catalog, browse the library, and manage downloads.")
-                    .foregroundStyle(.secondary)
-            }
-
-            Button("Enter app") {
-                Task { await model.enterApp() }
-            }
-            .buttonStyle(.borderedProminent)
-            .accessibilityIdentifier("success.enterApp")
-        }
-    }
-}
-
 private struct InteractiveAuthOverlay: View {
     let provider: InteractiveSessionProvider
 
@@ -487,7 +503,7 @@ private struct InteractiveAuthOverlay: View {
                 Text(provider == .edge ? "Completing protected login…" : "Completing RomM sign-in…")
                     .font(.headline)
                 Text(provider == .edge
-                     ? "Finish the system authentication sheet, then the app will return you to the server-access test."
+                     ? "Finish signing in in your browser. Rommio will check the connection automatically."
                      : "Finish the system authentication sheet, then the app will validate the RomM session.")
                     .multilineTextAlignment(.center)
                     .font(.footnote)
@@ -521,28 +537,33 @@ private struct AuthenticatedShell: View {
     let model: RommioAppModel
 
     var body: some View {
+        // Sidebar-adaptable tabs become the vertical bar on iPhone Duo's outer
+        // display and can expand into a sidebar on the regular-width inner display.
         TabView(selection: bindable.selectedTab) {
-            HomeTab(model: model, feature: model.homeFeature)
-                .tabItem { Label("Home", systemImage: "house.fill") }
-                .tag(RommioAppModel.ShellTab.home)
+            Tab("Home", systemImage: "house.fill", value: RommioAppModel.ShellTab.home) {
+                HomeTab(model: model, feature: model.homeFeature)
+            }
 
-            LibraryTab(model: model, feature: model.libraryFeature)
-                .tabItem { Label("Library", systemImage: "books.vertical.fill") }
-                .tag(RommioAppModel.ShellTab.library)
+            Tab("Library", systemImage: "books.vertical.fill", value: RommioAppModel.ShellTab.library) {
+                LibraryTab(model: model, feature: model.libraryFeature)
+            }
 
-            CollectionsTab(model: model, feature: model.collectionsFeature)
-                .tabItem { Label("Collections", systemImage: "square.stack.3d.up.fill") }
-                .tag(RommioAppModel.ShellTab.collections)
+            Tab("Collections", systemImage: "square.stack.3d.up.fill", value: RommioAppModel.ShellTab.collections) {
+                CollectionsTab(model: model, feature: model.collectionsFeature)
+            }
 
-            DownloadsTab(model: model, feature: model.downloadsFeature)
-                .tabItem { Label("Downloads", systemImage: "arrow.down.circle.fill") }
-                .tag(RommioAppModel.ShellTab.downloads)
+            Tab("Downloads", systemImage: "arrow.down.circle.fill", value: RommioAppModel.ShellTab.downloads) {
+                DownloadsTab(model: model, feature: model.downloadsFeature)
+            }
+            .badge(model.downloadsFeature.queueSummary.runningCount + model.downloadsFeature.queueSummary.queuedCount)
 
-            SettingsTab(model: model, feature: model.settingsFeature)
-                .tabItem { Label("Settings", systemImage: "gearshape.fill") }
-                .tag(RommioAppModel.ShellTab.settings)
+            Tab("Settings", systemImage: "gearshape.fill", value: RommioAppModel.ShellTab.settings) {
+                SettingsTab(model: model, feature: model.settingsFeature)
+            }
         }
-        .overlay(alignment: .bottomTrailing) {
+        .tabViewStyle(.sidebarAdaptable)
+        // Leading side: the trailing edge holds iPhone Duo's vertical bar.
+        .overlay(alignment: .bottomLeading) {
             if model.isRefreshing {
                 ProgressView()
                     .padding()
@@ -612,132 +633,182 @@ private func originAuthMessage(_ mode: OriginAuthMode) -> String {
 private struct HomeTab: View {
     let model: RommioAppModel
     let feature: HomeFeatureModel
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 16) {
-                    ShellFeatureCard(
-                        eyebrow: "Home",
-                        title: "Welcome back",
-                        subtitle: "Jump into the library, monitor transfers, and surface what is ready to play.",
-                        badge: "Console view"
-                    ) {
-                        MetricGrid(
-                            metrics: [
-                                MetricValue(title: "Installed", value: "\(feature.storageSummary.installedGameCount)", systemImage: "square.stack.3d.up.fill"),
-                                MetricValue(title: "Storage", value: ByteCountFormatter.string(fromByteCount: feature.storageSummary.totalBytes, countStyle: .file), systemImage: "internaldrive.fill"),
-                                MetricValue(title: "Queue", value: "\(feature.queueSummary.queuedCount + feature.queueSummary.runningCount)", systemImage: "arrow.triangle.2.circlepath"),
-                                MetricValue(title: "Attention", value: "\(feature.queueSummary.failedCount)", systemImage: "exclamationmark.circle.fill"),
-                            ]
-                        )
-
-                        QuickActionGrid(actions: [
-                            QuickActionValue(title: "Library", systemImage: "books.vertical.fill") {
-                                model.selectedTab = .library
-                            },
-                            QuickActionValue(title: "Queue", systemImage: "arrow.down.circle.fill") {
-                                model.selectedTab = .downloads
-                            },
-                        ])
-                    }
-
-                    if !feature.snapshot.continuePlaying.isEmpty {
-                        ShelfSection(title: "Continue playing", meta: "\(feature.snapshot.continuePlaying.count)") {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 14) {
-                                    ForEach(feature.snapshot.continuePlaying) { rom in
-                                        NavigationLink {
-                                            GameDetailView(model: model, rom: rom)
-                                        } label: {
-                                            RomPosterTile(rom: rom, artworkURL: model.artworkURL(path: rom.urlCover))
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                }
-                                .padding(.horizontal, 2)
-                            }
+                // Regular width (iPhone Duo inner display) shows the summary beside
+                // the shelves; compact width leads with what is ready to play.
+                if horizontalSizeClass == .regular {
+                    HStack(alignment: .top, spacing: 16) {
+                        summaryCard
+                            .containerRelativeFrame(.horizontal) { width, _ in min(380, width * 0.4) }
+                        LazyVStack(alignment: .leading, spacing: 16) {
+                            continuePlayingShelf
+                            shelves
                         }
                     }
-
-                    if !feature.snapshot.highlightedCollections.isEmpty {
-                        ShelfSection(title: "Collection highlights", meta: "\(feature.snapshot.highlightedCollections.count)") {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 14) {
-                                    ForEach(feature.snapshot.highlightedCollections) { collection in
-                                        NavigationLink {
-                                            CollectionDetailView(model: model, collection: collection)
-                                        } label: {
-                                            CollectionHighlightTile(
-                                                collection: collection,
-                                                artworkURL: model.artworkURL(path: collection.pathCoverLarge ?? collection.pathCoverSmall)
-                                            )
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                }
-                                .padding(.horizontal, 2)
-                            }
-                        }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                } else {
+                    LazyVStack(alignment: .leading, spacing: 16) {
+                        continuePlayingShelf
+                        summaryCard
+                        shelves
                     }
-
-                    if !feature.snapshot.recentlyAdded.isEmpty {
-                        ShelfSection(title: "Recently added", meta: "\(feature.snapshot.recentlyAdded.count)") {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 14) {
-                                    ForEach(feature.snapshot.recentlyAdded) { rom in
-                                        NavigationLink {
-                                            GameDetailView(model: model, rom: rom)
-                                        } label: {
-                                            RomPosterTile(rom: rom, artworkURL: model.artworkURL(path: rom.urlCover))
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                }
-                                .padding(.horizontal, 2)
-                            }
-                        }
-                    }
-
-                    if !feature.activeDownloads.isEmpty {
-                        ShellCompactPanel(
-                            eyebrow: "Downloads",
-                            title: "Transfer queue",
-                            subtitle: "Running, queued, and failed downloads stay visible here and in the dedicated manager.",
-                            badge: "\(feature.activeDownloads.count) active"
-                        ) {
-                            ForEach(Array(feature.activeDownloads.prefix(3)), id: \.id) { record in
-                                DownloadSummaryRow(record: record)
-                            }
-                        }
-                    }
-
-                    if let staleMessage = feature.staleMessage, feature.hasRenderableContent {
-                        ShellCompactPanel(
-                            eyebrow: "Refresh",
-                            title: "Cached content preserved",
-                            subtitle: staleMessage,
-                            badge: "Stale"
-                        ) {
-                            EmptyView()
-                        }
-                    }
-
-                    if !feature.hasRenderableContent && !feature.isLoading {
-                        ContentUnavailableView(
-                            "Your dashboard is clear",
-                            systemImage: "sparkles",
-                            description: Text("As you install games, queue downloads, and build out collections, Home will surface the next best actions here.")
-                        )
-                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
             }
             .navigationTitle("Home")
             .accessibilityIdentifier("shell.homeList")
             .task { await feature.refresh(refreshCatalog: false) }
             .refreshable { await model.refreshShell(forceRemote: true) }
+        }
+    }
+
+    private var summaryCard: some View {
+        ShellFeatureCard(
+            eyebrow: "Home",
+            title: "Welcome back",
+            subtitle: "Jump into the library, monitor transfers, and surface what is ready to play.",
+            badge: "Console view"
+        ) {
+            MetricGrid(
+                metrics: [
+                    MetricValue(title: "Installed", value: "\(feature.storageSummary.installedGameCount)", systemImage: "square.stack.3d.up.fill"),
+                    MetricValue(title: "Storage", value: ByteCountFormatter.string(fromByteCount: feature.storageSummary.totalBytes, countStyle: .file), systemImage: "internaldrive.fill"),
+                    MetricValue(title: "Queue", value: "\(feature.queueSummary.queuedCount + feature.queueSummary.runningCount)", systemImage: "arrow.triangle.2.circlepath"),
+                    MetricValue(title: "Attention", value: "\(feature.queueSummary.failedCount)", systemImage: "exclamationmark.circle.fill"),
+                ]
+            )
+
+            QuickActionGrid(actions: [
+                QuickActionValue(title: "Library", systemImage: "books.vertical.fill") {
+                    model.selectedTab = .library
+                },
+                QuickActionValue(title: "Queue", systemImage: "arrow.down.circle.fill") {
+                    model.selectedTab = .downloads
+                },
+            ])
+        }
+    }
+
+    @ViewBuilder
+    private var continuePlayingShelf: some View {
+        if !feature.snapshot.continuePlaying.isEmpty {
+            ShelfSection(title: "Continue playing", meta: "\(feature.snapshot.continuePlaying.count)") {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 14) {
+                        ForEach(feature.snapshot.continuePlaying) { rom in
+                            NavigationLink {
+                                GameDetailView(model: model, rom: rom)
+                            } label: {
+                                RomPosterTile(rom: rom, artworkURL: model.artworkURL(path: rom.urlCover))
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("Resume", systemImage: "play.fill") {
+                                    Task { await model.quickResume(rom: rom) }
+                                }
+                            }
+                            .overlay(alignment: .topTrailing) {
+                                // Outer-display quick resume: one tap back into the
+                                // latest snapshot without opening the detail page.
+                                Button {
+                                    Task { await model.quickResume(rom: rom) }
+                                } label: {
+                                    Image(systemName: "play.fill")
+                                        .font(.headline)
+                                        .foregroundStyle(.white)
+                                        .frame(width: 44, height: 44)
+                                        .background(.black.opacity(0.55), in: Circle())
+                                }
+                                .buttonStyle(.plain)
+                                .padding(8)
+                                .accessibilityLabel("Resume \(rom.displayName)")
+                                .accessibilityIdentifier("home.quickResume.\(rom.id)")
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var shelves: some View {
+        if !feature.snapshot.highlightedCollections.isEmpty {
+            ShelfSection(title: "Collection highlights", meta: "\(feature.snapshot.highlightedCollections.count)") {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 14) {
+                        ForEach(feature.snapshot.highlightedCollections) { collection in
+                            NavigationLink {
+                                CollectionDetailView(model: model, collection: collection)
+                            } label: {
+                                CollectionHighlightTile(
+                                    collection: collection,
+                                    artworkURL: model.artworkURL(path: collection.pathCoverLarge ?? collection.pathCoverSmall)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                }
+            }
+        }
+
+        if !feature.snapshot.recentlyAdded.isEmpty {
+            ShelfSection(title: "Recently added", meta: "\(feature.snapshot.recentlyAdded.count)") {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 14) {
+                        ForEach(feature.snapshot.recentlyAdded) { rom in
+                            NavigationLink {
+                                GameDetailView(model: model, rom: rom)
+                            } label: {
+                                RomPosterTile(rom: rom, artworkURL: model.artworkURL(path: rom.urlCover))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                }
+            }
+        }
+
+        if !feature.activeDownloads.isEmpty {
+            ShellCompactPanel(
+                eyebrow: "Downloads",
+                title: "Transfer queue",
+                subtitle: "Running, queued, and failed downloads stay visible here and in the dedicated manager.",
+                badge: "\(feature.activeDownloads.count) active"
+            ) {
+                ForEach(Array(feature.activeDownloads.prefix(3)), id: \.id) { record in
+                    DownloadSummaryRow(record: record)
+                }
+            }
+        }
+
+        if let staleMessage = feature.staleMessage, feature.hasRenderableContent {
+            ShellCompactPanel(
+                eyebrow: "Refresh",
+                title: "Cached content preserved",
+                subtitle: staleMessage,
+                badge: "Stale"
+            ) {
+                EmptyView()
+            }
+        }
+
+        if !feature.hasRenderableContent && !feature.isLoading {
+            ContentUnavailableView(
+                "Your dashboard is clear",
+                systemImage: "sparkles",
+                description: Text("As you install games, queue downloads, and build out collections, Home will surface the next best actions here.")
+            )
         }
     }
 }
@@ -746,57 +817,80 @@ private struct LibraryTab: View {
     let model: RommioAppModel
     let feature: LibraryFeatureModel
 
-    var body: some View {
-        NavigationStack {
-            List {
-                if feature.sections.isEmpty {
-                    ContentUnavailableView(
-                        "No platforms available",
-                        systemImage: "square.stack.3d.up.slash",
-                        description: Text("Hydrate the active profile to browse touch-ready, controller-first, and unsupported platform families.")
-                    )
-                } else {
-                    ForEach(feature.sections) { section in
-                        Section {
-                            ForEach(section.platforms) { platform in
-                                NavigationLink {
-                                    PlatformDetailView(model: model, platform: platform)
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        HStack(alignment: .center) {
-                                            Text(platform.name)
-                                            Spacer()
-                                            SupportTierChip(tier: section.supportTier)
-                                        }
-                                        Text("\(platform.romCount) games")
-                                            .foregroundStyle(.secondary)
-                                            .font(.footnote)
-                                    }
-                                }
-                            }
-                        } header: {
-                            SectionHeaderBlock(title: section.title, supportingText: section.supportingText)
-                        }
-                    }
-                }
+    @State private var selectedPlatform: PlatformDTO?
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-                if let staleMessage = feature.staleMessage, !feature.sections.isEmpty {
+    var body: some View {
+        // Platforms beside their games on the iPhone Duo inner display; a single
+        // stack on the outer display. Game pages push within the games column.
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            platformList
+                .navigationTitle("Library")
+        } detail: {
+            NavigationStack {
+                if let platform = selectedPlatform {
+                    PlatformDetailView(model: model, platform: platform)
+                        .id(platform.id)
+                } else {
+                    ContentUnavailableView("Choose a platform", systemImage: "square.stack.3d.up")
+                }
+            }
+        }
+        .navigationSplitViewStyle(.balanced)
+        .onChange(of: feature.sections.first?.platforms.first?.id, initial: true) { _, _ in
+            // Regular width shows both columns, so start with something selected.
+            if horizontalSizeClass == .regular, selectedPlatform == nil {
+                selectedPlatform = feature.sections.first?.platforms.first
+            }
+        }
+    }
+
+    private var platformList: some View {
+        List(selection: $selectedPlatform) {
+            if feature.sections.isEmpty {
+                ContentUnavailableView(
+                    "No platforms available",
+                    systemImage: "square.stack.3d.up.slash",
+                    description: Text("Hydrate the active profile to browse touch-ready, controller-first, and unsupported platform families.")
+                )
+            } else {
+                ForEach(feature.sections) { section in
                     Section {
-                        Text(staleMessage)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                        ForEach(section.platforms) { platform in
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack(alignment: .center) {
+                                    Text(platform.name)
+                                    Spacer()
+                                    SupportTierChip(tier: section.supportTier)
+                                }
+                                Text("\(platform.romCount) game\(platform.romCount == 1 ? "" : "s")")
+                                    .foregroundStyle(.secondary)
+                                    .font(.footnote)
+                            }
+                            .tag(platform)
+                        }
                     } header: {
-                        SectionHeaderBlock(
-                            title: "Cached content preserved",
-                            supportingText: "The cached library stays visible while the latest refresh remains stale or offline."
-                        )
+                        SectionHeaderBlock(title: section.title, supportingText: section.supportingText)
                     }
                 }
             }
-            .navigationTitle("Library")
-            .task { await feature.refresh(forceRemote: false) }
-            .refreshable { await feature.refresh(forceRemote: true) }
+
+            if let staleMessage = feature.staleMessage, !feature.sections.isEmpty {
+                Section {
+                    Text(staleMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    SectionHeaderBlock(
+                        title: "Cached content preserved",
+                        supportingText: "The cached library stays visible while the latest refresh remains stale or offline."
+                    )
+                }
+            }
         }
+        .task { await feature.refresh(forceRemote: false) }
+        .refreshable { await feature.refresh(forceRemote: true) }
     }
 }
 
@@ -866,8 +960,8 @@ private struct DownloadsTab: View {
                         eyebrow: "Downloads",
                         title: "Download manager",
                         subtitle: feature.offlineState.connectivity == .offline
-                            ? "Queued, active, failed, canceled, and completed transfers remain visible offline until connectivity returns."
-                            : "Queued, active, failed, canceled, and completed transfers are tracked here across app launches with sequential execution.",
+                            ? "Transfers stay listed offline until connectivity returns."
+                            : "Transfers run one at a time and survive relaunches.",
                         badge: "\(feature.trackedCount) tracked"
                     ) {
                         MetricGrid(
@@ -876,7 +970,8 @@ private struct DownloadsTab: View {
                                 MetricValue(title: "Queued", value: "\(feature.queueSummary.queuedCount)", systemImage: "clock.arrow.circlepath"),
                                 MetricValue(title: "Attention", value: "\(feature.records.count { $0.status == .failed || $0.status == .canceled })", systemImage: "exclamationmark.circle.fill"),
                                 MetricValue(title: "Completed", value: "\(feature.queueSummary.completedCount)", systemImage: "checkmark.circle.fill"),
-                            ]
+                            ],
+                            columnCount: 4
                         )
                     }
                 }
@@ -987,6 +1082,9 @@ private struct DownloadsTab: View {
 private struct SettingsTab: View {
     let model: RommioAppModel
     let feature: SettingsFeatureModel
+    @State private var selectingBIOS = false
+    @State private var biosMessage: String?
+    @State private var profilePendingRemoval: ServerProfile?
 
     var body: some View {
         NavigationStack {
@@ -1012,7 +1110,9 @@ private struct SettingsTab: View {
                 Section {
                     ShellCompactPanel(
                         eyebrow: "Offline",
-                        title: feature.offlineState.connectivity == .offline ? "Offline mode active" : "Online and ready",
+                        title: feature.offlineState.connectivity == .offline
+                            ? "Offline mode active"
+                            : (feature.offlineState.catalogReady ? "Online and ready" : "Online, catalog syncing"),
                         subtitle: feature.offlineState.catalogReady
                             ? "This profile is hydrated and can browse offline with cached media."
                             : "The active profile is still hydrating. Cached content remains visible while sync continues.",
@@ -1027,6 +1127,12 @@ private struct SettingsTab: View {
                         if let lastMediaSync = feature.offlineState.lastMediaSyncAtEpochMS {
                             LabeledContent("Last media sync", value: relativeDate(lastMediaSync))
                         }
+                    }
+                }
+
+                Section("Game saves and snapshots") {
+                    NavigationLink("Backup and recovery") {
+                        ProgressRecoveryView(service: feature.progressService)
                     }
                 }
 
@@ -1064,13 +1170,14 @@ private struct SettingsTab: View {
                                 }
 
                                 HStack {
-                                    Button(profile.id == feature.activeProfile?.id ? "Current profile" : "Activate profile") {
-                                        Task { await feature.activateProfile(profile) }
+                                    if profile.id != feature.activeProfile?.id {
+                                        Button("Activate profile") {
+                                            Task { await feature.activateProfile(profile) }
+                                        }
                                     }
-                                    .disabled(profile.id == feature.activeProfile?.id)
-
-                                    Button(profile.id == feature.activeProfile?.id ? "Remove active profile" : "Remove profile", role: .destructive) {
-                                        Task { await feature.deleteProfile(profile) }
+                                    Spacer()
+                                    Button("Remove…", role: .destructive) {
+                                        profilePendingRemoval = profile
                                     }
                                 }
                                 .buttonStyle(.borderless)
@@ -1113,7 +1220,6 @@ private struct SettingsTab: View {
                     LabeledContent("Installed files", value: "\(feature.storageSummary.installedFileCount)")
                     LabeledContent("Library footprint", value: ByteCountFormatter.string(fromByteCount: feature.storageSummary.totalBytes, countStyle: .file))
                     LabeledContent("Catalog cache", value: ByteCountFormatter.string(fromByteCount: feature.storageSummary.cacheBytes, countStyle: .file))
-                    LabeledContent("Managed library", value: feature.managedLibraryPath)
                 }
 
                 if let staleMessage = feature.staleMessage,
@@ -1130,29 +1236,57 @@ private struct SettingsTab: View {
                     }
                 }
 
-                Section("Runtime catalog") {
-                    ForEach(feature.runtimeInventory, id: \.id) { entry in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(entry.familyName)
-                            Text(entry.runtimeName)
-                                .foregroundStyle(.secondary)
-                                .font(.footnote)
-                            Text(entry.message)
-                                .foregroundStyle(.secondary)
-                                .font(.caption)
-                            Text(entry.availabilityStatusLabel)
-                                .font(.caption.weight(.semibold))
-                            Text(entry.provisioningStatusLabel)
-                                .font(.caption)
-                            Text(entry.interactionProfileLabel)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                Section("Console BIOS files") {
+                    Button("Import BIOS files") { selectingBIOS = true }
+                    Text("PlayStation requires scph5501.bin. Sega CD requires the US, Europe, and Japan BIOS files. Import your own copies; Rommio verifies and names them automatically.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    if let biosMessage { Text(biosMessage).font(.footnote) }
+                }
+
+                Section("Emulators") {
+                    ForEach(feature.runtimeInventory.filter(\.isShippedInBuild), id: \.id) { entry in
+                        RuntimeInventoryRow(entry: entry)
+                    }
+                    let unavailable = feature.runtimeInventory.filter { !$0.isShippedInBuild }
+                    if !unavailable.isEmpty {
+                        DisclosureGroup("Not included in this build (\(unavailable.count))") {
+                            ForEach(unavailable, id: \.id) { entry in
+                                RuntimeInventoryRow(entry: entry)
+                            }
                         }
                     }
                 }
             }
             .navigationTitle("Settings")
+            .confirmationDialog(
+                "Remove \(profilePendingRemoval?.label ?? "profile")?",
+                isPresented: Binding(get: { profilePendingRemoval != nil }, set: { if !$0 { profilePendingRemoval = nil } }),
+                titleVisibility: .visible
+            ) {
+                Button("Remove profile", role: .destructive) {
+                    if let profile = profilePendingRemoval {
+                        Task { await feature.deleteProfile(profile) }
+                    }
+                    profilePendingRemoval = nil
+                }
+            } message: {
+                Text(profilePendingRemoval?.id == feature.activeProfile?.id
+                    ? "This is the active server. You'll need to set up server access again."
+                    : "Saved connection details for this server will be removed.")
+            }
             .accessibilityIdentifier("shell.settingsList")
+            .fileImporter(isPresented: $selectingBIOS, allowedContentTypes: [.data], allowsMultipleSelection: true) { result in
+                do {
+                    let urls = try result.get()
+                    var messages: [String] = []
+                    for url in urls {
+                        do { messages.append("Imported " + (try model.importBIOS(url))) }
+                        catch { messages.append("\(url.lastPathComponent): \(error.localizedDescription)") }
+                    }
+                    biosMessage = messages.joined(separator: "\n")
+                    Task { await feature.refresh() }
+                } catch { biosMessage = error.localizedDescription }
+            }
             .task { await feature.refresh() }
         }
     }
@@ -1294,6 +1428,7 @@ private struct SectionHeaderBlock: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .textCase(nil)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.top, 2)
     }
@@ -1343,6 +1478,11 @@ private struct MetricValue: Identifiable {
     let systemImage: String
 
     var id: String { title }
+
+    /// "1 Game" rather than "1 Games" for the plural metric labels.
+    var singularTitle: String {
+        ["Games": "Game", "Files": "File", "Profiles": "Profile"][title] ?? title
+    }
 }
 
 private struct QuickActionValue: Identifiable {
@@ -1421,9 +1561,11 @@ private struct ShellCompactPanel<Content: View>: View {
 
 private struct MetricGrid: View {
     let metrics: [MetricValue]
+    /// Keep this even so tiles divide cleanly around iPhone Duo's fold.
+    var columnCount = 2
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: columnCount), spacing: 10) {
             ForEach(metrics) { metric in
                 VStack(alignment: .leading, spacing: 6) {
                     Image(systemName: metric.systemImage)
@@ -1431,7 +1573,7 @@ private struct MetricGrid: View {
                         .foregroundStyle(.blue)
                     Text(metric.value)
                         .font(.headline.weight(.bold))
-                    Text(metric.title)
+                    Text(metric.value == "1" ? metric.singularTitle : metric.title)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1658,87 +1800,54 @@ private struct GameDetailView: View {
         _feature = State(initialValue: model.makeGameDetailFeature(rom: rom))
     }
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 18) {
-                GameDetailHeroCard(
-                    artworkURL: model.artworkURL(path: feature.rom.urlCover),
-                    rom: feature.rom,
-                    presentation: feature.heroPresentation,
-                    supportTier: feature.controlProfile.supportTier
-                )
-                .accessibilityIdentifier("gameDetail.hero")
-
-                if let actionDeck = feature.actionDeckPresentation,
-                   let selectedFileState = feature.selectedFileState {
-                    GameDetailActionDeckCard(
-                        presentation: actionDeck,
-                        fileID: selectedFileState.file.id,
-                        onAction: { action in
-                            Task { await feature.perform(action, fileID: selectedFileState.file.id) }
-                        }
-                    )
-                }
-
-                if feature.showsSegmentedFileSelection {
-                    VStack(alignment: .leading, spacing: 10) {
-                        SectionHeaderBlock(
-                            title: "Files",
-                            supportingText: "Choose which file should drive downloads, runtime checks, and play."
-                        )
-                        Picker(
-                            "File",
-                            selection: Binding(
-                                get: { feature.selectedFileState?.file.id ?? feature.fileSelectionOptions.first?.id ?? 0 },
-                                set: { selection in
-                                    Task { await feature.selectFile(selection) }
-                                }
-                            )
-                        ) {
-                            ForEach(feature.fileSelectionOptions) { option in
-                                Text(option.title).tag(option.id)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .accessibilityIdentifier("gameDetail.filePicker")
+            // Regular width splits artwork and details from actions and files so
+            // neither column is stretched across iPhone Duo's fold.
+            if horizontalSizeClass == .regular {
+                HStack(alignment: .top, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        heroCard
+                        stateSummaryCard
+                    }
+                    VStack(alignment: .leading, spacing: 18) {
+                        actionCards
                     }
                 }
-
-                if let selectedFile = feature.selectedFilePresentation,
-                   let selectedFileState = feature.selectedFileState {
-                    GameDetailSelectedFileCard(
-                        presentation: selectedFile,
-                        badgeTint: playabilityColor(for: selectedFileState.controlProfile, resolution: selectedFileState.resolution)
-                    )
+                .padding(16)
+            } else {
+                LazyVStack(alignment: .leading, spacing: 18) {
+                    heroCard
+                    actionCards
+                    stateSummaryCard
                 }
-
-                if let stateSummary = feature.stateSummaryPresentation {
-                    GameDetailStateSummaryCard(
-                        presentation: stateSummary,
-                        onBrowseStates: {
-                            feature.stateBrowserPresented = true
-                        }
-                    )
-                }
-
-                if let preserved = feature.preservedContentPresentation {
-                    ShellCompactPanel(
-                        eyebrow: "Offline and stale state",
-                        title: preserved.title,
-                        subtitle: "Installed files and cached metadata remain manageable even when the latest refresh cannot complete.",
-                        badge: "Cached"
-                    ) {
-                        Text(preserved.message)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                .padding(16)
+            }
+        }
+        .toolbar {
+            if let primary = feature.actionDeckPresentation?.primary,
+               let fileID = feature.selectedFileState?.file.id,
+               primary.kind == .play || primary.kind == .downloadNow {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        Task { await feature.perform(primary, fileID: fileID) }
+                    } label: {
+                        Label(primary.title, systemImage: primary.kind == .play ? "play.fill" : "arrow.down.circle")
                     }
+                    .disabled(!primary.enabled)
+                    .accessibilityIdentifier("gameDetail.toolbar.\(primary.kind.rawValue)")
                 }
             }
-            .padding(16)
         }
         .navigationTitle(feature.rom.displayName)
         .modifier(GameDetailInlineNavigationTitle())
         .task { await feature.refresh(forceRemote: false) }
+        .task { await feature.monitorDownloads() }
+        .onChange(of: model.activePlayer?.id) { _, playerID in
+            if playerID == nil { Task { await feature.refresh(forceRemote: false) } }
+        }
         .refreshable { await feature.refresh(forceRemote: true) }
         .sheet(isPresented: Binding(
             get: { feature.stateBrowserPresented },
@@ -1761,6 +1870,87 @@ private struct GameDetailView: View {
         }
     }
 
+    private var heroCard: some View {
+        GameDetailHeroCard(
+            artworkURL: model.artworkURL(path: feature.rom.urlCover),
+            rom: feature.rom,
+            presentation: feature.heroPresentation,
+            supportTier: feature.controlProfile.supportTier
+        )
+        .accessibilityIdentifier("gameDetail.hero")
+    }
+
+    @ViewBuilder
+    private var actionCards: some View {
+        if let actionDeck = feature.actionDeckPresentation,
+           let selectedFileState = feature.selectedFileState {
+            GameDetailActionDeckCard(
+                presentation: actionDeck,
+                fileID: selectedFileState.file.id,
+                onAction: { action in
+                    Task { await feature.perform(action, fileID: selectedFileState.file.id) }
+                }
+            )
+        }
+
+        if feature.showsSegmentedFileSelection {
+            VStack(alignment: .leading, spacing: 10) {
+                SectionHeaderBlock(
+                    title: "Files",
+                    supportingText: "Choose which file should drive downloads, runtime checks, and play."
+                )
+                Picker(
+                    "File",
+                    selection: Binding(
+                        get: { feature.selectedFileState?.file.id ?? feature.fileSelectionOptions.first?.id ?? 0 },
+                        set: { selection in
+                            Task { await feature.selectFile(selection) }
+                        }
+                    )
+                ) {
+                    ForEach(feature.fileSelectionOptions) { option in
+                        Text(option.title).tag(option.id)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("gameDetail.filePicker")
+            }
+        }
+
+        if let selectedFile = feature.selectedFilePresentation,
+           let selectedFileState = feature.selectedFileState {
+            GameDetailSelectedFileCard(
+                presentation: selectedFile,
+                badgeTint: playabilityColor(for: selectedFileState.controlProfile, resolution: selectedFileState.resolution)
+            )
+        }
+
+        if let preserved = feature.preservedContentPresentation {
+            ShellCompactPanel(
+                eyebrow: "Offline and stale state",
+                title: preserved.title,
+                subtitle: "Installed files and cached metadata remain manageable even when the latest refresh cannot complete.",
+                badge: "Cached"
+            ) {
+                Text(preserved.message)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var stateSummaryCard: some View {
+        if let stateSummary = feature.stateSummaryPresentation {
+            GameDetailStateSummaryCard(
+                presentation: stateSummary,
+                onBrowseStates: {
+                    feature.stateBrowserPresented = true
+                }
+            )
+        }
+    }
+
     private func color(for capability: PlayerCapability) -> Color {
         switch capability {
         case .ready:
@@ -1773,20 +1963,11 @@ private struct GameDetailView: View {
     }
 
     private func playabilityLabel(for profile: PlatformControlProfile, resolution: CoreResolution) -> String {
-        if resolution.capability != .ready {
-            if resolution.capability == .missingBIOS {
-                return "Missing BIOS"
-            }
-            if resolution.capability == .missingCore {
-                return "Missing core"
-            }
-            return "Unsupported"
-        }
-        return profile.supportTier.title
+        resolution.capabilityLabel ?? profile.supportTier.title
     }
 
     private func playabilityColor(for profile: PlatformControlProfile, resolution: CoreResolution) -> Color {
-        if resolution.capability == .ready {
+        if resolution.capability == .ready || resolution.capabilityLabel == nil {
             switch profile.supportTier {
             case .touchSupported:
                 return Color.green
@@ -1873,26 +2054,34 @@ private struct GameDetailHeroCard: View {
                         }
                 }
             }
-            .frame(height: 280)
+            // Scale with the available height: a fixed 280pt hero filled most of
+            // iPhone Duo's 515pt open landscape display.
+            .containerRelativeFrame(.vertical) { height, _ in min(280, max(160, height * 0.4)) }
+            .frame(maxWidth: .infinity)
             .clipped()
-            .overlay(alignment: .bottomLeading) {
+            .overlay {
                 LinearGradient(
-                    colors: [.clear, .black.opacity(0.85)],
-                    startPoint: .center,
+                    stops: [
+                        .init(color: .clear, location: 0.35),
+                        .init(color: .black.opacity(0.85), location: 1),
+                    ],
+                    startPoint: .top,
                     endPoint: .bottom
                 )
-                .frame(height: 120)
-                .overlay(alignment: .bottomLeading) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(rom.displayName)
-                            .font(.title.bold())
-                            .foregroundStyle(.white)
-                        Text(rom.platformName)
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.86))
-                    }
-                    .padding(18)
+            }
+            .overlay(alignment: .bottomLeading) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(rom.displayName)
+                        .font(.title.bold())
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.75)
+                    Text(rom.platformName)
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.86))
                 }
+                .shadow(color: .black.opacity(0.6), radius: 6, y: 1)
+                .padding(18)
             }
 
             VStack(alignment: .leading, spacing: 12) {
@@ -2086,16 +2275,44 @@ private struct GameDetailSelectedFileCard: View {
 }
 
 private extension CoreInventoryEntry {
-    var availabilityStatusLabel: String {
-        availabilityStatus.rawValue.replacingOccurrences(of: "_", with: " ").capitalized
+    var isShippedInBuild: Bool {
+        availabilityStatus != .missingBundledCore && availabilityStatus != .unsupportedByCurrentBuild
+            && provisioningStatus != .missingCoreNotShipped && provisioningStatus != .unsupported
     }
 
-    var provisioningStatusLabel: String {
-        provisioningStatus.rawValue.replacingOccurrences(of: "_", with: " ").capitalized
+    var statusLabel: String {
+        switch provisioningStatus {
+        case .ready: "Ready"
+        case .missingCoreInstallable: "Sets up on first play"
+        case .installingCore: "Setting up"
+        case .failedCoreInstall: "Setup failed"
+        case .missingBIOS: "Needs BIOS"
+        case .missingCoreNotShipped: "Not included"
+        case .unsupported: "Unsupported"
+        }
     }
 
     var interactionProfileLabel: String {
         interactionProfile.rawValue.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+}
+
+private struct RuntimeInventoryRow: View {
+    let entry: CoreInventoryEntry
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.familyName)
+                Text("\(entry.runtimeName) · \(entry.interactionProfileLabel)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Text(entry.statusLabel)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(entry.provisioningStatus == .failedCoreInstall ? .orange : .secondary)
+        }
     }
 }
 
@@ -2120,9 +2337,12 @@ private struct RomRow: View {
                 Text(rom.platformName)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                Text("\(rom.files.count) file\(rom.files.count == 1 ? "" : "s")")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                // List endpoints omit files; only detail responses carry them.
+                if !rom.files.isEmpty {
+                    Text("\(rom.files.count) file\(rom.files.count == 1 ? "" : "s")")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding(.vertical, 2)

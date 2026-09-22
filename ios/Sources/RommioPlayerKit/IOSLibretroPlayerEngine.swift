@@ -24,6 +24,15 @@ public enum PlayerEngineError: LocalizedError, Sendable {
     }
 }
 
+/// The player's identity as cores see it (for example, the DS firmware nickname).
+public enum PlayerFrontendIdentity {
+    /// Set before launching a game; cores read it once while starting.
+    public static func setUsername(_ username: String?) {
+        // DS firmware names hold at most 10 characters.
+        RMLLibretroBridge.frontendUsername = username.map { String($0.prefix(10)) }
+    }
+}
+
 #if canImport(UIKit) && canImport(AVFAudio)
 import AVFAudio
 import UIKit
@@ -34,13 +43,32 @@ private final class PlayerAudioEngine {
     private let format: AVAudioFormat
     private var started = false
 
+    // The frame loop follows the display, not the core's audio clock, so keep a
+    // small cushion of queued audio: refill after underruns, trim runaway latency.
+    private let lock = NSLock()
+    private var queuedFrames: AVAudioFrameCount = 0
+    private let primeFrames: AVAudioFrameCount
+    private let maximumFrames: AVAudioFrameCount
+
     init(sampleRate: Double) {
+        // Play at the core's own rate (melonDS DS is ~32.7 kHz, Snes9x ~32 kHz);
+        // the mixer resamples to the hardware rate.
         self.format = AVAudioFormat(
             commonFormat: .pcmFormatInt16,
             sampleRate: sampleRate,
             channels: 2,
             interleaved: true
         )!
+        primeFrames = AVAudioFrameCount(sampleRate * 0.04)
+        maximumFrames = AVAudioFrameCount(sampleRate * 0.2)
+        // Configure the session before the engine's I/O node binds to it.
+        // Game audio follows the silent switch and mixes with other audio.
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.ambient, mode: .default)
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            NSLog("[PlayerAudioEngine] audio session setup failed: %@", error.localizedDescription)
+        }
         engine.attach(playerNode)
         engine.connect(playerNode, to: engine.mainMixerNode, format: format)
     }
@@ -60,12 +88,20 @@ private final class PlayerAudioEngine {
         playerNode.stop()
         engine.stop()
         started = false
+        lock.withLock { queuedFrames = 0 }
     }
 
     func enqueue(_ batches: [RMLAudioBatch]) {
         guard started else { return }
 
         for batch in batches where batch.frameCount > 0 {
+            let queued = lock.withLock { queuedFrames }
+            // Too far behind: drop this batch rather than let latency grow.
+            if queued > maximumFrames { continue }
+            // Empty (start, resume, or a frame-loop stall): lead with silence so
+            // the next short stall doesn't starve the player and click.
+            if queued == 0 { schedule(silenceFrames: primeFrames) }
+
             let frameCapacity = AVAudioFrameCount(batch.frameCount)
             guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCapacity) else {
                 continue
@@ -78,12 +114,30 @@ private final class PlayerAudioEngine {
             batch.sampleData.withUnsafeBytes { source in
                 memcpy(target, source.baseAddress, min(Int(audioBuffers[0].mDataByteSize), batch.sampleData.count))
             }
-            playerNode.scheduleBuffer(buffer, completionHandler: nil)
+            schedule(buffer)
+        }
+    }
+
+    private func schedule(silenceFrames: AVAudioFrameCount) {
+        guard silenceFrames > 0, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: silenceFrames) else { return }
+        buffer.frameLength = silenceFrames
+        if let data = UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList).first?.mData {
+            memset(data, 0, Int(silenceFrames) * Int(format.streamDescription.pointee.mBytesPerFrame))
+        }
+        schedule(buffer)
+    }
+
+    private func schedule(_ buffer: AVAudioPCMBuffer) {
+        let frames = buffer.frameLength
+        lock.withLock { queuedFrames += frames }
+        playerNode.scheduleBuffer(buffer, completionCallbackType: .dataConsumed) { [weak self] _ in
+            guard let self else { return }
+            self.lock.withLock { self.queuedFrames -= min(frames, self.queuedFrames) }
         }
     }
 }
 
-public final class IOSLibretroPlayerEngine: PlayerEngine, @unchecked Sendable {
+public final class IOSLibretroPlayerEngine: ProgressPlayerEngine, @unchecked Sendable {
     private let logger = Logger(subsystem: "io.github.mattsays.rommio.ios", category: "PlayerEngine")
     private let bundle: Bundle
     private let lock = NSLock()
@@ -91,6 +145,7 @@ public final class IOSLibretroPlayerEngine: PlayerEngine, @unchecked Sendable {
 
     private var session: PlayerSession?
     private var bridge: RMLLibretroBridge?
+    private var inputConfiguration = PlayerInputConfiguration()
     private var surfaceController: PlayerSurfaceController?
     private var audioEngine: PlayerAudioEngine?
     private var latestFrameSnapshot: PlayerVideoFrameSnapshot?
@@ -151,7 +206,8 @@ public final class IOSLibretroPlayerEngine: PlayerEngine, @unchecked Sendable {
                 case .controller, .keyboardMouse:
                     return false
                 }
-            }
+            },
+            inputConfigurationProvider: { [weak self] in self?.inputConfiguration ?? PlayerInputConfiguration() }
         )
         self.surfaceController = controller
         logger.info("makeHostController created new surface controller")
@@ -159,7 +215,8 @@ public final class IOSLibretroPlayerEngine: PlayerEngine, @unchecked Sendable {
         return controller
     }
 
-    public func start() async throws {
+    public func start() async throws { try await startProgress(paused: false) }
+    public func startProgress(paused initiallyPaused: Bool) async throws {
         logger.info("start requested")
         NSLog("[IOSLibretroPlayerEngine] start requested")
         guard bridge != nil, session != nil else {
@@ -172,8 +229,9 @@ public final class IOSLibretroPlayerEngine: PlayerEngine, @unchecked Sendable {
         await startAudioEngineIfNeeded()
         logger.info("audio engine started")
         NSLog("[IOSLibretroPlayerEngine] audio engine started")
+        bridge?.setPaused(initiallyPaused)
         running = true
-        paused = false
+        paused = initiallyPaused
         statusMessage = "Running"
         NSLog("[IOSLibretroPlayerEngine] frame loop delegated to player surface")
         logger.info("start returning")
@@ -181,7 +239,7 @@ public final class IOSLibretroPlayerEngine: PlayerEngine, @unchecked Sendable {
     }
 
     public func stop() async {
-        _ = try? await persistSaveRAM()
+        if session?.ownsProgress != true { _ = try? await persistSaveRAM() }
         audioEngine?.stop()
         bridge?.stop()
         running = false
@@ -189,6 +247,12 @@ public final class IOSLibretroPlayerEngine: PlayerEngine, @unchecked Sendable {
         statusMessage = "Stopped"
     }
 
+    public func captureProgress(includeState: Bool) async throws -> NativeProgressCapture {
+        try withBridge { try NativeProgressCapture.read($0, includeState: includeState) }
+    }
+    public func restoreProgress(memory: [Int: Data], state: Data?) async throws {
+        try withBridge { try $0.restoreProgress(Dictionary(uniqueKeysWithValues: memory.map { (NSNumber(value: $0.key), $0.value) }), state: state) }
+    }
     public func persistSaveRAM() async throws -> URL? {
         guard let session, let bridge else {
             throw PlayerEngineError.sessionNotPrepared
@@ -236,6 +300,7 @@ public final class IOSLibretroPlayerEngine: PlayerEngine, @unchecked Sendable {
             throw PlayerEngineError.sessionNotPrepared
         }
         locked { self.paused = paused }
+        bridge?.setPaused(paused)
         locked { self.statusMessage = paused ? "Paused" : "Running" }
     }
 
@@ -257,6 +322,12 @@ public final class IOSLibretroPlayerEngine: PlayerEngine, @unchecked Sendable {
         }
     }
 
+    public func dispatchPointer(x: Double, y: Double, pressed: Bool, port: Int) async throws {
+        try withBridge { bridge in
+            bridge.setPointerX(x, y: y, pressed: pressed, port: UInt(max(port, 0)))
+        }
+    }
+
     public func dispatchMotion(source: PlayerMotionSource, x: Double, y: Double, port: Int) async throws {
         try withBridge { bridge in
             bridge.setMotionSource(source.bridgeSource, x: x, y: y, port: UInt(max(port, 0)))
@@ -264,7 +335,12 @@ public final class IOSLibretroPlayerEngine: PlayerEngine, @unchecked Sendable {
     }
 
     public func updateInputConfiguration(_ configuration: PlayerInputConfiguration) async throws {
-        _ = configuration
+        if let visible = configuration.reserveTouchSpace { inputConfiguration.reserveTouchSpace = visible }
+        if let height = configuration.controlDeckHeight { inputConfiguration.controlDeckHeight = height }
+        if let scale = configuration.controlScale { inputConfiguration.controlScale = scale }
+        if let count = configuration.controlUtilityCount { inputConfiguration.controlUtilityCount = count }
+        if let stage = configuration.stage { inputConfiguration.stage = stage }
+        inputConfiguration.deadzone = configuration.deadzone
     }
 
     public func availableControllerTypes(port: Int) async throws -> [PlayerControllerDescriptor] {
@@ -334,7 +410,7 @@ public final class IOSLibretroPlayerEngine: PlayerEngine, @unchecked Sendable {
                     continuation.resume(
                         returning: PreparedBridgeState(
                             bridge: bridge,
-                            sampleRate: max(bridge.sampleRate, 44_100)
+                            sampleRate: bridge.sampleRate > 0 ? bridge.sampleRate : 48_000
                         )
                     )
                 } catch {

@@ -41,10 +41,8 @@ public struct ProfileSyncBridge: Sendable {
         rom: RomDTO,
         runtimeID: String
     ) async throws -> SyncSummary {
-        let client = await authController.client(for: profile.id, baseURL: profile.baseURL)
         let deviceID = try await authController.activeAuthenticatedContext()?.deviceID
         let bridge = RommSyncBridge(
-            client: client,
             libraryStore: libraryStore,
             database: database,
             deviceName: deviceName
@@ -67,10 +65,8 @@ public struct ProfileSyncBridge: Sendable {
         sessionActive: Bool,
         sessionStartedAtEpochMS: Int64?
     ) async throws -> SyncSummary {
-        let client = await authController.client(for: profile.id, baseURL: profile.baseURL)
         let deviceID = try await authController.activeAuthenticatedContext()?.deviceID
         let bridge = RommSyncBridge(
-            client: client,
             libraryStore: libraryStore,
             database: database,
             deviceName: deviceName
@@ -103,10 +99,8 @@ public struct ProfileSyncBridge: Sendable {
                 syncPresentation: cached.syncPresentation
             )
         }
-        let client = await authController.client(for: profile.id, baseURL: profile.baseURL)
         let deviceID = try await authController.activeAuthenticatedContext()?.deviceID
         let bridge = RommSyncBridge(
-            client: client,
             libraryStore: libraryStore,
             database: database,
             deviceName: deviceName
@@ -128,7 +122,6 @@ public struct ProfileSyncBridge: Sendable {
         connectivity: ConnectivityState
     ) throws -> PlayerLaunchPreparation {
         let bridge = RommSyncBridge(
-            client: NullRommService(),
             libraryStore: libraryStore,
             database: database,
             deviceName: deviceName
@@ -147,10 +140,8 @@ public struct ProfileSyncBridge: Sendable {
         runtimeID: String,
         connectivity: ConnectivityState
     ) async throws -> GameStateBrowser {
-        let client = await authController.client(for: profile.id, baseURL: profile.baseURL)
         let deviceID = try await authController.activeAuthenticatedContext()?.deviceID
         let bridge = RommSyncBridge(
-            client: client,
             libraryStore: libraryStore,
             database: database,
             deviceName: deviceName
@@ -172,7 +163,6 @@ public struct ProfileSyncBridge: Sendable {
         connectivity: ConnectivityState
     ) throws -> GameStateBrowser {
         let bridge = RommSyncBridge(
-            client: NullRommService(),
             libraryStore: libraryStore,
             database: database,
             deviceName: deviceName
@@ -192,7 +182,6 @@ public struct ProfileSyncBridge: Sendable {
     ) async throws {
         let deviceID = try await authController.activeAuthenticatedContext()?.deviceID
         let bridge = RommSyncBridge(
-            client: NullRommService(),
             libraryStore: libraryStore,
             database: database,
             deviceName: deviceName
@@ -212,7 +201,6 @@ public struct ProfileSyncBridge: Sendable {
         state: BrowsableGameState
     ) async throws {
         let bridge = RommSyncBridge(
-            client: NullRommService(),
             libraryStore: libraryStore,
             database: database,
             deviceName: deviceName
@@ -262,24 +250,6 @@ private extension BrowsableGameStateKind {
             return .importedCloud
         }
     }
-}
-
-private actor NullRommService: RommServicing {
-    func getCurrentUser() async throws -> UserDTO { throw URLError(.userAuthenticationRequired) }
-    func getHeartbeat() async throws -> HeartbeatDTO { throw URLError(.userAuthenticationRequired) }
-    func getPlatforms() async throws -> [PlatformDTO] { throw URLError(.userAuthenticationRequired) }
-    func getRecentlyAdded() async throws -> ItemsResponse<RomDTO> { throw URLError(.userAuthenticationRequired) }
-    func getRoms(query: RomQuery) async throws -> ItemsResponse<RomDTO> { throw URLError(.userAuthenticationRequired) }
-    func getRom(id: Int) async throws -> RomDTO { throw URLError(.userAuthenticationRequired) }
-    func getCollections() async throws -> [CollectionResponseDTO] { throw URLError(.userAuthenticationRequired) }
-    func getSmartCollections() async throws -> [SmartCollectionResponseDTO] { throw URLError(.userAuthenticationRequired) }
-    func getVirtualCollections(type: String, limit: Int?) async throws -> [VirtualCollectionResponseDTO] { throw URLError(.userAuthenticationRequired) }
-    func listSaves(romID: Int, deviceID: String?) async throws -> [SaveDTO] { throw URLError(.userAuthenticationRequired) }
-    func listStates(romID: Int) async throws -> [StateDTO] { throw URLError(.userAuthenticationRequired) }
-    func registerDevice(_ request: DeviceRegistrationRequest) async throws -> DeviceRegistrationResponse { throw URLError(.userAuthenticationRequired) }
-    func uploadSave(romID: Int, emulator: String?, slot: String?, deviceID: String?, overwrite: Bool?, fileURL: URL) async throws -> SaveDTO { throw URLError(.userAuthenticationRequired) }
-    func uploadState(romID: Int, emulator: String?, fileURL: URL) async throws -> StateDTO { throw URLError(.userAuthenticationRequired) }
-    func download(from absoluteURL: URL, to destinationURL: URL) async throws { throw URLError(.userAuthenticationRequired) }
 }
 
 private func currentDeviceName() -> String {

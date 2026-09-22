@@ -49,9 +49,19 @@ val hasReleaseSigning = !releaseKeystorePath.isNullOrBlank() &&
 android {
     namespace = "io.github.bandoracer.rommio"
     compileSdk = 36
+    ndkVersion = "27.2.12479018"
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
 
     defaultConfig {
         minSdk = 26
+        externalNativeBuild {
+            cmake { arguments += "-DANDROID_STL=c++_static" }
+        }
         targetSdk = 36
         versionCode = 3
         versionName = "0.3.0"
@@ -98,6 +108,7 @@ android {
 
     buildTypes {
         debug {
+            externalNativeBuild { cmake { arguments += "-DROMMIO_BUILD_TEST_CORE=ON" } }
             buildConfigField("String", "DEBUG_TEST_BASE_URL", buildConfigString(localTestEnv["ROMM_TEST_BASE_URL"].orEmpty()))
             buildConfigField("String", "DEBUG_TEST_CLIENT_ID", buildConfigString(localTestEnv["ROMM_TEST_CLIENT_ID"].orEmpty()))
             buildConfigField("String", "DEBUG_TEST_CLIENT_SECRET", buildConfigString(localTestEnv["ROMM_TEST_CLIENT_SECRET"].orEmpty()))
@@ -133,6 +144,17 @@ android {
         buildConfig = true
     }
 
+    sourceSets {
+        getByName("test").java.srcDir("src/testShared/java")
+        getByName("androidTest").java.srcDir("src/testShared/java")
+        getByName("test").resources.srcDir(rootProject.file("tests/fixtures/progress-v2"))
+        getByName("androidTest").assets.srcDir(rootProject.file("tests/fixtures/progress-v2"))
+        // Optional, explicitly staged native cores for isolated real-runtime qualification.
+        providers.gradleProperty("nativePlayerFixtures").orNull?.let {
+            getByName("androidTest").assets.srcDir(file(it))
+        }
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -147,6 +169,7 @@ dependencies {
     androidTestImplementation(composeBom)
 
     implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.webkit:webkit:1.12.1")
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
@@ -176,14 +199,51 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("io.coil-kt:coil-svg:2.7.0")
-    implementation("com.github.Swordfish90:LibretroDroid:0.13.2")
+    implementation(project(":libretrodroid"))
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 
+    androidTestImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.test:core-ktx:1.6.1")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
 }
+
+// Reuse the production validator against explicitly staged artifacts; no native code is loaded.
+tasks.register<JavaExec>("verifyCoreArtifacts") {
+    dependsOn("testStandardDebugUnitTest")
+    mainClass.set("io.github.bandoracer.rommio.domain.player.CoreArtifactProbe")
+    doFirst {
+        classpath = tasks.named<Test>("testStandardDebugUnitTest").get().classpath
+        args(providers.gradleProperty("coreArtifactList").get())
+    }
+}
+
+// Native core bytes and their exact manifest are produced together from vendored source.
+val pinnedCoreAssets = layout.buildDirectory.dir("generated/pinned-core-assets")
+val buildPinnedCores by tasks.registering(Exec::class) {
+    inputs.dir(rootProject.file("third_party/fceumm"))
+    inputs.file(rootProject.file("scripts/android/build_pinned_cores.py"))
+    outputs.dir(pinnedCoreAssets)
+    commandLine("python3", rootProject.file("scripts/android/build_pinned_cores.py"),
+        "--ndk", File(android.sdkDirectory, "ndk/${android.ndkVersion}"),
+        "--output", pinnedCoreAssets.get().asFile)
+}
+android.sourceSets.getByName("main").assets.srcDir(pinnedCoreAssets)
+tasks.named("preBuild") { dependsOn(buildPinnedCores) }
+
+val cartridgeCoreAssets = layout.buildDirectory.dir("generated/cartridge-core-assets")
+val buildCartridgeCores by tasks.registering(Exec::class) {
+    inputs.dir(rootProject.file("scripts/cores"))
+    outputs.dir(cartridgeCoreAssets)
+    commandLine("python3", rootProject.file("scripts/cores/package_android.py"),
+        "--ndk", File(android.sdkDirectory, "ndk/${android.ndkVersion}"),
+        "--output", cartridgeCoreAssets.get().asFile)
+}
+android.sourceSets.getByName("main").assets.srcDir(cartridgeCoreAssets)
+tasks.named("preBuild") { dependsOn(buildCartridgeCores) }

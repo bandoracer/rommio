@@ -1,0 +1,47 @@
+# Isolated protocol qualification server. Never mount a personal ROM/save library here.
+# Supply generated test-only credentials using --env-file; see README.md.
+name: rommio-protocol-test
+services:
+  romm:
+    image: rommapp/romm:5.2.0
+    environment:
+      DB_HOST: db
+      DB_NAME: romm_test
+      DB_USER: romm_test
+      DB_PASSWD: ${ROMMIO_TEST_DB_PASSWORD:?Generate test credentials first}
+      ROMM_AUTH_SECRET_KEY: ${ROMMIO_TEST_AUTH_KEY:?Generate test credentials first}
+      HASHEOUS_API_ENABLED: "false"
+      WEB_SERVER_CONCURRENCY: "2"
+      SCAN_WORKERS: "1"
+    ports:
+      - "127.0.0.1:18765:8080"
+    volumes:
+      - library:/romm/library
+      - assets:/romm/assets
+      - resources:/romm/resources
+      - config:/romm/config
+      - redis:/redis-data
+    depends_on:
+      db:
+        condition: service_healthy
+  db:
+    image: mariadb:12.3.3
+    environment:
+      MARIADB_ROOT_PASSWORD: ${ROMMIO_TEST_DB_ROOT_PASSWORD:?Generate test credentials first}
+      MARIADB_DATABASE: romm_test
+      MARIADB_USER: romm_test
+      MARIADB_PASSWORD: ${ROMMIO_TEST_DB_PASSWORD:?Generate test credentials first}
+    volumes:
+      - database:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+volumes:
+  library:
+  assets:
+  resources:
+  config:
+  redis:
+  database:

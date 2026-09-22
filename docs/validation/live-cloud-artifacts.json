@@ -1,0 +1,110 @@
+[
+  {
+    "romId": 51,
+    "platform": "gb",
+    "snapshotStreams": {
+      "ios-simulator": {
+        "coreSha256": "3a10191b3bf0fbde4a11afcc25cda901615a8ed27e0dd825114634ed89440bde",
+        "checkpointId": "b1069712-9f66-4975-a8ea-a0d6bf4be49b",
+        "artifactCount": 2,
+        "allArtifactHashesVerified": true
+      },
+      "android": {
+        "coreSha256": "fb651b64e091832cbc5306481bc3c4cf28f1dfadf046fde249f01f6509594338",
+        "checkpointId": "6b4bc704-4e4c-4a97-9fe1-7f04244f1b04",
+        "artifactCount": 2,
+        "allArtifactHashesVerified": true
+      }
+    }
+  },
+  {
+    "romId": 58,
+    "platform": "gbc",
+    "snapshotStreams": {
+      "ios-simulator": {
+        "coreSha256": "3a10191b3bf0fbde4a11afcc25cda901615a8ed27e0dd825114634ed89440bde",
+        "checkpointId": "9a0aa314-feb7-4273-b25b-30fe184d3927",
+        "artifactCount": 3,
+        "allArtifactHashesVerified": true
+      },
+      "android": {
+        "coreSha256": "fb651b64e091832cbc5306481bc3c4cf28f1dfadf046fde249f01f6509594338",
+        "checkpointId": "7783fe4f-3ee9-4980-9e2a-be592d95c043",
+        "artifactCount": 3,
+        "allArtifactHashesVerified": true
+      }
+    }
+  },
+  {
+    "romId": 102,
+    "platform": "gba",
+    "snapshotStreams": {
+      "ios-simulator": {
+        "coreSha256": "ea60c2f638803079fbf4606ca0b2e8f1fd5768dec2ae51a08c2e310f0c38f203",
+        "checkpointId": "df759463-8305-419d-9674-7a82fad11c0b",
+        "artifactCount": 3,
+        "allArtifactHashesVerified": true
+      },
+      "android": {
+        "coreSha256": "b560ab17c4c1fe6554a32831b5bd32c6045abcd19fa5ef433245d7da47a17efd",
+        "checkpointId": "13ddbcc8-3204-4ba1-a36c-f6e7c789ee21",
+        "artifactCount": 3,
+        "allArtifactHashesVerified": true
+      }
+    }
+  },
+  {
+    "romId": 93,
+    "platform": "snes",
+    "snapshotStreams": {
+      "ios-simulator": {
+        "coreSha256": "9c22baf3fe70a41d0afb753cee414784ac5cad1f36c475c46587b6a775fd4094",
+        "checkpointId": "81a22464-0929-45b2-a7a0-a16aac51493f",
+        "artifactCount": 2,
+        "allArtifactHashesVerified": true
+      },
+      "android": {
+        "coreSha256": "39292a933b85fa45b5f7e75da64bb0a5d69bf7d39f8ba49f0b630ba87b62c057",
+        "checkpointId": "a5888107-22e4-4077-b313-12207903ad16",
+        "artifactCount": 2,
+        "allArtifactHashesVerified": true
+      }
+    }
+  },
+  {
+    "romId": 95,
+    "platform": "nds",
+    "snapshotStreams": {
+      "ios-simulator": {
+        "coreSha256": "989b84b1be49590ccacde02a960437b2d346ec8c80db0d8a4e324a97e5f46019",
+        "checkpointId": "27cbd58f-756b-4c5c-a83f-93ec7bfbeecb",
+        "artifactCount": 2,
+        "allArtifactHashesVerified": true
+      },
+      "android": {
+        "coreSha256": "eed8cf565cf187a4905a02a1a6d32bd6d697523cb760c59d953307d111ef6a4b",
+        "checkpointId": "4a3b0e39-4dc4-4282-8ef8-570e9f505442",
+        "artifactCount": 2,
+        "allArtifactHashesVerified": true
+      }
+    }
+  },
+  {
+    "romId": 3,
+    "platform": "nes",
+    "snapshotStreams": {
+      "ios-simulator": {
+        "coreSha256": "94712f12cd9ff07d58315696b1f93727fdbaca0f42bb07d2482c6f71f222e0cc",
+        "checkpointId": "7c483a3b-9c19-4fa3-81a2-2ee603ce662a",
+        "artifactCount": 1,
+        "allArtifactHashesVerified": true
+      },
+      "android": {
+        "coreSha256": "6282859e88ffc4c7a8680e9c058613a9e0b04f944badd3cefc95b3bde89fb001",
+        "checkpointId": "82c9a4dd-bcdf-479b-99e5-6fea96eadbc3",
+        "artifactCount": 1,
+        "allArtifactHashesVerified": true
+      }
+    }
+  }
+]

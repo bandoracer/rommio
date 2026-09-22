@@ -25,8 +25,9 @@ import io.github.bandoracer.rommio.domain.player.LibretroPlayerEngine
 import io.github.bandoracer.rommio.domain.storage.AppManagedLibraryStore
 import io.github.bandoracer.rommio.domain.sync.RommSyncBridge
 
-class AppContainer(appContext: Context) {
-    val libraryStore = AppManagedLibraryStore(appContext).also { it.ensureRootLayout() }
+class AppContainer(appContext: Context, progressEngineFactory: () -> io.github.bandoracer.rommio.domain.player.PlayerEngine = { LibretroPlayerEngine() }) {
+    private val appContextFilesForRecovery = appContext.noBackupFilesDir
+    val libraryStore = AppManagedLibraryStore(appContext)
     private val deviceName = Build.MODEL?.takeIf { it.isNotBlank() } ?: "Android"
 
     private val database = Room.databaseBuilder(
@@ -41,6 +42,11 @@ class AppContainer(appContext: Context) {
         AppDatabase.MIGRATION_5_6,
         AppDatabase.MIGRATION_6_7,
         AppDatabase.MIGRATION_7_8,
+        AppDatabase.MIGRATION_8_9,
+        AppDatabase.MIGRATION_9_10,
+        AppDatabase.MIGRATION_10_11,
+        AppDatabase.MIGRATION_11_12,
+        AppDatabase.MIGRATION_12_13,
     )
         .build()
 
@@ -76,7 +82,19 @@ class AppContainer(appContext: Context) {
     )
     val serviceFactory = RommServiceFactory(authManager)
     val downloadClient = DownloadClient(authManager)
+    val ownedDownloads = io.github.bandoracer.rommio.data.repository.OwnedDownloadQueue(database, authManager, libraryStore, downloadClient)
+    val legacyProgressRecovery = io.github.bandoracer.rommio.data.migration.LegacyProgressRecovery(
+        database, libraryStore, java.io.File(appContext.noBackupFilesDir, "legacy-progress-recovery"),
+        currentOwner = {
+            authManager.getActiveProfile()?.let { profile ->
+                authManager.verifiedAccount(profile.id)?.takeIf { it.baseUrl == profile.baseUrl }?.let { profile.id to it }
+            }
+        },
+    )
     val thumbnailCacheStore = ThumbnailCacheStore(appContext, mediaCacheEntryDao)
+    private val progressStorage = io.github.bandoracer.rommio.domain.progress.ApplicationProgressStorage(
+        database, java.io.File(appContext.noBackupFilesDir, "progress-v2"),
+    )
     val migrationBundleManager = MigrationBundleManager(
         context = appContext,
         database = database,
@@ -101,15 +119,60 @@ class AppContainer(appContext: Context) {
         controlsPreferencesStore = controlsPreferencesStore,
         thumbnailCacheStore = thumbnailCacheStore,
         libraryStore = libraryStore,
+        closeProgressForReplacement = { progressStorage.closeForReplacement() },
     )
 
-    val coreResolver = CoreCatalogResolver(appContext, libraryStore)
+    init {
+        // Recover before constructing consumers or allowing workers/screens to use imported storage.
+        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+            recoverStorage()
+        }
+    }
+
+    suspend fun recoverStorage() {
+        // Mark both journals before either recovery releases its exclusive lease to background work.
+        io.github.bandoracer.rommio.domain.storage.StorageAccess.requireRecovery(
+            java.io.File(appContextFilesForRecovery, "library-imports/pending").exists(),
+        )
+        io.github.bandoracer.rommio.domain.storage.StorageAccess.requireRecovery(
+            java.io.File(appContextFilesForRecovery, "legacy-progress-recovery/pending.json").exists(), "legacy-progress",
+        )
+        runCatching { migrationBundleManager.recoverInterruptedImport() }
+        runCatching { legacyProgressRecovery.recover() }
+    }
+
+    val firmwareStore = io.github.bandoracer.rommio.domain.player.FirmwareStore(libraryStore, openAsset = { appContext.assets.open(it) })
+    val coreArtifacts = io.github.bandoracer.rommio.domain.player.CoreArtifactStore(libraryStore.coresDirectory())
+    val packagedCores = io.github.bandoracer.rommio.domain.player.PackagedCoreArtifacts(appContext, libraryStore, coreArtifacts)
+    val persistenceRegistry = io.github.bandoracer.rommio.domain.progress.FceummPersistenceRegistry(packagedCores)
+    val progressSync = io.github.bandoracer.rommio.domain.progress.ApplicationProgressSync(
+        { progressStorage.get() }, authManager, serviceFactory, java.io.File(appContext.cacheDir, "progress-transfer"),
+        { io.github.bandoracer.rommio.data.work.ProgressSyncWorker.enqueue(appContext) },
+    )
+    // Qualified player sessions own their native lifecycle and durable local progress.
+    val progressSessions = io.github.bandoracer.rommio.domain.progress.ApplicationProgressSessions(
+        storeProvider = { progressStorage.get() },
+        engineFactory = progressEngineFactory,
+        registry = persistenceRegistry,
+        modern = true,
+        beforePrepare = { progressSync.beforeLaunch(requireNotNull(it.progressBinding)) },
+        afterCommit = { result ->
+            if (result?.stateRejected == true) android.widget.Toast.makeText(appContext,
+                result.stateError ?: "Game save saved. Resume snapshot failed; the previous snapshot is preserved.", android.widget.Toast.LENGTH_LONG).show()
+            progressSync.request()
+        },
+        deviceId = { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val preferences = appContext.getSharedPreferences("progress-installation", Context.MODE_PRIVATE)
+            preferences.getString("device-id", null) ?: java.util.UUID.randomUUID().toString().also {
+                check(preferences.edit().putString("device-id", it).commit()) { "Unable to persist the device identity." }
+            }
+        } },
+    )
+    val coreResolver = CoreCatalogResolver(appContext, libraryStore, firmwareStore, coreArtifacts, packagedCores)
     val controlProfileResolver = PlatformControlProfileResolver()
-    val coreInstaller = LibretroCoreInstaller(libraryStore)
+    val coreInstaller = LibretroCoreInstaller(libraryStore, coreArtifacts, packaged = packagedCores)
     val syncBridge = RommSyncBridge(
-        authManager = authManager,
-        serviceFactory = serviceFactory,
-        downloadClient = downloadClient,
+        profileIdProvider = { authManager.getActiveProfile()?.id },
         libraryStore = libraryStore,
         saveStateDao = saveStateDao,
         gameSyncJournalDao = gameSyncJournalDao,
@@ -120,10 +183,12 @@ class AppContainer(appContext: Context) {
 
     val repository = RommRepository(
         context = appContext,
+        database = database,
         authManager = authManager,
         serviceFactory = serviceFactory,
         downloadedRomDao = downloadedRomDao,
         downloadRecordDao = downloadRecordDao,
+        ownedDownloads = ownedDownloads,
         saveStateDao = saveStateDao,
         cachedPlatformDao = cachedPlatformDao,
         cachedRomDao = cachedRomDao,
@@ -142,6 +207,7 @@ class AppContainer(appContext: Context) {
         connectivityMonitor = connectivityMonitor,
         thumbnailCacheStore = thumbnailCacheStore,
         migrationBundleManager = migrationBundleManager,
+        firmwareStore = firmwareStore,
     )
     val playerControlsRepository = PlayerControlsRepository(
         resolver = controlProfileResolver,

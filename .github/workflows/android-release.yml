@@ -7,7 +7,13 @@ on:
   workflow_dispatch:
 
 jobs:
+  validate:
+    uses: ./.github/workflows/android-validate.yml
+    permissions:
+      contents: read
+
   build-release:
+    needs: validate
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -26,28 +32,69 @@ jobs:
       - name: Restore release keystore
         env:
           ROMMIO_RELEASE_KEYSTORE_BASE64: ${{ secrets.ROMMIO_RELEASE_KEYSTORE_BASE64 }}
+          ROMMIO_RELEASE_STORE_PASSWORD: ${{ secrets.ROMMIO_RELEASE_STORE_PASSWORD }}
+          ROMMIO_RELEASE_KEY_ALIAS: ${{ secrets.ROMMIO_RELEASE_KEY_ALIAS }}
+          ROMMIO_RELEASE_KEY_PASSWORD: ${{ secrets.ROMMIO_RELEASE_KEY_PASSWORD }}
         run: |
-          if [ -n "${ROMMIO_RELEASE_KEYSTORE_BASE64:-}" ]; then
-            echo "$ROMMIO_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/rommio-release.keystore"
-            echo "ROMMIO_RELEASE_KEYSTORE_PATH=$RUNNER_TEMP/rommio-release.keystore" >> "$GITHUB_ENV"
-          fi
+          set -euo pipefail
+          : "${ROMMIO_RELEASE_KEYSTORE_BASE64:?Release keystore is required}"
+          : "${ROMMIO_RELEASE_STORE_PASSWORD:?Release store password is required}"
+          : "${ROMMIO_RELEASE_KEY_ALIAS:?Release key alias is required}"
+          : "${ROMMIO_RELEASE_KEY_PASSWORD:?Release key password is required}"
+          umask 077
+          printf '%s' "$ROMMIO_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/rommio-release.keystore"
+          echo "ROMMIO_RELEASE_KEYSTORE_PATH=$RUNNER_TEMP/rommio-release.keystore" >> "$GITHUB_ENV"
+
+      - uses: android-actions/setup-android@v3
+      - name: Install pinned native build tools
+        run: sdkmanager "ndk;27.2.12479018" "cmake;3.22.1"
 
       - name: Build release APK
-        run: ./gradlew assembleRelease
+        run: ./gradlew assembleStandardRelease assembleLegacyBridgeRelease
         env:
           ROMMIO_RELEASE_KEYSTORE_PATH: ${{ env.ROMMIO_RELEASE_KEYSTORE_PATH }}
           ROMMIO_RELEASE_STORE_PASSWORD: ${{ secrets.ROMMIO_RELEASE_STORE_PASSWORD }}
           ROMMIO_RELEASE_KEY_ALIAS: ${{ secrets.ROMMIO_RELEASE_KEY_ALIAS }}
           ROMMIO_RELEASE_KEY_PASSWORD: ${{ secrets.ROMMIO_RELEASE_KEY_PASSWORD }}
 
-      - name: Upload release artifact
+      - name: Verify package identities and release certificates
+        env:
+          ROMMIO_RELEASE_STORE_PASSWORD: ${{ secrets.ROMMIO_RELEASE_STORE_PASSWORD }}
+          ROMMIO_RELEASE_KEY_ALIAS: ${{ secrets.ROMMIO_RELEASE_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          build_tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          expected_digest=$(keytool -exportcert -keystore "$ROMMIO_RELEASE_KEYSTORE_PATH" -alias "$ROMMIO_RELEASE_KEY_ALIAS" -storepass:env ROMMIO_RELEASE_STORE_PASSWORD | sha256sum | cut -d' ' -f1)
+          for flavor in standard legacyBridge; do
+            apk="app/build/outputs/apk/$flavor/release/app-$flavor-release.apk"
+            test -s "$apk"
+            expected_package=io.github.bandoracer.rommio
+            if [ "$flavor" = legacyBridge ]; then expected_package=io.github.mattsays.rommnative; fi
+            package=$("$build_tools/aapt" dump badging "$apk" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+            test "$package" = "$expected_package"
+            actual_digest=$("$build_tools/apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+            test "$actual_digest" = "$expected_digest"
+          done
+
+      - name: Upload standard release artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rommio-release-apk
-          path: app/build/outputs/apk/release/app-release.apk
+          name: rommio-standard-release-apk
+          path: app/build/outputs/apk/standard/release/app-standard-release.apk
+          if-no-files-found: error
+
+      - name: Upload legacy bridge release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rommio-legacy-bridge-release-apk
+          path: app/build/outputs/apk/legacyBridge/release/app-legacyBridge-release.apk
+          if-no-files-found: error
 
       - name: Publish GitHub release asset
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: app/build/outputs/apk/release/app-release.apk
+          fail_on_unmatched_files: true
+          files: |
+            app/build/outputs/apk/standard/release/app-standard-release.apk
+            app/build/outputs/apk/legacyBridge/release/app-legacyBridge-release.apk

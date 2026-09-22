@@ -108,7 +108,7 @@ private struct CoreProvisioningHarness {
         downloadQueue = ManagedDownloadQueue(
             database: database,
             profileStore: profileStore,
-            secretStore: secretStore,
+            authController: authController,
             libraryStore: libraryStore
         )
         networkMonitor = NetworkMonitor()

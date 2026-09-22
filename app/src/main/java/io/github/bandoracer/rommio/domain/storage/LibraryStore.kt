@@ -3,6 +3,7 @@ package io.github.bandoracer.rommio.domain.storage
 import android.content.Context
 import io.github.bandoracer.rommio.model.DownloadedRomEntity
 import java.io.File
+import io.github.bandoracer.rommio.model.InstallIdentity
 
 interface LibraryStore {
     fun ensureRootLayout()
@@ -42,7 +43,7 @@ class AppManagedLibraryStore(
     override fun rootDirectory(): File = root
 
     override fun romDirectory(platformSlug: String): File {
-        return File(File(root, "roms"), platformSlug).apply { mkdirs() }
+        return File(File(root, "roms"), platformSlug)
     }
 
     override fun romTarget(platformSlug: String, fileName: String): File {
@@ -50,13 +51,13 @@ class AppManagedLibraryStore(
     }
 
     override fun saveRamFile(installation: DownloadedRomEntity): File {
-        return File(File(root, "saves"), "${installation.romId}_${installation.fileId}.srm").apply {
-            parentFile?.mkdirs()
-        }
+        return if (installation.progressScope == InstallIdentity.LEGACY) File(File(root, "saves"), "${installation.romId}_${installation.fileId}.srm")
+        else File(progressDirectory(installation), "saves/save.srm")
     }
 
     override fun saveStatesDirectory(installation: DownloadedRomEntity): File {
-        return File(File(root, "states"), installation.romId.toString()).apply { mkdirs() }
+        return if (installation.progressScope == InstallIdentity.LEGACY) File(File(root, "states"), installation.romId.toString())
+        else File(progressDirectory(installation), "states")
     }
 
     override fun continuityResumeStateFile(installation: DownloadedRomEntity): File {
@@ -68,19 +69,25 @@ class AppManagedLibraryStore(
     }
 
     override fun screenshotsDirectory(installation: DownloadedRomEntity): File {
-        return File(File(root, "screenshots"), installation.romId.toString()).apply { mkdirs() }
+        return if (installation.progressScope == InstallIdentity.LEGACY) File(File(root, "screenshots"), installation.romId.toString())
+        else File(progressDirectory(installation), "screenshots")
+    }
+
+    private fun progressDirectory(installation: DownloadedRomEntity): File {
+        require(installation.progressScope.matches(Regex("[0-9a-f]{64}"))) { "Invalid installed progress scope." }
+        return File(root, "progress-local/${installation.progressScope}")
     }
 
     override fun systemDirectory(): File {
-        return File(root, "system").apply { mkdirs() }
+        return File(root, "system")
     }
 
     override fun biosDirectory(): File {
-        return File(root, "bios").apply { mkdirs() }
+        return File(root, "bios")
     }
 
     override fun coresDirectory(): File {
-        return File(root, "cores").apply { mkdirs() }
+        return File(root, "cores")
     }
 
     override fun resolveCoreLibrary(context: Context, libraryFileName: String): File? {

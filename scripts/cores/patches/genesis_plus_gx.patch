@@ -1,0 +1,466 @@
+diff --git a/core/cd_hw/cdd.c b/core/cd_hw/cdd.c
+index 74ab04e..677c026 100644
+--- a/core/cd_hw/cdd.c
++++ b/core/cd_hw/cdd.c
+@@ -389,7 +389,7 @@ int cdd_context_load(uint8 *state, char *version)
+ 
+ int cdd_load(char *filename, char *header)
+ {
+-  char fname[256+10];
++  char fname[4096+10];
+   char line[128];
+   char *ptr, *lptr;
+   cdStream *fd;
+@@ -579,9 +579,10 @@ int cdd_load(char *filename, char *header)
+   }
+ #endif
+ 
+-  /* save a copy of base filename (max. 255 characters) */
+-  strncpy(fname, filename, 255);
+-  fname[256] = 0;
++  /* save a copy of base filename (max. 4095 characters) */
++  if (strlen(filename) >= 4096) return 0;
++  strncpy(fname, filename, 4095);
++  fname[4095] = 0;
+ 
+   /* check loaded file extension */
+   if (memcmp("cue", &filename[strlen(filename) - 3], 3) && memcmp("CUE", &filename[strlen(filename) - 3], 3))
+@@ -654,7 +655,7 @@ int cdd_load(char *filename, char *header)
+ 
+     /* automatically try to mount CD associated CUE file */
+     len = strlen(fname);
+-    while ((len && (fname[len] != '.')) || (len > 251)) len--;
++    while ((len && (fname[len] != '.')) || (len > 4091)) len--;
+     strcpy(&fname[len], ".cue");
+     fd = cdStreamOpen(fname);
+   }
+@@ -711,13 +712,13 @@ int cdd_load(char *filename, char *header)
+         {
+           /* skip first DOUBLE QUOTE character */
+           lptr++;
+-          while ((*lptr != '\"') && (lptr <= (line + 128)) && (ptr < (fname + 255)))
++          while ((*lptr != '\"') && (lptr <= (line + 128)) && (ptr < (fname + 4095)))
+             *ptr++ = *lptr++;
+         }
+         else
+         {
+           /* no DOUBLE QUOTE used */
+-          while ((*lptr != 0x20) && (lptr <= (line + 128)) && (ptr < (fname + 255)))
++          while ((*lptr != 0x20) && (lptr <= (line + 128)) && (ptr < (fname + 4095)))
+             *ptr++ = *lptr++;
+         }
+         *ptr = 0;
+diff --git a/core/loadrom.c b/core/loadrom.c
+index c649091..3047b47 100644
+--- a/core/loadrom.c
++++ b/core/loadrom.c
+@@ -92,7 +92,7 @@ typedef struct
+ 
+ ROMINFO rominfo;
+ uint8 romtype;
+-char rompath[256];
++char rompath[4096];
+ 
+ static uint8 rom_region;
+ 
+@@ -742,14 +742,14 @@ int load_rom(char *filename)
+   else if ((system_hw == SYSTEM_MD) && (cart.romsize <= 0x800000) && (config.add_on != HW_ADDON_NONE))
+   {
+     int len;
+-    char fname[256];
++    char fname[4096];
+ 
+ #if defined(USE_LIBCHDR)
+     /* automatically try to load associated .chd file if no .cue file CD image loaded yet */
+     if (!cdd.loaded)
+     {
+       len = strlen(filename);
+-      while ((len && (filename[len] != '.')) || (len > 251)) len--;
++      while ((len && (filename[len] != '.')) || (len > sizeof(fname) - 5)) len--;
+       strncpy(fname, filename, len);
+       strcpy(&fname[len], ".chd");
+       fname[len+4] = 0;
+@@ -773,7 +773,7 @@ int load_rom(char *filename)
+         if (!cdd.loaded)
+         {
+           len = strlen(filename);
+-          while ((len && (filename[len] != '.')) || (len > 251)) len--;
++          while ((len && (filename[len] != '.')) || (len > sizeof(fname) - 5)) len--;
+           strncpy(fname, filename, len);
+           strcpy(&fname[len], ".iso");
+           fname[len+4] = 0;
+diff --git a/core/loadrom.h b/core/loadrom.h
+index a2ffdaf..f8c629f 100644
+--- a/core/loadrom.h
++++ b/core/loadrom.h
+@@ -64,7 +64,7 @@ typedef struct
+ /* Global variables */
+ extern ROMINFO rominfo;
+ extern uint8 romtype;
+-extern char rompath[256];
++extern char rompath[4096];
+ 
+ /* Function prototypes */
+ extern int load_bios(int system);
+diff --git a/libretro/libretro.c b/libretro/libretro.c
+index 798c6cc..6615240 100644
+--- a/libretro/libretro.c
++++ b/libretro/libretro.c
+@@ -108,22 +108,22 @@ t_config config;
+ sms_ntsc_t *sms_ntsc = NULL;
+ md_ntsc_t  *md_ntsc = NULL;
+ 
+-char GG_ROM[256];
+-char AR_ROM[256];
+-char SK_ROM[256];
+-char SK_UPMEM[256];
+-char MD_BIOS[256];
+-char GG_BIOS[256];
+-char MS_BIOS_EU[256];
+-char MS_BIOS_JP[256];
+-char MS_BIOS_US[256];
+-char CD_BIOS_EU[256];
+-char CD_BIOS_US[256];
+-char CD_BIOS_JP[256];
+-char CD_BRAM_JP[256];
+-char CD_BRAM_US[256];
+-char CD_BRAM_EU[256];
+-char CART_BRAM[256];
++char GG_ROM[4096];
++char AR_ROM[4096];
++char SK_ROM[4096];
++char SK_UPMEM[4096];
++char MD_BIOS[4096];
++char GG_BIOS[4096];
++char MS_BIOS_EU[4096];
++char MS_BIOS_JP[4096];
++char MS_BIOS_US[4096];
++char CD_BIOS_EU[4096];
++char CD_BIOS_US[4096];
++char CD_BIOS_JP[4096];
++char CD_BRAM_JP[4096];
++char CD_BRAM_US[4096];
++char CD_BRAM_EU[4096];
++char CART_BRAM[4096];
+ 
+ static int vwidth;
+ static int vheight;
+@@ -151,8 +151,8 @@ static int16 soundbuffer[3068];
+ static uint16_t bitmap_data_[720 * 576];
+ static uint8_t reg0_prev = 0;
+ 
+-static char g_rom_dir[256];
+-static char g_rom_name[256];
++static char g_rom_dir[4096];
++static char g_rom_name[4096];
+ static const void *g_rom_data = NULL;
+ static size_t g_rom_size      = 0;
+ static char *save_dir         = NULL;
+@@ -1042,171 +1042,53 @@ static void config_default(void)
+ 
+ static void bram_load(void)
+ {
+-    RFILE *fp;
+-
+-    /* automatically load internal backup RAM */
+-    switch (region_code)
+-    {
+-       case REGION_JAPAN_NTSC:
+-          fp = filestream_open(CD_BRAM_JP, RETRO_VFS_FILE_ACCESS_READ, RETRO_VFS_FILE_ACCESS_HINT_NONE);
+-          break;
+-       case REGION_EUROPE:
+-          fp = filestream_open(CD_BRAM_EU, RETRO_VFS_FILE_ACCESS_READ, RETRO_VFS_FILE_ACCESS_HINT_NONE);
+-          break;
+-       case REGION_USA:
+-          fp = filestream_open(CD_BRAM_US, RETRO_VFS_FILE_ACCESS_READ, RETRO_VFS_FILE_ACCESS_HINT_NONE);
+-          break;
+-       default:
+-          return;
+-    }
+-
+-    if (fp != NULL)
+-    {
+-      filestream_read(fp, scd.bram, 0x2000);
+-      filestream_close(fp);
+-
+-      /* update CRC */
+-      brm_crc[0] = crc32(0, scd.bram, 0x2000);
+-    }
+-    else
+-    {
+-      /* force internal backup RAM format (does not use previous region backup RAM) */
+-      scd.bram[0x1fff] = 0;
+-    }
+-
+-    /* check if internal backup RAM is correctly formatted */
+-    if (memcmp(scd.bram + 0x2000 - 0x20, brm_format + 0x20, 0x20))
+-    {
+-      /* clear internal backup RAM */
+-      memset(scd.bram, 0x00, 0x2000 - 0x40);
+-
+-      /* internal Backup RAM size fields */
+-      brm_format[0x10] = brm_format[0x12] = brm_format[0x14] = brm_format[0x16] = 0x00;
+-      brm_format[0x11] = brm_format[0x13] = brm_format[0x15] = brm_format[0x17] = (sizeof(scd.bram) / 64) - 3;
+-
+-      /* format internal backup RAM */
+-      memcpy(scd.bram + 0x2000 - 0x40, brm_format, 0x40);
+-
+-      /* clear CRC to force file saving (in case previous region backup RAM was also formatted) */
+-      brm_crc[0] = 0;
+-    }
+-
+-    /* automatically load cartridge backup RAM (if enabled) */
+-    if (scd.cartridge.id)
+-    {
+-      fp = filestream_open(CART_BRAM, RETRO_VFS_FILE_ACCESS_READ, RETRO_VFS_FILE_ACCESS_HINT_NONE);
+-      if (fp != NULL)
+-      {
+-        int filesize = scd.cartridge.mask + 1;
+-        int done = 0;
+-        
+-        /* Read into buffer (2k blocks) */
+-        while (filesize > CHUNKSIZE)
+-        {
+-          filestream_read(fp, scd.cartridge.area + done, CHUNKSIZE);
+-          done += CHUNKSIZE;
+-          filesize -= CHUNKSIZE;
+-        }
+-
+-        /* Read remaining bytes */
+-        if (filesize)
+-        {
+-          filestream_read(fp, scd.cartridge.area + done, filesize);
+-        }
+-
+-        /* close file */
+-        filestream_close(fp);
+-
+-        /* update CRC */
+-        brm_crc[1] = crc32(0, scd.cartridge.area, scd.cartridge.mask + 1);
+-      }
+-
+-      /* check if cartridge backup RAM is correctly formatted */
+-      if (memcmp(scd.cartridge.area + scd.cartridge.mask + 1 - 0x20, brm_format + 0x20, 0x20))
+-      {
+-        /* clear cartridge backup RAM */
+-        memset(scd.cartridge.area, 0x00, scd.cartridge.mask + 1);
+-
+-        /* Cartridge Backup RAM size fields */
+-        brm_format[0x10] = brm_format[0x12] = brm_format[0x14] = brm_format[0x16] = (((scd.cartridge.mask + 1) / 64) - 3) >> 8;
+-        brm_format[0x11] = brm_format[0x13] = brm_format[0x15] = brm_format[0x17] = (((scd.cartridge.mask + 1) / 64) - 3) & 0xff;
+-
+-        /* format cartridge backup RAM */
+-        memcpy(scd.cartridge.area + scd.cartridge.mask + 1 - 0x40, brm_format, 0x40);
+-      }
+-    }
++   memset(scd.bram, 0, sizeof(scd.bram));
++   brm_format[0x10] = brm_format[0x12] = brm_format[0x14] = brm_format[0x16] = 0;
++   brm_format[0x11] = brm_format[0x13] = brm_format[0x15] = brm_format[0x17] = (sizeof(scd.bram) / 64) - 3;
++   memcpy(scd.bram + sizeof(scd.bram) - 0x40, brm_format, 0x40);
++   if (scd.cartridge.id) {
++      const unsigned size = scd.cartridge.mask + 1;
++      memset(scd.cartridge.area, 0, size);
++      brm_format[0x10] = brm_format[0x12] = brm_format[0x14] = brm_format[0x16] = ((size / 64) - 3) >> 8;
++      brm_format[0x11] = brm_format[0x13] = brm_format[0x15] = brm_format[0x17] = ((size / 64) - 3) & 0xff;
++      memcpy(scd.cartridge.area + size - 0x40, brm_format, 0x40);
++   }
+ }
++static void bram_save(void) { /* Rommio captures both regions at its native barrier. */ }
+ 
+-static void bram_save(void)
+-{
+-    RFILE *fp;
+-
+-    /* verify that internal backup RAM has been modified */
+-    if (crc32(0, scd.bram, 0x2000) != brm_crc[0])
+-    {
+-      /* check if it is correctly formatted before saving */
+-      if (!memcmp(scd.bram + 0x2000 - 0x20, brm_format + 0x20, 0x20))
+-      {
+-        switch (region_code)
+-        {
+-          case REGION_JAPAN_NTSC:
+-            fp = filestream_open(CD_BRAM_JP, RETRO_VFS_FILE_ACCESS_WRITE, RETRO_VFS_FILE_ACCESS_HINT_NONE);
+-            break;
+-          case REGION_EUROPE:
+-            fp = filestream_open(CD_BRAM_EU, RETRO_VFS_FILE_ACCESS_WRITE, RETRO_VFS_FILE_ACCESS_HINT_NONE);
+-            break;
+-          case REGION_USA:
+-            fp = filestream_open(CD_BRAM_US, RETRO_VFS_FILE_ACCESS_WRITE, RETRO_VFS_FILE_ACCESS_HINT_NONE);
+-            break;
+-          default:
+-            return;
+-        }
+-
+-        if (fp != NULL)
+-        {
+-          filestream_write(fp, scd.bram, 0x2000);
+-          filestream_close(fp);
+-
+-          /* update CRC */
+-          brm_crc[0] = crc32(0, scd.bram, 0x2000);
+-        }
+-      }
+-    }
+-
+-    /* verify that cartridge backup RAM has been modified */
+-    if (scd.cartridge.id && (crc32(0, scd.cartridge.area, scd.cartridge.mask + 1) != brm_crc[1]))
+-    {
+-      /* check if it is correctly formatted before saving */
+-      if (!memcmp(scd.cartridge.area + scd.cartridge.mask + 1 - 0x20, brm_format + 0x20, 0x20))
+-      {
+-        fp = filestream_open(CART_BRAM, RETRO_VFS_FILE_ACCESS_WRITE, RETRO_VFS_FILE_ACCESS_HINT_NONE);
+-        if (fp != NULL)
+-        {
+-          int filesize = scd.cartridge.mask + 1;
+-          int done = 0;
+-        
+-          /* Write to file (2k blocks) */
+-          while (filesize > CHUNKSIZE)
+-          {
+-            filestream_write(fp, scd.cartridge.area + done, CHUNKSIZE);
+-            done += CHUNKSIZE;
+-            filesize -= CHUNKSIZE;
+-          }
+-
+-          /* Write remaining bytes */
+-          if (filesize)
+-          {
+-            filestream_write(fp, scd.cartridge.area + done, filesize);
+-          }
+-
+-          /* Close file */
+-          filestream_close(fp);
+-
+-          /* update CRC */
+-          brm_crc[1] = crc32(0, scd.cartridge.area, scd.cartridge.mask + 1);
+-        }
+-      }
+-    }
++/* CD container: internal 8 KiB followed by the complete configured RAM cart.
++ * Cartridge SRAM/EEPROM has a stable full 64 KiB inventory, even when pristine.
++ * Flash boards and Mode 1 cartridge+CD require separate content qualification. */
++static int disk_count;
++static unsigned char rommio_cd_save[0x2000 + 0x80000];
++static size_t rommio_save_size(void) {
++   if (system_hw == SYSTEM_MCD)
++      return 0x2000 + (scd.cartridge.id ? scd.cartridge.mask + 1 : 0);
++   return sram.on ? sizeof(sram.sram) : 0;
++}
++RETRO_API const char *retro_rommio_persistence_descriptor(void) {
++   static char result[128];
++   const char *system = NULL;
++   switch (system_hw) {
++      case SYSTEM_MD: system = "genesis"; break;
++      case SYSTEM_SMS: case SYSTEM_SMS2: case SYSTEM_MARKIII: case SYSTEM_PBC: system = "sms"; break;
++      case SYSTEM_GG: case SYSTEM_GGMS: system = "gamegear"; break;
++      case SYSTEM_MCD:
++         if (disk_count > 1 || scd.cartridge.boot || (scd.cartridge.id && scd.cartridge.mask + 1 > 0x80000)) return "";
++         system = "segacd"; break;
++      default: return "";
++   }
++   if (sram.type >= FLASH_MEMORY) return "";
++   snprintf(result, sizeof(result), "rommio-cart-v1:genesis_plus_gx:%s:%zu:0", system, rommio_save_size());
++   return result;
++}
++RETRO_API bool retro_rommio_memory_restored(void) {
++   if (!retro_rommio_persistence_descriptor()[0]) return false;
++   if (system_hw == SYSTEM_MCD) {
++      memcpy(scd.bram, rommio_cd_save, 0x2000);
++      if (scd.cartridge.id) memcpy(scd.cartridge.area, rommio_cd_save + 0x2000, scd.cartridge.mask + 1);
++   }
++   return true;
+ }
+ 
+ static void extract_name(char *buf, const char *path, size_t size)
+@@ -3420,7 +3302,7 @@ bool retro_load_game(const struct retro_game_info *info)
+    char slash      = '/';
+ #endif
+    struct retro_game_info_ext *info_ext = NULL;
+-   char content_path[256];
++   char content_path[4096];
+    char content_ext[8];
+ 
+    content_path[0] = '\0';
+@@ -3468,7 +3350,7 @@ bool retro_load_game(const struct retro_game_info *info)
+    {
+       const char *ext = NULL;
+ 
+-      if (!info || !info->path)
++      if (!info || !info->path || strlen(info->path) >= sizeof(content_path))
+          goto error;
+ 
+       extract_directory(g_rom_dir, info->path, sizeof(g_rom_dir));
+@@ -3748,6 +3630,12 @@ void *retro_get_memory_data(unsigned id)
+    switch (id)
+    {
+       case RETRO_MEMORY_SAVE_RAM:
++         if (system_hw == SYSTEM_MCD) {
++            if (rommio_save_size() > sizeof(rommio_cd_save)) return NULL;
++            memcpy(rommio_cd_save, scd.bram, 0x2000);
++            if (scd.cartridge.id) memcpy(rommio_cd_save + 0x2000, scd.cartridge.area, scd.cartridge.mask + 1);
++            return rommio_cd_save;
++         }
+          return sram.on ? sram.sram : NULL;
+       case RETRO_MEMORY_SYSTEM_RAM:
+          return work_ram;
+@@ -3764,23 +3652,7 @@ size_t retro_get_memory_size(unsigned id)
+    {
+       case RETRO_MEMORY_SAVE_RAM:
+       {
+-         /* return 0 if SRAM is disabled */
+-         if (!sram.on)
+-            return 0;
+-
+-         /* if emulation is not running, we assume the frontend is requesting SRAM size for loading so max supported size is returned */
+-         if (!is_running)
+-            return 0x10000;
+-
+-         /* otherwise, we assume this is for saving and we return the size of SRAM data that has actually been modified */
+-         /* this is obviously not %100 safe since the frontend could still be trying to load SRAM while emulation is running */
+-         /* a better solution would be that the frontend itself checks if data has been modified before writing it to a file */
+-         for (i=0xffff; i>=0; i--)
+-            if (sram.sram[i] != 0xff)
+-               return (i+1);
+-
+-         /* return 0 if SRAM is not modified */
+-         return 0;
++         return rommio_save_size();
+       }
+ 
+       case RETRO_MEMORY_SYSTEM_RAM:
+diff --git a/libretro/osd.h b/libretro/osd.h
+index ec253aa..de43b5b 100644
+--- a/libretro/osd.h
++++ b/libretro/osd.h
+@@ -146,18 +146,18 @@ typedef struct
+ 
+ extern t_config config;
+ 
+-extern char GG_ROM[256];
+-extern char AR_ROM[256];
+-extern char SK_ROM[256];
+-extern char SK_UPMEM[256];
+-extern char GG_BIOS[256];
+-extern char MD_BIOS[256];
+-extern char CD_BIOS_EU[256];
+-extern char CD_BIOS_US[256];
+-extern char CD_BIOS_JP[256];
+-extern char MS_BIOS_US[256];
+-extern char MS_BIOS_EU[256];
+-extern char MS_BIOS_JP[256];
++extern char GG_ROM[4096];
++extern char AR_ROM[4096];
++extern char SK_ROM[4096];
++extern char SK_UPMEM[4096];
++extern char GG_BIOS[4096];
++extern char MD_BIOS[4096];
++extern char CD_BIOS_EU[4096];
++extern char CD_BIOS_US[4096];
++extern char CD_BIOS_JP[4096];
++extern char MS_BIOS_US[4096];
++extern char MS_BIOS_EU[4096];
++extern char MS_BIOS_JP[4096];
+ 
+ extern void osd_input_update(void);
+ extern int load_archive(char *filename, unsigned char *buffer, int maxsize, char *extension);

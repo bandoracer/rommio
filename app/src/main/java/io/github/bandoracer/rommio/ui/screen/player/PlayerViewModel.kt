@@ -28,6 +28,8 @@ import kotlinx.coroutines.launch
 data class PlayerUiState(
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
+    val progressSession: io.github.bandoracer.rommio.domain.progress.ApplicationProgressSession? = null,
+    val preparedSession: io.github.bandoracer.rommio.domain.player.PlayerSession? = null,
     val rom: RomDto? = null,
     val installation: DownloadedRomEntity? = null,
     val stateRecovery: GameStateRecovery = GameStateRecovery(),
@@ -55,6 +57,7 @@ enum class PlayerOverlayPhase {
 class PlayerViewModel(
     private val repository: RommRepository,
     private val controlsRepository: PlayerControlsRepository,
+    private val progressSessions: io.github.bandoracer.rommio.domain.progress.ApplicationProgressSessions,
     private val romId: Int,
     private val fileId: Int,
 ) : ViewModel() {
@@ -64,6 +67,7 @@ class PlayerViewModel(
     private var romJob: Job? = null
     private var syncJob: Job? = null
     private var recoveryJob: Job? = null
+    private var launchJob: Job? = null
 
     init {
         syncJob = viewModelScope.launch {
@@ -90,106 +94,61 @@ class PlayerViewModel(
     }
 
     fun refresh() {
-        viewModelScope.launch {
-            _uiState.update { current ->
-                current.copy(
-                    isLoading = current.installation == null && current.rom == null,
-                    isRefreshing = true,
-                    errorMessage = null,
-                )
-            }
-
-            val install = repository.installedFileOrNull(romId, fileId)
-                ?: run {
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            isRefreshing = false,
-                            errorMessage = "Download this ROM in the native app before launching it.",
-                        )
+        // A metadata refresh cannot rebuild a running core or choose a different baseline.
+        if (launchJob?.isActive == true || _uiState.value.preparedSession != null) return
+        launchJob = viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, isRefreshing = true, errorMessage = null) }
+            try {
+                val install = repository.installedFileOrNull(romId, fileId)
+                    ?: error("Download this ROM in the native app before launching it.")
+                val rom = repository.findCachedRom(romId) ?: install.toFallbackRom()
+                val cold = repository.buildProgressPlayerSession(install, rom)
+                // Header routing is only a candidate check. The loaded core still verifies the effective mapper and every persistent region.
+                val useProgress = cold.progressBinding != null && (cold.runtimeProfile.runtimeId in setOf("gambatte", "mgba", "snes9x", "melonds_ds", "genesis_plus_gx", "pcsx_rearmed", "mupen64plus_next_gles3", "ppsspp") ||
+                    cold.runtimeProfile.runtimeId == "fceumm" && kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        val header = cold.romPath.inputStream().use { input -> ByteArray(16).also { java.io.DataInputStream(input).readFully(it) } }
+                        header.size == 16 && header.take(4) == listOf<Byte>(0x4e, 0x45, 0x53, 0x1a) &&
+                            ((header[6].toInt() and 0xf0) shr 4 or (header[7].toInt() and 0xf0)) in setOf(0, 19)
+                    })
+                val explicitTarget = repository.consumePendingPlayerLaunchTarget(romId, fileId)
+                val owner = if (useProgress) {
+                    val active = progressSessions.active.value
+                    if (active != null) {
+                        check(active.workspace.identity.binding == cold.progressBinding) { "Close the current game before starting another." }
+                        active
+                    } else {
+                        val legacy = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            cold.saveRamFile.isFile || cold.saveStatesDirectory.listFiles().orEmpty().any { it.isFile }
+                        }
+                        progressSessions.prepare(cold, legacy, publish = true).await()
                     }
-                    return@launch
+                } else null
+                val preparation = if (owner != null) PlayerLaunchPreparation()
+                    else if (explicitTarget != null) PlayerLaunchPreparation(launchTarget = explicitTarget)
+                    else repository.preparePlayerLaunch(install, rom)
+                val session = if (owner != null) cold else repository.buildPlayerSession(install, rom)
+                _uiState.update { it.copy(
+                    installation = install, rom = rom, preparedSession = session, progressSession = owner,
+                    isLoading = false, isRefreshing = false,
+                    resumeConflict = preparation.resumeConflict,
+                    pendingLaunchTarget = preparation.launchTarget,
+                    syncPresentation = preparation.syncPresentation,
+                ) }
+                observeControls(install.platformSlug)
+                observeRom(install)
+                if (repository.currentConnectivityState() == ConnectivityState.ONLINE) {
+                    repository.refreshRomInBackground(romId)
                 }
-
-            observeControls(install.platformSlug)
-            observeRom(install)
-            val initialRom = repository.findCachedRom(romId) ?: install.toFallbackRom()
-            _uiState.update {
-                it.copy(
-                    installation = install,
-                    rom = it.rom ?: initialRom,
-                )
-            }
-            val explicitLaunchTarget = repository.consumePendingPlayerLaunchTarget(romId, fileId)
-
-            if (repository.currentConnectivityState() != ConnectivityState.ONLINE) {
-                _uiState.update {
-                    it.copy(
-                        installation = install,
-                        isLoading = it.rom == null,
-                        isRefreshing = false,
-                        resumeConflict = null,
-                        pendingLaunchTarget = explicitLaunchTarget,
-                        errorMessage = null,
-                    )
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _uiState.update { current ->
+                    // A late catalog failure must not unmount a prepared player.
+                    if (current.preparedSession != null) current.copy(isRefreshing = false)
+                    else current.copy(isLoading = false, isRefreshing = false,
+                        errorMessage = error.message ?: "Unable to prepare player.")
                 }
-                return@launch
             }
-
-            if (explicitLaunchTarget != null) {
-                runCatching { repository.refreshRomInBackground(romId) }
-                _uiState.update {
-                    it.copy(
-                        installation = install,
-                        isLoading = it.rom == null,
-                        isRefreshing = false,
-                        resumeConflict = null,
-                        pendingLaunchTarget = explicitLaunchTarget,
-                        errorMessage = null,
-                    )
-                }
-                return@launch
-            }
-
-            val launchPreparation = runCatching {
-                repository.preparePlayerLaunch(install, repository.findCachedRom(romId) ?: initialRom)
-            }.getOrElse { error ->
-                PlayerLaunchPreparation(
-                    syncPresentation = GameSyncPresentation(
-                        kind = GameSyncStatusKind.ERROR,
-                        message = error.message ?: "Unable to check cloud progress. Continuing with local data.",
-                    ),
-                )
-            }
-
-            runCatching { repository.refreshRomInBackground(romId) }.fold(
-                onSuccess = {
-                    _uiState.update {
-                        it.copy(
-                            installation = install,
-                            isLoading = it.rom == null,
-                            isRefreshing = false,
-                            syncPresentation = launchPreparation.syncPresentation,
-                            resumeConflict = launchPreparation.resumeConflict,
-                            pendingLaunchTarget = launchPreparation.launchTarget,
-                            errorMessage = null,
-                        )
-                    }
-                },
-                onFailure = {
-                    _uiState.update {
-                        it.copy(
-                            installation = install,
-                            isLoading = it.rom == null,
-                            isRefreshing = false,
-                            syncPresentation = launchPreparation.syncPresentation,
-                            resumeConflict = launchPreparation.resumeConflict,
-                            pendingLaunchTarget = launchPreparation.launchTarget,
-                            errorMessage = null,
-                        )
-                    }
-                },
-            )
         }
     }
 
@@ -201,7 +160,6 @@ class PlayerViewModel(
                     current.copy(
                         rom = cachedRom ?: installation.toFallbackRom(),
                         installation = installation,
-                        isLoading = false,
                     )
                 }
             }
@@ -217,16 +175,9 @@ class PlayerViewModel(
         }
     }
 
-    suspend fun buildSession() = repository.buildPlayerSession(
-        installation = _uiState.value.installation ?: error("No local install found."),
-        rom = _uiState.value.rom ?: error("No ROM loaded."),
-    )
-
-    fun recordState(slot: Int, localPath: java.io.File) {
-        viewModelScope.launch {
-            val installation = _uiState.value.installation ?: return@launch
-            repository.recordSaveState(installation, slot, localPath)
-        }
+    suspend fun recordState(slot: Int, localPath: java.io.File) {
+        val installation = _uiState.value.installation ?: error("No local install found.")
+        repository.recordSaveState(installation, slot, localPath)
     }
 
     fun syncNow(onFinished: (String) -> Unit) {
@@ -234,11 +185,6 @@ class PlayerViewModel(
             val state = _uiState.value
             val rom = state.rom ?: return@launch
             val install = state.installation ?: return@launch
-            if (repository.currentConnectivityState() != ConnectivityState.ONLINE) {
-                repository.enqueuePendingSync(install, rom)
-                onFinished("Save sync queued. It will run when you are back online.")
-                return@launch
-            }
             runCatching { repository.syncGame(install, rom) }.fold(
                 onSuccess = { summary ->
                     onFinished("Uploaded ${summary.uploaded}, downloaded ${summary.downloaded}.")
@@ -250,34 +196,18 @@ class PlayerViewModel(
         }
     }
 
-    fun flushContinuity(sessionActive: Boolean, onFinished: ((String) -> Unit)? = null) {
-        viewModelScope.launch {
-            val state = _uiState.value
-            val rom = state.rom ?: return@launch
-            val install = state.installation ?: return@launch
-            if (repository.currentConnectivityState() != ConnectivityState.ONLINE) {
-                repository.enqueuePendingSync(install, rom)
-                _uiState.update {
-                    it.copy(
-                        syncPresentation = GameSyncPresentation(
-                            kind = GameSyncStatusKind.OFFLINE_PENDING,
-                            message = "Offline changes pending.",
-                        ),
-                    )
-                }
-                onFinished?.invoke("Sync queued. It will run when you are back online.")
-                return@launch
+    suspend fun flushContinuity(sessionActive: Boolean, onFinished: ((String) -> Unit)? = null) {
+        val state = _uiState.value
+        val rom = state.rom ?: error("No ROM loaded.")
+        val install = state.installation ?: error("No local install found.")
+        try {
+            val summary = repository.flushContinuity(install, rom, sessionActive = sessionActive)
+            if (summary.uploaded > 0 || summary.downloaded > 0) {
+                onFinished?.invoke("Synced ${summary.uploaded} uploads and ${summary.downloaded} downloads.")
             }
-            runCatching { repository.flushContinuity(install, rom, sessionActive = sessionActive) }.fold(
-                onSuccess = { summary ->
-                    if (summary.uploaded > 0 || summary.downloaded > 0) {
-                        onFinished?.invoke("Synced ${summary.uploaded} uploads and ${summary.downloaded} downloads.")
-                    }
-                },
-                onFailure = { error ->
-                    onFinished?.invoke(error.message ?: "Continuity sync failed.")
-                },
-            )
+        } catch (_: io.github.bandoracer.rommio.domain.sync.LegacySyncUnavailableException) {
+            // The legacy bridge throws this only after retaining local journal/recovery intent.
+            // It is expected while cloud sync is disabled; actual storage errors still propagate.
         }
     }
 

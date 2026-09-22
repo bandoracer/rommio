@@ -88,7 +88,7 @@ internal fun authRouteForProfile(
         profile == null -> NavRoutes.ONBOARDING_WELCOME
         profile.serverAccess.status != ServerAccessStatus.READY -> NavRoutes.ONBOARDING_SERVER
         profile.status == AuthStatus.CONNECTED -> NavRoutes.APP
-        offlineState.isOffline && offlineState.catalogReady && profile.sessionState.hasOriginSession -> NavRoutes.APP
+        offlineState.isOffline && (offlineState.catalogReady || offlineState.cachedContentAvailable) && profile.sessionState.hasOriginSession -> NavRoutes.APP
         profile.status == AuthStatus.REAUTH_REQUIRED_EDGE -> NavRoutes.ONBOARDING_SERVER
         else -> NavRoutes.ONBOARDING_LOGIN
     }

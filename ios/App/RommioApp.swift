@@ -1,5 +1,6 @@
 import SwiftUI
 import RommioUI
+import RommioFoundation
 
 @main
 struct RommioApp: App {
@@ -36,6 +37,12 @@ private struct RommioBootstrapView: View {
     @MainActor
     private func prepareRootView() async {
         do {
+            #if DEBUG
+            if let family = ProcessInfo.processInfo.environment["ROMMIO_CONTROLS_QA"], ExpansionControls.controls(for: family) != nil {
+                rootView = AnyView(ExpansionControlsQAHarness(family: family))
+                return
+            }
+            #endif
             rootView = AnyView(try RommioRootView.live())
         } catch {
             launchError = error.localizedDescription

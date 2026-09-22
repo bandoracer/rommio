@@ -26,7 +26,7 @@ private struct JsonProbeResult<Payload: Decodable> {
 }
 
 private let mobileAppScopes = """
-me.read me.write roms.read platforms.read assets.read assets.write devices.read devices.write firmware.read collections.read roms.user.read roms.user.write users.read users.write
+me.read me.write roms.read platforms.read assets.read assets.write devices.read devices.write firmware.read collections.read roms.user.read roms.user.write
 """
 
 public actor AuthSessionController {
@@ -35,7 +35,20 @@ public actor AuthSessionController {
     private let discovery: AuthDiscoveryService
     private let session: URLSession
     private let clientIdentity: ClientIdentity
-    private let cookieStorage: HTTPCookieStorage
+    private let cookies: ProfileCookies
+    private var refreshFlights: [String: (id: UUID, task: Task<Void, Error>)] = [:]
+    private var sessionGenerations: [String: UInt64] = [:]
+
+    private func invalidateSession(_ profileID: String) {
+        sessionGenerations[profileID, default: 0] &+= 1
+        refreshFlights.removeValue(forKey: profileID)?.task.cancel()
+    }
+
+    private func requireSession(_ profileID: String, generation: UInt64) throws {
+        guard sessionGenerations[profileID, default: 0] == generation else {
+            throw CancellationError()
+        }
+    }
 
     public init(
         profileStore: ServerProfileStore,
@@ -49,7 +62,7 @@ public actor AuthSessionController {
         self.discovery = discovery
         self.session = session
         self.clientIdentity = clientIdentity
-        self.cookieStorage = session.configuration.httpCookieStorage ?? .shared
+        self.cookies = ProfileCookies(secrets: secretStore)
     }
 
     public func discoverServer(rawBaseURL: String) async throws -> AuthDiscoveryResult {
@@ -100,6 +113,8 @@ public actor AuthSessionController {
             throw URLError(.userAuthenticationRequired)
         }
 
+        let cookieContext = try await cookies.context(profileID: profile.id, baseURL: profile.baseURL)
+        let snapshot = try await cookies.snapshot(cookieContext)
         switch provider {
         case .edge:
             return InteractiveSessionConfig(
@@ -107,7 +122,9 @@ public actor AuthSessionController {
                 title: profile.edgeAuthMode == .cloudflareAccessSession ? "Cloudflare Access" : "Protected server login",
                 startURL: profile.baseURL,
                 provider: provider,
-                expectedBaseURL: profile.baseURL
+                expectedBaseURL: profile.baseURL,
+                cookieGeneration: cookieContext.generation,
+                cookies: snapshot
             )
         case .origin:
             return InteractiveSessionConfig(
@@ -115,7 +132,9 @@ public actor AuthSessionController {
                 title: "RomM SSO",
                 startURL: profile.baseURL.appending(path: "api/login/openid"),
                 provider: provider,
-                expectedBaseURL: profile.baseURL
+                expectedBaseURL: profile.baseURL,
+                cookieGeneration: cookieContext.generation,
+                cookies: snapshot
             )
         }
     }
@@ -138,7 +157,7 @@ public actor AuthSessionController {
             throw URLError(.userAuthenticationRequired)
         }
 
-        let names = currentCookieNames(for: profile.baseURL)
+        let names = try await currentCookieNames(for: profile)
         let hasRequiredCookie = hasRequiredEdgeCookie(profile: profile, names: names)
         let now = isoTimestamp()
 
@@ -168,7 +187,7 @@ public actor AuthSessionController {
                 throw URLError(.userAuthenticationRequired)
             }
             let now = isoTimestamp()
-            profile.sessionState.hasOriginSession = !currentCookieNames(for: profile.baseURL).isEmpty
+            profile.sessionState.hasOriginSession = !(try await currentCookieNames(for: profile)).isEmpty
             profile.sessionState.lastValidatedAt = now
             profile.sessionState.canRefreshInBackground = profile.edgeAuthMode == .cloudflareAccessService
             profile.updatedAt = now
@@ -233,14 +252,14 @@ public actor AuthSessionController {
                 status: status,
                 httpStatus: probe.status == 0 ? nil : probe.status,
                 responseKind: responseKind,
-                cookieNamesSeen: currentCookieNames(for: profile.baseURL),
+                cookieNamesSeen: try await currentCookieNames(for: profile),
                 message: message
             )
         } catch {
             result = ServerAccessResult(
                 status: .failed,
                 responseKind: .networkError,
-                cookieNamesSeen: currentCookieNames(for: profile.baseURL),
+                cookieNamesSeen: try await currentCookieNames(for: profile),
                 message: error.localizedDescription
             )
         }
@@ -274,9 +293,11 @@ public actor AuthSessionController {
             throw URLError(.userAuthenticationRequired)
         }
 
+        invalidateSession(profileID)
+        let generation = sessionGenerations[profileID, default: 0]
         let normalized = DirectLoginCredentials(
             username: credentials.username.trimmingCharacters(in: .whitespacesAndNewlines),
-            password: credentials.password.trimmingCharacters(in: .whitespacesAndNewlines)
+            password: credentials.password
         )
         guard !normalized.username.isEmpty, !normalized.password.isEmpty else {
             throw URLError(.userAuthenticationRequired)
@@ -286,16 +307,27 @@ public actor AuthSessionController {
             ? try await tryTokenLogin(profile: profile, credentials: normalized)
             : false
 
+        try requireSession(profileID, generation: generation)
         if !tokenLoginSucceeded {
+            let encoded = Data("\(normalized.username):\(normalized.password)".utf8).base64EncodedString()
+            let user = try await verifyCandidate(profile: profile, authorization: "Basic \(encoded)")
+            try requireSession(profileID, generation: generation)
+            try secretStore.bindVerifiedAccount(VerifiedAccount(baseURL: profile.baseURL, userID: user.id), profileID: profileID)
             try secretStore.saveBasicCredentials(normalized, for: profileID)
+            try secretStore.clearTokenBundle(profileID: profileID)
         }
+        profile.originAuthMode = tokenLoginSucceeded ? .rommBearerPassword : .rommBasicLegacy
+        try await profileStore.save(profile, makeActive: profile.isActive)
+        try requireSession(profileID, generation: generation)
 
         let status = try await validateProfile(profileID: profileID)
+        try requireSession(profileID, generation: generation)
         guard status == .connected else {
             throw URLError(.userAuthenticationRequired)
         }
 
         profile = try await profileStore.profile(id: profileID) ?? profile
+        try requireSession(profileID, generation: generation)
         profile.sessionState.hasOriginSession = true
         profile.status = .connected
         profile.updatedAt = isoTimestamp()
@@ -304,6 +336,7 @@ public actor AuthSessionController {
 
     public func validateProfile(profileID: String? = nil) async throws -> AuthStatus {
         var profile = try await resolvedProfile(profileID)
+        let generation = sessionGenerations[profile.id, default: 0]
 
         if profile.serverAccess.status != .ready {
             let status: AuthStatus = profile.edgeAuthMode == .none ? .invalidConfiguration : .reauthRequiredEdge
@@ -312,6 +345,7 @@ public actor AuthSessionController {
             profile.sessionState.lastValidatedAt = isoTimestamp()
             profile.lastValidationAt = isoTimestamp()
             profile.updatedAt = isoTimestamp()
+            try requireSession(profile.id, generation: generation)
             try await profileStore.save(profile, makeActive: profile.isActive)
             return status
         }
@@ -338,9 +372,10 @@ public actor AuthSessionController {
                 profile.serverAccess.lastTestedAt = isoTimestamp()
                 profile.serverAccess.lastHTTPStatus = heartbeatProbe.status
                 profile.serverAccess.lastResponseKind = .unauthorized
-                profile.serverAccess.cookieNamesSeen = currentCookieNames(for: profile.baseURL)
+                profile.serverAccess.cookieNamesSeen = try await currentCookieNames(for: profile)
                 profile.lastValidationAt = isoTimestamp()
                 profile.updatedAt = isoTimestamp()
+                try requireSession(profile.id, generation: generation)
                 try await profileStore.save(profile, makeActive: profile.isActive)
                 return status
             }
@@ -357,9 +392,10 @@ public actor AuthSessionController {
                 profile.serverAccess.lastError = "The app is no longer reaching RomM JSON through the configured server access layer."
                 profile.serverAccess.lastHTTPStatus = heartbeatProbe.status == 0 ? nil : heartbeatProbe.status
                 profile.serverAccess.lastResponseKind = heartbeatProbe.isHTML ? .html : .json
-                profile.serverAccess.cookieNamesSeen = currentCookieNames(for: profile.baseURL)
+                profile.serverAccess.cookieNamesSeen = try await currentCookieNames(for: profile)
                 profile.lastValidationAt = isoTimestamp()
                 profile.updatedAt = isoTimestamp()
+                try requireSession(profile.id, generation: generation)
                 try await profileStore.save(profile, makeActive: profile.isActive)
                 return status
             }
@@ -389,9 +425,13 @@ public actor AuthSessionController {
             profile.serverAccess.lastError = nextStatus == .connected ? nil : profile.serverAccess.lastError
             profile.serverAccess.lastHTTPStatus = heartbeatProbe.status
             profile.serverAccess.lastResponseKind = .json
-            profile.serverAccess.cookieNamesSeen = currentCookieNames(for: profile.baseURL)
+            profile.serverAccess.cookieNamesSeen = try await currentCookieNames(for: profile)
             profile.lastValidationAt = isoTimestamp()
             profile.updatedAt = isoTimestamp()
+            try requireSession(profile.id, generation: generation)
+            if nextStatus == .connected, let user = userProbe.data {
+                try secretStore.bindVerifiedAccount(VerifiedAccount(baseURL: profile.baseURL, userID: user.id), profileID: profile.id)
+            }
             try await profileStore.save(profile, makeActive: profile.isActive)
 
             if nextStatus == .connected {
@@ -400,6 +440,25 @@ public actor AuthSessionController {
             }
             return nextStatus
         } catch {
+            try requireSession(profile.id, generation: generation)
+            if error is CancellationError { throw error }
+            if error is AccountBindingError {
+                try await logout(profileID: profile.id)
+                throw error
+            }
+            if let refreshError = error as? TokenRefreshError {
+                switch refreshError {
+                case .unavailable, .invalidResponse: throw error
+                case .invalidCredentials:
+                    profile.status = .reauthRequiredOrigin
+                    profile.sessionState.hasOriginSession = false
+                    profile.updatedAt = isoTimestamp()
+                    try requireSession(profile.id, generation: generation)
+                    try await profileStore.save(profile, makeActive: profile.isActive)
+                    return profile.status
+                case .accessRequired: break
+                }
+            }
             let status: AuthStatus = profile.edgeAuthMode == .none ? .reauthRequiredOrigin : .reauthRequiredEdge
             profile.status = status
             profile.sessionState.hasOriginSession = false
@@ -412,9 +471,10 @@ public actor AuthSessionController {
             profile.serverAccess.lastTestedAt = isoTimestamp()
             profile.serverAccess.lastError = error.localizedDescription
             profile.serverAccess.lastResponseKind = .networkError
-            profile.serverAccess.cookieNamesSeen = currentCookieNames(for: profile.baseURL)
+            profile.serverAccess.cookieNamesSeen = try await currentCookieNames(for: profile)
             profile.lastValidationAt = isoTimestamp()
             profile.updatedAt = isoTimestamp()
+            try requireSession(profile.id, generation: generation)
             try await profileStore.save(profile, makeActive: profile.isActive)
             return status
         }
@@ -423,16 +483,16 @@ public actor AuthSessionController {
     public func logout(profileID: String? = nil, clearServerAccess: Bool = false) async throws {
         guard var profile = try await resolvedOptionalProfile(profileID) else { return }
 
+        invalidateSession(profile.id)
         try secretStore.clearOriginAuthSecrets(profileID: profile.id)
-        if clearServerAccess {
-            try secretStore.clearServerAccessSecrets(profileID: profile.id)
-            clearCookies()
-        }
+        try await cookies.clear(profileID: profile.id, baseURL: profile.baseURL)
+        if clearServerAccess { try secretStore.clearServerAccessSecrets(profileID: profile.id) }
+        let clearedEdgeCookies = profile.edgeAuthMode == .cloudflareAccessSession || profile.edgeAuthMode == .genericCookieSSO
 
         profile.sessionState.hasOriginSession = false
         profile.sessionState.lastValidatedAt = isoTimestamp()
         profile.status = profile.serverAccess.status == .ready ? .reauthRequiredOrigin : .invalidConfiguration
-        if clearServerAccess {
+        if clearServerAccess || clearedEdgeCookies {
             profile.serverAccess = ServerAccessState()
             profile.sessionState.hasEdgeSession = false
         }
@@ -446,8 +506,10 @@ public actor AuthSessionController {
 
     public func clearServerAccess(profileID: String) async throws {
         guard var profile = try await profileStore.profile(id: profileID) else { return }
+        invalidateSession(profile.id)
+        try secretStore.clearOriginAuthSecrets(profileID: profile.id)
         try secretStore.clearServerAccessSecrets(profileID: profile.id)
-        clearCookies()
+        try await cookies.clear(profileID: profile.id, baseURL: profile.baseURL)
 
         profile.serverAccess = ServerAccessState()
         profile.sessionState.hasEdgeSession = false
@@ -459,9 +521,9 @@ public actor AuthSessionController {
     }
 
     public func deleteProfile(profileID: String) async throws {
-        let activeProfileID = try await profileStore.activeProfile()?.id
-        if activeProfileID == profileID {
-            clearCookies()
+        invalidateSession(profileID)
+        if let profile = try await profileStore.profile(id: profileID) {
+            try await cookies.clear(profileID: profile.id, baseURL: profile.baseURL)
         }
         try secretStore.clearAuthSecrets(profileID: profileID)
         try await profileStore.deleteProfile(id: profileID)
@@ -473,10 +535,9 @@ public actor AuthSessionController {
         return AuthenticatedServerContext(profile: profile, deviceID: deviceID)
     }
 
-    public func client(for profileID: String, baseURL: URL? = nil) async -> RommAPIClient {
-        let resolvedBaseURL = baseURL ?? URL(string: "http://localhost")!
+    public func client(for profileID: String, baseURL: URL) async -> RommAPIClient {
         return RommAPIClient(
-            baseURL: resolvedBaseURL,
+            baseURL: baseURL,
             session: session,
             decorator: requestDecorator(profileID: profileID)
         )
@@ -487,7 +548,27 @@ public actor AuthSessionController {
         return await client(for: profile.id, baseURL: profile.baseURL)
     }
 
+    public func verifiedAccount(profileID: String) throws -> VerifiedAccount? {
+        try secretStore.verifiedAccount(profileID: profileID)
+    }
+
+    private func verifyCandidate(profile: ServerProfile, authorization: String) async throws -> UserDTO {
+        var request = URLRequest(url: profile.baseURL.appending(path: "api/users/me"))
+        request = try await requestDecorator(profileID: profile.id, scope: .edgeOnly).decorate(request)
+        request.setValue(authorization, forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let (data, response) = try await scopedData(for: request, baseURL: profile.baseURL)
+        guard let responseURL = response.url, CredentialScope(baseURL: profile.baseURL).contains(responseURL),
+              let status = (response as? HTTPURLResponse)?.statusCode, (200..<300).contains(status),
+              !looksLikeHTML(body: String(decoding: data, as: UTF8.self), contentType: (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type")),
+              let user = try? JSONDecoder().decode(UserDTO.self, from: data), !user.username.isEmpty else {
+            throw URLError(.userAuthenticationRequired)
+        }
+        return user
+    }
+
     private func tryTokenLogin(profile: ServerProfile, credentials: DirectLoginCredentials) async throws -> Bool {
+        let generation = sessionGenerations[profile.id, default: 0]
         var request = URLRequest(url: profile.baseURL.appending(path: "api/token"))
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
@@ -499,20 +580,29 @@ public actor AuthSessionController {
         ])
         request = try await requestDecorator(profileID: profile.id, scope: .edgeOnly).decorate(request)
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await scopedData(for: request, baseURL: request.url!)
+        guard let responseURL = response.url, CredentialScope(baseURL: profile.baseURL).contains(responseURL) else {
+            throw TokenRefreshError.accessRequired
+        }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard (200 ..< 300).contains(status) else { return false }
-
         let body = String(decoding: data, as: UTF8.self)
         guard !looksLikeHTML(body: body, contentType: (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type")) else {
-            return false
+            throw TokenRefreshError.accessRequired
+        }
+        if status == 404 || status == 405 { return false }
+        guard (200 ..< 300).contains(status) else {
+            if status == 401 || status == 403 { throw URLError(.userAuthenticationRequired) }
+            throw TokenRefreshError.unavailable(status: status)
         }
 
         let payload = try JSONDecoder().decode(TokenResponsePayload.self, from: data)
-        guard let accessToken = payload.accessToken else { return false }
+        guard let accessToken = payload.accessToken, !accessToken.isEmpty else { throw TokenRefreshError.invalidResponse }
         let expiresAt = (payload.expiresIn ?? payload.expires).map { seconds in
             ISO8601DateFormatter().string(from: Date(timeIntervalSinceNow: TimeInterval(seconds)))
         }
+        let user = try await verifyCandidate(profile: profile, authorization: "\(payload.tokenType ?? "Bearer") \(accessToken)")
+        try requireSession(profile.id, generation: generation)
+        try secretStore.bindVerifiedAccount(VerifiedAccount(baseURL: profile.baseURL, userID: user.id), profileID: profile.id)
         try secretStore.saveTokenBundle(
             TokenBundle(
                 accessToken: accessToken,
@@ -526,42 +616,90 @@ public actor AuthSessionController {
         return true
     }
 
-    private func refreshBearerTokenIfNeeded(profileID: String) async throws {
-        guard let tokenBundle = try secretStore.readTokenBundle(profileID: profileID),
-              let refreshToken = tokenBundle.refreshToken,
-              let expiresAt = tokenBundle.expiresAt,
-              let expiry = ISO8601DateFormatter().date(from: expiresAt),
-              expiry.timeIntervalSinceNow < 90 else {
+    private func refreshBearerTokenIfNeeded(profileID: String, rejectedAuthorization: String? = nil) async throws {
+        guard let bundle = try secretStore.readTokenBundle(profileID: profileID) else { return }
+        if let rejectedAuthorization,
+           rejectedAuthorization != "\(bundle.tokenType) \(bundle.accessToken)" {
+            return // A concurrent request already replaced the rejected token.
+        }
+        if let flight = refreshFlights[profileID] {
+            try await flight.task.value
+            try Task.checkCancellation()
             return
         }
+        let expiry = bundle.expiresAt.flatMap { ISO8601DateFormatter().date(from: $0) }
+        guard rejectedAuthorization != nil || (expiry.map { $0.timeIntervalSinceNow < 90 } ?? false),
+              let refreshToken = bundle.refreshToken, !refreshToken.isEmpty else { return }
 
+        let id = UUID()
+        let generation = sessionGenerations[profileID, default: 0]
+        let task = Task {
+            try await self.performTokenRefresh(profileID: profileID, bundle: bundle, generation: generation)
+        }
+        refreshFlights[profileID] = (id, task)
+        defer {
+            if refreshFlights[profileID]?.id == id { refreshFlights[profileID] = nil }
+        }
+        try await task.value
+        try Task.checkCancellation()
+    }
+
+    private func performTokenRefresh(profileID: String, bundle: TokenBundle, generation: UInt64) async throws {
         let profile = try await resolvedProfile(profileID)
+        try requireSession(profileID, generation: generation)
         var request = URLRequest(url: profile.baseURL.appending(path: "api/token"))
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = formEncodedBody([
             "grant_type": "refresh_token",
-            "refresh_token": refreshToken,
+            "refresh_token": bundle.refreshToken ?? "",
         ])
         request = try await requestDecorator(profileID: profileID, scope: .edgeOnly).decorate(request)
-
-        let (data, response) = try await session.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await scopedData(for: request, baseURL: profile.baseURL)
+        } catch {
+            try Task.checkCancellation()
+            throw TokenRefreshError.unavailable(status: 0)
+        }
+        try Task.checkCancellation()
+        try requireSession(profileID, generation: generation)
+        guard try secretStore.readTokenBundle(profileID: profileID) == bundle else {
+            throw CancellationError()
+        }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard (200 ..< 300).contains(status) else { return }
-
-        let payload = try JSONDecoder().decode(TokenResponsePayload.self, from: data)
-        guard let accessToken = payload.accessToken else { return }
+        let body = String(decoding: data, as: UTF8.self)
+        guard !looksLikeHTML(body: body, contentType: (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type")),
+              let responseURL = response.url, CredentialScope(baseURL: profile.baseURL).contains(responseURL) else {
+            throw TokenRefreshError.accessRequired
+        }
+        guard (200 ..< 300).contains(status) else {
+            if isConfirmedTokenRejection(status: status, data: data) {
+                try secretStore.clearTokenBundle(profileID: profileID)
+                throw TokenRefreshError.invalidCredentials
+            }
+            throw TokenRefreshError.unavailable(status: status)
+        }
+        guard let payload = try? JSONDecoder().decode(TokenResponsePayload.self, from: data),
+              let accessToken = payload.accessToken, !accessToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw TokenRefreshError.invalidResponse
+        }
         let nextExpiry = (payload.expiresIn ?? payload.expires).map { seconds in
             ISO8601DateFormatter().string(from: Date(timeIntervalSinceNow: TimeInterval(seconds)))
+        }
+        if let owner = try secretStore.verifiedAccount(profileID: profileID) {
+            let user = try await verifyCandidate(profile: profile, authorization: "\(payload.tokenType ?? bundle.tokenType) \(accessToken)")
+            try requireSession(profileID, generation: generation)
+            guard owner == VerifiedAccount(baseURL: profile.baseURL, userID: user.id) else { throw AccountBindingError() }
         }
         try secretStore.saveTokenBundle(
             TokenBundle(
                 accessToken: accessToken,
-                refreshToken: payload.refreshToken ?? refreshToken,
-                tokenType: payload.tokenType ?? tokenBundle.tokenType,
-                expiresAt: nextExpiry ?? tokenBundle.expiresAt
-            ),
-            for: profileID
+                refreshToken: payload.refreshToken ?? bundle.refreshToken,
+                tokenType: payload.tokenType ?? bundle.tokenType,
+                expiresAt: nextExpiry
+            ), for: profileID
         )
     }
 
@@ -569,7 +707,9 @@ public actor AuthSessionController {
         if try secretStore.readDeviceID(profileID: profileID) != nil {
             return
         }
+        let generation = sessionGenerations[profileID, default: 0]
         let response = try await client.registerDevice(clientIdentity.deviceRegistrationRequest())
+        try requireSession(profileID, generation: generation)
         try secretStore.saveDeviceID(response.deviceID, for: profileID)
     }
 
@@ -577,14 +717,22 @@ public actor AuthSessionController {
         AuthenticatedRequestDecorator(
             profileID: profileID,
             secretStore: secretStore,
-            scope: scope
+            scope: scope,
+            cookies: cookies,
+            refreshToken: { [weak self] rejectedAuthorization in
+                guard let self else { throw URLError(.userAuthenticationRequired) }
+                try await self.refreshBearerTokenIfNeeded(profileID: profileID, rejectedAuthorization: rejectedAuthorization)
+            }
         ) { [profileStore] requestedProfileID in
             try await profileStore.profile(id: requestedProfileID)
         }
     }
 
     private func resolvedProfile(_ profileID: String?) async throws -> ServerProfile {
-        if let profileID, let profile = try await profileStore.profile(id: profileID) {
+        if let profileID {
+            guard let profile = try await profileStore.profile(id: profileID) else {
+                throw URLError(.userAuthenticationRequired)
+            }
             return profile
         }
         if let profile = try await profileStore.activeProfile() {
@@ -600,8 +748,18 @@ public actor AuthSessionController {
         return try await profileStore.activeProfile()
     }
 
+    private func scopedData(for request: URLRequest, baseURL: URL) async throws -> (Data, URLResponse) {
+        let decorator = CookieResponseDecorator(cookies: cookies)
+        let result = try await session.data(for: request, delegate: ScopedRedirectDelegate(baseURL: baseURL, decorator: decorator, original: request))
+        if let response = result.1 as? HTTPURLResponse { try await cookies.receive(response, request: request) }
+        return result
+    }
+
     private func probe<Payload: Decodable>(_ request: URLRequest, decode type: Payload.Type) async throws -> JsonProbeResult<Payload> {
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await scopedData(for: request, baseURL: request.url!)
+        guard let responseURL = response.url, CredentialScope(baseURL: request.url!).contains(responseURL) else {
+            throw TokenRefreshError.accessRequired
+        }
         let httpResponse = response as? HTTPURLResponse
         let body = String(decoding: data, as: UTF8.self)
         let status = httpResponse?.statusCode ?? 0
@@ -632,8 +790,15 @@ public actor AuthSessionController {
         return trimmed.isEmpty ? fallback : trimmed
     }
 
-    private func currentCookieNames(for baseURL: URL) -> [String] {
-        cookieStorage.cookies(for: baseURL)?.map(\.name).sorted() ?? []
+    private func currentCookieNames(for profile: ServerProfile) async throws -> [String] {
+        let context = try await cookies.context(profileID: profile.id, baseURL: profile.baseURL)
+        return try await cookies.snapshot(context).filter { $0.matches(profile.baseURL.appending(path: "api/users/me")) }.map(\.name).sorted()
+    }
+
+    public func importBrowserCookies(config: InteractiveSessionConfig, cookies values: [BrowserCookie]) async throws {
+        guard let profile = try await profileStore.profile(id: config.profileID), profile.baseURL == config.expectedBaseURL,
+              let generation = config.cookieGeneration else { throw CancellationError() }
+        try await cookies.importBrowser(values, context: ProfileCookieContext(profileID: profile.id, baseURL: profile.baseURL, generation: generation))
     }
 
     private func hasRequiredEdgeCookie(profile: ServerProfile, names: [String]) -> Bool {
@@ -647,11 +812,6 @@ public actor AuthSessionController {
         }
     }
 
-    private func clearCookies() {
-        for cookie in cookieStorage.cookies ?? [] {
-            cookieStorage.deleteCookie(cookie)
-        }
-    }
 
     private func labelFromURL(_ baseURL: URL) -> String {
         if let host = baseURL.host, !host.isEmpty {
@@ -698,4 +858,11 @@ public func iosClientIdentity(bundle: Bundle = .main) -> ClientIdentity {
         hostname: hostName,
         deviceRegistrationName: "Rommio \(hostName)"
     )
+}
+
+private struct CookieResponseDecorator: RequestDecorating {
+    let cookies: ProfileCookies
+    func decorate(_ request: URLRequest) async throws -> URLRequest { request }
+    func receive(_ response: HTTPURLResponse, for request: URLRequest) async throws { try await cookies.receive(response, request: request) }
+    func redirect(_ request: URLRequest, original: URLRequest) async throws -> URLRequest { try await cookies.redirect(request, original: original) }
 }

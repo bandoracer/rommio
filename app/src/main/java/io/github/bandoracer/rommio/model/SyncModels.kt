@@ -168,10 +168,12 @@ data class PlayerLaunchPreparation(
 data class PendingContinuitySyncPayload(
     val romId: Int,
     val fileId: Int,
+    val progressScope: String = InstallIdentity.LEGACY,
 )
 
 data class PendingManualSlotPayload(
     val romId: Int,
     val fileId: Int,
     val slot: Int,
+    val progressScope: String = InstallIdentity.LEGACY,
 )

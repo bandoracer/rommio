@@ -1,0 +1,94 @@
+--- a/src/platform/libretro/libretro.c
++++ b/src/platform/libretro/libretro.c
+@@ -1258,6 +1258,7 @@
+ }
+ 
+ static void _doDeferredSetup(void) {
++	deferredSetup = false; // Guard reentrant memory-map queries during setup.
+ 	// Libretro API doesn't let you know when it's done copying data into the save buffers.
+ 	// On the off-hand chance that a core actually expects its buffers to be populated when
+ 	// you actually first get them, you're out of luck without workarounds. Yup, seriously.
+@@ -2250,7 +2251,7 @@
+ 	return false;
+ }
+ 
+-void* retro_get_memory_data(unsigned id) {
++static void* rommio_original_memory_data(unsigned id) {
+ 	switch (id) {
+ 	case RETRO_MEMORY_SAVE_RAM:
+ 		return savedata;
+@@ -2302,7 +2303,7 @@
+ 	return NULL;
+ }
+ 
+-size_t retro_get_memory_size(unsigned id) {
++static size_t rommio_original_memory_size(unsigned id) {
+ 	switch (id) {
+ 	case RETRO_MEMORY_SAVE_RAM:
+ 		switch (core->platform(core)) {
+@@ -2345,6 +2346,7 @@
+ 	default:
+ 		break;
+ 	}
++	return 0;
+ 	return 0;
+ }
+ 
+@@ -2576,3 +2578,57 @@
+ 	UNUSED(source);
+ 	return gyroZ;
+ }
++
++static uint8_t rommioSave[GBA_SIZE_FLASH1M + 8];
++static uint8_t rommioRtc[24];
++static bool rommioGba(void) { return core && core->platform(core) == mPLATFORM_GBA; }
++static void rommioPrepare(void) { if (deferredSetup) _doDeferredSetup(); }
++RETRO_API void* retro_get_memory_data(unsigned id) {
++    if (!rommioGba()) return rommio_original_memory_data(id);
++    rommioPrepare();
++    if (id == RETRO_MEMORY_SAVE_RAM) {
++        void *data = NULL; size_t size = core->savedataClone(core, &data);
++        if (size > GBA_SIZE_FLASH1M || (size && !data)) { free(data); return NULL; }
++        if (!size && GBASavedataSize(&((struct GBA*)core->board)->memory.savedata)) return NULL;
++        memset(rommioSave,0xff,sizeof(rommioSave));
++        for (unsigned i=0;i<4;i++) rommioSave[i] = size >> (i*8);
++        uint32_t type = ((struct GBA*)core->board)->memory.savedata.type;
++        for (unsigned i=0;i<4;i++) rommioSave[4+i] = type >> (i*8);
++        if (size) memcpy(rommioSave+8,data,size);
++        free(data); return rommioSave;
++    }
++    if (id == RETRO_MEMORY_RTC) {
++        struct GBARTC *rtc = &((struct GBA*)core->board)->memory.hw.rtc;
++        memcpy(rommioRtc,rtc->time,7); rommioRtc[7]=rtc->control;
++        for (unsigned i=0;i<8;i++) { rommioRtc[8+i]=(uint64_t)rtc->lastLatch >> (i*8); rommioRtc[16+i]=(uint64_t)rtc->offset >> (i*8); }
++        return rommioRtc;
++    }
++    return rommio_original_memory_data(id);
++}
++RETRO_API size_t retro_get_memory_size(unsigned id) {
++    if (!rommioGba()) return rommio_original_memory_size(id);
++    rommioPrepare();
++    if (id == RETRO_MEMORY_SAVE_RAM) return sizeof(rommioSave);
++    if (id == RETRO_MEMORY_RTC) return sizeof(rommioRtc);
++    return rommio_original_memory_size(id);
++}
++RETRO_API const char *retro_rommio_persistence_descriptor(void) {
++    if (!rommioGba()) return "";
++    rommioPrepare();
++    return "rommio-cart-v1:mgba:gba:131080:24";
++}
++RETRO_API bool retro_rommio_memory_restored(void) {
++    if (!rommioGba()) return false;
++    uint8_t incoming[sizeof(rommioSave)], clock[24];
++    memcpy(incoming,rommioSave,sizeof(incoming)); memcpy(clock,rommioRtc,24);
++    uint32_t size=0, rawType=0; for (unsigned i=0;i<4;i++) { size |= (uint32_t)incoming[i] << (i*8); rawType |= (uint32_t)incoming[4+i] << (i*8); }
++    int32_t type=(int32_t)rawType; if (type < -1 || type > 6) return false;
++    GBASavedataForceType(&((struct GBA*)core->board)->memory.savedata,(enum GBASavedataType)type);
++    if (size>GBA_SIZE_FLASH1M) return false;
++    if (size && !core->savedataRestore(core,incoming+8,size,true)) return false;
++    struct GBARTC *rtc = &((struct GBA*)core->board)->memory.hw.rtc;
++    memcpy(rtc->time,clock,7); rtc->control=clock[7];
++    uint64_t latch=0,offset=0; for(unsigned i=0;i<8;i++) { latch |= (uint64_t)clock[8+i] << (i*8); offset |= (uint64_t)clock[16+i] << (i*8); }
++    rtc->lastLatch=(time_t)latch; rtc->offset=(time_t)offset;
++    return true;
++}

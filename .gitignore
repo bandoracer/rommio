@@ -18,6 +18,12 @@ ios/Package.resolved
 ios/Rommio.xcworkspace/
 ios/Rommio.xcodeproj/xcuserdata/
 ios/Rommio.xcodeproj/project.xcworkspace/xcuserdata/
+ios/Rommio.xcodeproj/-Xcc/
 ios/App/Resources/Cores/*.dylib
 third_party/libretro/
 *.xcresult
+
+**/.cxx/
+
+# Python build helper caches
+__pycache__/

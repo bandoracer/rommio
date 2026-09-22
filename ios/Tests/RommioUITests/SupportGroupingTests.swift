@@ -9,7 +9,7 @@ final class SupportGroupingTests: XCTestCase {
         let sections = groupedPlatformSections(
             platforms: [
                 PlatformDTO(id: 1, slug: "nes", name: "NES", fsSlug: "nes", romCount: 10),
-                PlatformDTO(id: 2, slug: "psp", name: "PSP", fsSlug: "psp", romCount: 6),
+                PlatformDTO(id: 2, slug: "dreamcast", name: "Dreamcast", fsSlug: "dreamcast", romCount: 6),
                 PlatformDTO(id: 3, slug: "ps2", name: "PS2", fsSlug: "ps2", romCount: 4),
             ],
             resolveProfile: resolver.resolve(platformSlug:)
@@ -21,7 +21,7 @@ final class SupportGroupingTests: XCTestCase {
             "Not supported in app yet",
         ])
         XCTAssertEqual(sections[0].platforms.map(\.slug), ["nes"])
-        XCTAssertEqual(sections[1].platforms.map(\.slug), ["psp"])
+        XCTAssertEqual(sections[1].platforms.map(\.slug), ["dreamcast"])
         XCTAssertEqual(sections[2].platforms.map(\.slug), ["ps2"])
     }
 
@@ -30,7 +30,7 @@ final class SupportGroupingTests: XCTestCase {
         let sections = groupedRomSections(
             roms: [
                 RomDTO(id: 1, name: "Mario", platformName: "NES", platformSlug: "nes"),
-                RomDTO(id: 2, name: "Lumines", platformName: "PSP", platformSlug: "psp"),
+                RomDTO(id: 2, name: "Crazy Taxi", platformName: "Dreamcast", platformSlug: "dreamcast"),
                 RomDTO(id: 3, name: "Shadow", platformName: "PS2", platformSlug: "ps2"),
             ],
             context: .platformDetail,

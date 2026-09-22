@@ -4,7 +4,7 @@ import android.view.KeyEvent
 import io.github.bandoracer.rommio.domain.player.EmbeddedSupportTier
 
 class PlatformControlProfileResolver : ControlProfileResolver {
-    private val profiles = listOf(
+    private val profiles = ExpansionControls.profiles + listOf(
         touchProfile(
             familyId = "nes",
             displayName = "NES / Famicom",
@@ -107,64 +107,13 @@ class PlatformControlProfileResolver : ControlProfileResolver {
                 ),
             ),
         ),
-        touchProfile(
-            familyId = "sega16",
-            displayName = "Sega 8/16-bit",
-            platformSlugs = setOf("genesis", "sms", "gamegear", "segacd"),
-            presets = listOf(
-                TouchLayoutPreset(
-                    presetId = "standard",
-                    displayName = "Standard",
-                    elements = listOf(
-                        standardDpad(),
-                        faceFour(
-                            left = "B" to KeyEvent.KEYCODE_BUTTON_Y,
-                            bottom = "A" to KeyEvent.KEYCODE_BUTTON_B,
-                            right = "C" to KeyEvent.KEYCODE_BUTTON_A,
-                            top = "X" to KeyEvent.KEYCODE_BUTTON_X,
-                        ).copy(centerY = 0.69f),
-                        standardStartSelect(selectLabel = "Mode", startLabel = "Start"),
-                    ),
-                ),
-            ),
-        ),
+
         controllerFirstProfile(
             familyId = "sega32x",
             displayName = "Sega 32X",
             platformSlugs = setOf("32x", "sega32x", "sega-32x"),
         ),
-        touchProfile(
-            familyId = "psx",
-            displayName = "PlayStation",
-            platformSlugs = setOf("psx", "ps1", "playstation"),
-            orientationPolicy = PlayerOrientationPolicy.LANDSCAPE_ONLY,
-            presets = listOf(
-                TouchLayoutPreset(
-                    presetId = "digital",
-                    displayName = "Digital",
-                    elements = listOf(
-                        standardDpad(),
-                        faceFour(
-                            left = "Square" to KeyEvent.KEYCODE_BUTTON_Y,
-                            bottom = "Cross" to KeyEvent.KEYCODE_BUTTON_B,
-                            right = "Circle" to KeyEvent.KEYCODE_BUTTON_A,
-                            top = "Triangle" to KeyEvent.KEYCODE_BUTTON_X,
-                        ),
-                        standardShoulders(
-                            id = "shoulders_top",
-                            labels = "L1" to "R1",
-                            keyCodes = KeyEvent.KEYCODE_BUTTON_L1 to KeyEvent.KEYCODE_BUTTON_R1,
-                        ),
-                        standardShoulders(
-                            id = "shoulders_bottom",
-                            labels = "L2" to "R2",
-                            keyCodes = KeyEvent.KEYCODE_BUTTON_L2 to KeyEvent.KEYCODE_BUTTON_R2,
-                        ).copy(centerY = 0.25f, baseScale = 0.84f),
-                        standardStartSelect(),
-                    ),
-                ),
-            ),
-        ),
+
         touchProfile(
             familyId = "atari",
             displayName = "Atari / Handheld Classics",
@@ -234,16 +183,8 @@ class PlatformControlProfileResolver : ControlProfileResolver {
                 ),
             ),
         ),
-        controllerFirstProfile(
-            familyId = "n64",
-            displayName = "Nintendo 64",
-            platformSlugs = setOf("n64"),
-        ),
-        controllerFirstProfile(
-            familyId = "psp",
-            displayName = "PlayStation Portable",
-            platformSlugs = setOf("psp"),
-        ),
+
+
         touchProfile(
             familyId = "nds",
             displayName = "Nintendo DS / DSi-enhanced",

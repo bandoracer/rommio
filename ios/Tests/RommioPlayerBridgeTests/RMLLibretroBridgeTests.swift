@@ -3,6 +3,101 @@ import XCTest
 @testable import RommioPlayerBridge
 
 final class RMLLibretroBridgeTests: XCTestCase {
+    func testNegotiatedAndDefault16BitFramesRetainFormatAndPitch() throws {
+        let workspace = try makeWorkspace()
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        let core = try buildFakeCore(in: workspace)
+        let rom = try makeROM(in: workspace)
+        for (selection, expectedFormat, red) in [("rgb565", 2, UInt16(0xf800)), ("0rgb1555", 3, UInt16(0x7c00)), ("default1555", 3, UInt16(0x7c00)), ("invalid", 3, UInt16(0x7c00))] {
+            let bridge = try RMLLibretroBridge(coreURL: core)
+            try bridge.prepareGame(at: rom, systemDirectory: workspace.appending(path: "system"), savesDirectory: workspace.appending(path: "saves"), variables: ["faux_pixel_format": selection])
+            try bridge.runFrame()
+            let frame = try XCTUnwrap(bridge.copyLatestVideoFrame())
+            XCTAssertEqual(frame.pixelFormat.rawValue, expectedFormat, selection)
+            XCTAssertEqual(frame.pitch, 6)
+            XCTAssertEqual(frame.pixelData.count, 12)
+            XCTAssertEqual(frame.pixelData.withUnsafeBytes { $0.loadUnaligned(as: UInt16.self) }, red)
+            bridge.stop()
+        }
+    }
+
+    func testAllConsoleDigitalAndAnalogInputsReachNativeCoreAndClearOnPause() throws {
+        let workspace = try makeWorkspace()
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        let bridge = try RMLLibretroBridge(coreURL: buildFakeCore(in: workspace))
+        defer { bridge.stop() }
+        try bridge.prepareGame(at: makeROM(in: workspace), systemDirectory: workspace, savesDirectory: workspace, variables: ["faux_input": "true"])
+        func sample() throws -> [UInt32] {
+            try bridge.runFrame()
+            let data = try XCTUnwrap(bridge.copyLatestVideoFrame()).pixelData
+            return (0...2).map { offset in data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: offset * 4, as: UInt32.self) } }
+        }
+        for key in 0..<16 {
+            bridge.setDigitalInputPressed(true, keyCode: key, port: 0)
+            XCTAssertEqual(try sample()[0], 1 << key)
+            bridge.setDigitalInputPressed(false, keyCode: key, port: 0)
+            XCTAssertEqual(try sample()[0], 0)
+        }
+        bridge.setMotionSource(.dPad, x: -1, y: -1, port: 0)
+        XCTAssertEqual(try sample()[0], (1 << 4) | (1 << 6))
+        bridge.setMotionSource(.dPad, x: 0, y: 0, port: 0)
+        bridge.setMotionSource(.analogLeft, x: 1, y: -1, port: 0)
+        bridge.setMotionSource(.analogRight, x: -1, y: 1, port: 0)
+        var result = try sample()
+        XCTAssertEqual(result[1], UInt32(0x80017fff))
+        XCTAssertEqual(result[2], UInt32(0x7fff8001))
+        bridge.setPaused(true); bridge.setPaused(false)
+        result = try sample()
+        XCTAssertEqual(result[1], 0); XCTAssertEqual(result[2], 0)
+    }
+
+    func testShortTapSurvivesUntilOneFrameAndPauseClearsHeldInput() throws {
+        let workspace = try makeWorkspace()
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        let bridge = try RMLLibretroBridge(coreURL: buildFakeCore(in: workspace))
+        defer { bridge.stop() }
+        try bridge.prepareGame(at: makeROM(in: workspace), systemDirectory: workspace, savesDirectory: workspace, variables: [:])
+        func pixel() throws -> UInt32 {
+            try bridge.runFrame()
+            return try XCTUnwrap(bridge.copyLatestVideoFrame()).pixelData.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
+        }
+        bridge.setDigitalInputPressed(true, keyCode: 0, port: 0)
+        bridge.setDigitalInputPressed(false, keyCode: 0, port: 0)
+        XCTAssertEqual(try pixel(), 0xFFFF00FF, "A tap between frames must reach the core")
+        XCTAssertEqual(try pixel(), 0xFFFF0000, "Released input must not stick")
+        bridge.setDigitalInputPressed(true, keyCode: 0, port: 0)
+        XCTAssertEqual(try pixel(), 0xFFFF00FF)
+        XCTAssertEqual(try pixel(), 0xFFFF00FF, "Held input persists across frames")
+        bridge.setPaused(true)
+        bridge.setPaused(false)
+        XCTAssertEqual(try pixel(), 0xFFFF0000, "Pause clears held and pending input")
+    }
+
+    func testPointerCenterEdgesReleaseAndShortTapAreIndependent() throws {
+        let workspace = try makeWorkspace()
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        let bridge = try RMLLibretroBridge(coreURL: buildFakeCore(in: workspace))
+        defer { bridge.stop() }
+        try bridge.prepareGame(at: makeROM(in: workspace), systemDirectory: workspace, savesDirectory: workspace, variables: ["faux_pointer": "true"])
+        func sample() throws -> [Int32] {
+            try bridge.runFrame()
+            let data = try XCTUnwrap(bridge.copyLatestVideoFrame()).pixelData
+            return (1...3).map { index in data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: index * 4, as: Int32.self) } }
+        }
+        bridge.setPointerX(0, y: 0, pressed: true, port: 0)
+        XCTAssertEqual(try sample(), [0, 0, 1], "The center is a valid pressed coordinate")
+        bridge.setPointerX(0, y: 0, pressed: false, port: 0)
+        XCTAssertEqual(try sample(), [0, 0, 0])
+        bridge.setPointerX(-1, y: 1, pressed: true, port: 0)
+        bridge.setPointerX(-1, y: 1, pressed: false, port: 0)
+        XCTAssertEqual(try sample(), [-32767, 32767, 1], "A short touch survives one core frame")
+        XCTAssertEqual(try sample(), [-32767, 32767, 0])
+        bridge.setPointerX(1, y: -1, pressed: true, port: 0)
+        bridge.setPaused(true)
+        bridge.setPaused(false)
+        XCTAssertEqual(try sample(), [0, 0, 0])
+    }
+
     func testMissingCoreReportsReadableError() {
         let missingURL = URL(fileURLWithPath: "/tmp/definitely-missing-libretro-core.dylib")
 

@@ -78,7 +78,7 @@ enum class DownloadStatus {
     COMPLETED,
 }
 
-@Entity(tableName = "download_records", primaryKeys = ["romId", "fileId"])
+@Entity(tableName = "download_records", primaryKeys = ["namespaceKey", "romId", "fileId"])
 data class DownloadRecordEntity(
     val romId: Int,
     val fileId: Int,
@@ -97,6 +97,15 @@ data class DownloadRecordEntity(
     val startedAtEpochMs: Long? = null,
     val completedAtEpochMs: Long? = null,
     val updatedAtEpochMs: Long,
+    val ownerProfileId: String? = null,
+    val ownerBaseUrl: String? = null,
+    val ownerAccountId: Int? = null,
+    val attemptId: String? = null,
+    val destinationRelativePath: String? = null,
+    val contentSha256: String? = null,
+    val retryAfterEpochMs: Long? = null,
+    val parkedForAuthentication: Boolean? = null,
+    val namespaceKey: String = InstallIdentity.namespace(ownerBaseUrl, ownerAccountId),
 )
 
 data class DownloadRecord(
@@ -117,6 +126,15 @@ data class DownloadRecord(
     val startedAtEpochMs: Long? = null,
     val completedAtEpochMs: Long? = null,
     val updatedAtEpochMs: Long,
+    val ownerProfileId: String? = null,
+    val ownerBaseUrl: String? = null,
+    val ownerAccountId: Int? = null,
+    val attemptId: String? = null,
+    val destinationRelativePath: String? = null,
+    val contentSha256: String? = null,
+    val retryAfterEpochMs: Long? = null,
+    val parkedForAuthentication: Boolean? = null,
+    val namespaceKey: String = InstallIdentity.namespace(ownerBaseUrl, ownerAccountId),
 )
 
 data class InstalledPlatformSummary(
@@ -151,6 +169,15 @@ fun DownloadRecordEntity.toModel(): DownloadRecord {
         startedAtEpochMs = startedAtEpochMs,
         completedAtEpochMs = completedAtEpochMs,
         updatedAtEpochMs = updatedAtEpochMs,
+        namespaceKey = namespaceKey,
+        ownerProfileId = ownerProfileId,
+        ownerBaseUrl = ownerBaseUrl,
+        ownerAccountId = ownerAccountId,
+        attemptId = attemptId,
+        destinationRelativePath = destinationRelativePath,
+        contentSha256 = contentSha256,
+        retryAfterEpochMs = retryAfterEpochMs,
+        parkedForAuthentication = parkedForAuthentication,
     )
 }
 

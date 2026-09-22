@@ -108,7 +108,7 @@ fun DownloadsScreen(
                 )
             }
         }
-        items(state.records, key = { "${it.romId}-${it.fileId}" }) { record ->
+        items(state.records, key = { "${it.namespaceKey}-${it.romId}-${it.fileId}" }) { record ->
             DownloadRecordCard(
                 record = record,
                 onCancel = { viewModel.cancel(record) },

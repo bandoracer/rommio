@@ -7,50 +7,131 @@ import UIKit
 
 struct PlayerExperienceView: View {
     let feature: PlayerFeatureModel
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    /// On a wide display (iPhone Duo open), controls and saved progress open in a
+    /// pane beside the game instead of a sheet over it.
+    @State private var usesSidePanes = false
+    @State private var arrangedGameWidth: CGFloat?
+
+    private var sidePaneVisible: Bool {
+        usesSidePanes && (feature.controlsSheetPresented || feature.stateBrowserPresented)
+    }
 
     var body: some View {
         GeometryReader { geometry in
-            ZStack {
-                feature.theme.canvasColor
-                    .ignoresSafeArea()
-
-                PlayerHostContainer {
-                    try feature.makeHostController()
-                }
-                .accessibilityIdentifier("player.host")
-                .ignoresSafeArea()
-
-                Color.clear
-                    .contentShape(Rectangle())
-                    .ignoresSafeArea()
-                    .onTapGesture {
-                        feature.bumpPrimaryControls()
-                        feature.bumpTertiaryControls(wakePrimary: false)
+            let insets = geometry.safeAreaInsets
+            let size = CGSize(width: geometry.size.width + insets.leading + insets.trailing,
+                              height: geometry.size.height + insets.top + insets.bottom)
+            let fold = divisionRegion(geometry)
+            // An overlay does not enlarge its parent's layout proposal. Keep the
+            // native surface and touch chrome in exactly the same window space.
+            feature.theme.canvasColor
+                .overlay(alignment: .topLeading) {
+                    ZStack(alignment: .topLeading) {
+                        // The native renderer is transparent outside video; paint the
+                        // entire window, including the cutout and home-indicator areas.
+                        feature.theme.canvasColor
+                        PlayerBackdrop(url: feature.backdropURL,
+                                       enabled: feature.controlsState?.preferences.oledBlackModeEnabled != true)
+                        PlayerHostContainer { try feature.makeHostController() }
+                            .accessibilityIdentifier("player.host")
+                        Color.clear.contentShape(Rectangle())
+                            .onTapGesture {
+                                feature.bumpPrimaryControls()
+                                feature.bumpTertiaryControls(wakePrimary: false)
+                            }
+                        if feature.progressOwner != nil && !feature.hasStarted {
+                            ProgressPlayerPanel(feature: feature)
+                            // Start failures (such as a snapshot from a different core
+                            // build) must be visible, not just leave the panel in place.
+                            if let message = feature.errorMessage {
+                                PlayerBanner(message: message, isError: true)
+                                    .padding(.horizontal, 16)
+                                    .padding(.bottom, insets.bottom + 16)
+                                    .frame(width: size.width, height: size.height, alignment: .bottom)
+                            }
+                        } else {
+                            PlayerOverlayChrome(feature: feature, size: size, safeAreaInsets: insets,
+                                                livePreview: sidePaneVisible && feature.controlsSheetPresented)
+                        }
+                        if sidePaneVisible {
+                            PlayerSidePaneArrangement(size: size, insets: insets, arrangedGameWidth: $arrangedGameWidth) {
+                                sidePaneContent
+                            }
+                        }
                     }
-
-                PlayerOverlayChrome(
-                    feature: feature,
-                    size: geometry.size,
-                    safeAreaInsets: geometry.safeAreaInsets
-                )
-            }
+                    .frame(width: size.width, height: size.height)
+                    .offset(x: -insets.leading, y: -insets.top)
+                }
+                .onChange(of: fold, initial: true) { _, region in
+                    feature.updateWindowFold(region?.frame, isActive: region?.isActive ?? false)
+                }
+                .onChange(of: size.width, initial: true) { _, width in
+                    usesSidePanes = horizontalSizeClass == .regular && width >= 700
+                }
+                .onChange(of: sidePaneVisible ? (arrangedGameWidth.map { size.width - $0 } ?? min(380, size.width * 0.45)) : 0, initial: true) { _, width in
+                    feature.updateSidePaneWidth(width)
+                }
         }
         .interactiveDismissDisabled()
         .statusBarHidden()
+        .persistentSystemOverlays(.hidden)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("player.screen")
-        .sheet(isPresented: pauseSheetBinding) {
+        .sheet(isPresented: pauseSheetBinding, onDismiss: {
+            if feature.isPaused && !feature.controlsSheetPresented && !feature.stateBrowserPresented && feature.errorMessage == nil {
+                Task { await feature.resumeGame() }
+            }
+        }) {
             PlayerPauseSheet(feature: feature)
-                .presentationDetents([.medium])
+                // Tall enough for every action (including Leave game) on
+                // iPhone Duo's 515pt open display without scrolling.
+                .presentationDetents([.height(430), .large])
                 .presentationDragIndicator(.visible)
+                .modifier(PlayerSheetBars())
                 .accessibilityIdentifier("player.pause.sheet")
         }
-        .sheet(isPresented: controlsSheetBinding) {
+        .sheet(isPresented: controlsSheetBinding, onDismiss: resumeAfterPanelDismissal) {
             PlayerControlsSheet(feature: feature)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
+                .modifier(PlayerSheetBars())
                 .accessibilityIdentifier("player.controls.sheet")
         }
-        .sheet(isPresented: stateBrowserSheetBinding) {
+        .sheet(isPresented: stateBrowserSheetBinding, onDismiss: resumeAfterPanelDismissal) {
+            stateBrowserContent
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .modifier(PlayerSheetBars())
+        }
+        .onChange(of: sidePaneVisible) { wasVisible, visible in
+            if wasVisible && !visible { resumeAfterPanelDismissal() }
+        }
+        .onChange(of: feature.pendingRestoreID) { _, value in
+            if value != nil { feature.pauseSheetPresented = false; feature.stateBrowserPresented = true }
+        }
+        .task(id: feature.id) {
+            await feature.startIfNeeded()
+        }
+        // Touch-free controller play shouldn't let the display sleep mid-game.
+        .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
+        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+    }
+
+    @ViewBuilder
+    private var sidePaneContent: some View {
+        if feature.controlsSheetPresented {
+            PlayerControlsSheet(feature: feature)
+        } else {
+            stateBrowserContent
+        }
+    }
+
+    @ViewBuilder
+    private var stateBrowserContent: some View {
+        if feature.progressOwner != nil {
+            ProgressPlayerPanel(feature: feature)
+        } else {
             StateBrowserView(
                 browser: feature.stateBrowser,
                 onUseResume: { Task { await feature.loadResumeState() } },
@@ -62,12 +143,24 @@ struct PlayerExperienceView: View {
                 },
                 onClose: { feature.stateBrowserPresented = false }
             )
-            .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
             .accessibilityIdentifier("player.stateBrowser.sheet")
         }
-        .task(id: feature.id) {
-            await feature.startIfNeeded()
+    }
+
+    /// iPhone Duo's hinge in window coordinates, from the division reserved
+    /// region (iOS 27.1). Inactive regions still mark a flat display's centre.
+    private func divisionRegion(_ geometry: GeometryProxy) -> PlayerFoldRegion? {
+        if #available(iOS 27.1, *) {
+            guard let region = geometry.reservedRegions(kind: .division, options: .includeInactive).first else { return nil }
+            let insets = geometry.safeAreaInsets
+            return PlayerFoldRegion(frame: region.frame.offsetBy(dx: insets.leading, dy: insets.top), isActive: region.isActive)
+        }
+        return nil
+    }
+
+    private func resumeAfterPanelDismissal() {
+        if feature.isPaused && feature.errorMessage == nil {
+            Task { await feature.resumeGame() }
         }
     }
 
@@ -80,16 +173,103 @@ struct PlayerExperienceView: View {
 
     private var controlsSheetBinding: Binding<Bool> {
         Binding(
-            get: { feature.controlsSheetPresented },
+            get: { feature.controlsSheetPresented && !usesSidePanes },
             set: { feature.controlsSheetPresented = $0 }
         )
     }
 
     private var stateBrowserSheetBinding: Binding<Bool> {
         Binding(
-            get: { feature.stateBrowserPresented },
+            get: { feature.stateBrowserPresented && !usesSidePanes },
             set: { feature.stateBrowserPresented = $0 }
         )
+    }
+}
+
+struct PlayerFoldRegion: Equatable {
+    let frame: CGRect
+    let isActive: Bool
+}
+
+/// Splits the window between the game and a side pane with ArrangementView
+/// (iOS 27.1), which sizes both sides around iPhone Duo's fold.
+private struct PlayerSidePaneArrangement<Pane: View>: View {
+    let size: CGSize
+    let insets: EdgeInsets
+    @Binding var arrangedGameWidth: CGFloat?
+    @ViewBuilder let pane: () -> Pane
+
+    var body: some View {
+        Group {
+            if #available(iOS 27.1, *) {
+                ArrangementView {
+                    gamePlaceholder
+                } secondary: {
+                    paneBody
+                }
+                .arrangementViewStyle(.split.axes(.horizontal))
+            } else {
+                HStack(spacing: 0) {
+                    gamePlaceholder
+                    paneBody.frame(width: min(380, size.width * 0.45))
+                }
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .onDisappear { arrangedGameWidth = nil }
+    }
+
+    private var gamePlaceholder: some View {
+        Color.clear
+            .allowsHitTesting(false)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { arrangedGameWidth = $0 }
+    }
+
+    private var paneBody: some View {
+        pane()
+            .padding(.top, insets.top)
+            .padding(.bottom, insets.bottom)
+            .padding(.trailing, insets.trailing)
+            .background(.regularMaterial)
+            .accessibilityIdentifier("player.sidePane")
+    }
+}
+
+/// Player sheets keep standard horizontal bars; iPhone Duo's vertical bars
+/// would crowd their control-heavy forms.
+private struct PlayerSheetBars: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 27.1, *) {
+            content.toolbarVerticalBehavior(.disabled)
+        } else {
+            content
+        }
+    }
+}
+
+/// Soft game artwork behind any letterbox or pillarbox padding.
+private struct PlayerBackdrop: View {
+    let url: URL?
+    let enabled: Bool
+
+    var body: some View {
+        // The clear base takes the proposed (window) size; an aspect-filled image
+        // on its own would grow the player's stage to the artwork's shape.
+        Color.clear
+            .overlay {
+                if enabled, let url {
+                    AsyncImage(url: url) { image in
+                        image.resizable().scaledToFill()
+                            .blur(radius: 48)
+                            .opacity(0.35)
+                    } placeholder: {
+                        Color.clear
+                    }
+                }
+            }
+            .clipped()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 
@@ -97,6 +277,9 @@ private struct PlayerOverlayChrome: View {
     let feature: PlayerFeatureModel
     let size: CGSize
     let safeAreaInsets: EdgeInsets
+    /// Keep touch controls visible while the controls editor pane is open.
+    var livePreview = false
+    @State private var noticeVisible = false
 
     private var overlaySnapshot: PlayerOverlaySnapshot? {
         feature.overlaySnapshot(
@@ -121,13 +304,14 @@ private struct PlayerOverlayChrome: View {
                     right: safeAreaInsets.trailing
                 ),
                 aspectRatio: feature.controlsState?.platformProfile.preferredViewportAspectRatio,
-                topAlignedInPortrait: feature.supportTier == .touchSupported
+                topAlignedInPortrait: feature.supportTier == .touchSupported,
+                stage: feature.stageContext
             ).frame
     }
 
     var body: some View {
         ZStack {
-            if let message = feature.noticeMessage {
+            if let message = feature.noticeMessage, noticeVisible {
                 PlayerBanner(message: message, isError: false)
                     .padding(.top, 16)
                     .frame(maxHeight: .infinity, alignment: .top)
@@ -139,6 +323,16 @@ private struct PlayerOverlayChrome: View {
                     .frame(maxHeight: .infinity, alignment: .top)
             }
 
+            if let state = feature.controlsState {
+                let controls = ExpansionControls.controls(for: state.platformProfile.familyID) ?? []
+                ExpansionControlsOverlay(controls: controls, size: size, insets: safeAreaInsets,
+                    leftHanded: state.touchLayout?.leftHanded ?? false, scale: state.touchLayout?.globalScale ?? 1,
+                    opacity: state.touchLayout?.opacity ?? 0.72, showControls: state.showTouchControls && (!feature.isPaused || livePreview),
+                    onDigital: { key, pressed in feature.enqueueConsoleDigital(key, pressed: pressed) },
+                    onMotion: { stick, x, y in feature.enqueueConsoleMotion(stick, x: x, y: y) },
+                    onMenu: { Task { await feature.openPauseMenu() } }, theme: feature.theme, aspectRatio: state.platformProfile.preferredViewportAspectRatio,
+                    stage: feature.stageContext, topAlignedInPortrait: feature.supportTier == .touchSupported)
+            } else {
             PlayerTouchOverlay(
                 feature: feature,
                 size: size,
@@ -147,9 +341,18 @@ private struct PlayerOverlayChrome: View {
                 overlaySnapshot: overlaySnapshot
             )
 
-            if overlaySnapshot?.showsPointerOverlay == true {
-                DSPointerOverlay(feature: feature, viewportFrame: viewportFrame)
             }
+            if overlaySnapshot?.showsPointerOverlay == true {
+                DSPointerOverlay(feature: feature, touchScreenFrame: overlaySnapshot?.touchScreenFrame
+                    ?? CGRect(x: viewportFrame.minX, y: viewportFrame.midY, width: viewportFrame.width, height: viewportFrame.height / 2))
+            }
+        }
+        .task(id: feature.noticeMessage) {
+            // Keep the detail in the progress panel, without leaving a success
+            // banner across the game for the rest of the session.
+            noticeVisible = feature.noticeMessage != nil
+            do { try await Task.sleep(for: .seconds(3)) } catch { return }
+            noticeVisible = false
         }
     }
 }
@@ -197,6 +400,7 @@ private struct PlayerTouchOverlay: View {
                     }
                     .opacity(feature.primaryControlsVisible ? 1 : 0)
                     .animation(.easeInOut(duration: 0.18), value: feature.primaryControlsVisible)
+                    .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("player.primaryControls")
                 }
 
@@ -223,6 +427,7 @@ private struct PlayerTouchOverlay: View {
                 }
                 .opacity(feature.tertiaryControlsVisible ? 1 : 0)
                 .animation(.easeInOut(duration: 0.18), value: feature.tertiaryControlsVisible)
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("player.systemControls")
             }
         }
@@ -243,10 +448,12 @@ private struct PortraitPrimaryControlsOverlay: View {
         let controlRowTop = viewportFrame.maxY + metrics.controlRowTopOffset
         let systemRowBottom = controlRowTop + metrics.portraitControlButtonHeight
         let minimumZoneTop = systemRowBottom + 18
-        let preferredZoneTop = systemRowBottom + 20
         let maximumZoneTop = metrics.portraitBandBottom(bottomInset: bottomInset) - metrics.zoneSize - 12
+        // Center the thumb controls in the space below the screen. Anchoring
+        // directly to the viewport stranded them halfway up tall iPhones.
+        let preferredZoneTop = (minimumZoneTop + maximumZoneTop) / 2
         let zoneTop = max(minimumZoneTop, min(maximumZoneTop, preferredZoneTop))
-        let triggerCenterY = controlRowTop + 28 + (metrics.portraitTriggerHeight / 2)
+        let triggerCenterY = zoneTop - metrics.portraitTriggerHeight / 2 - 8
 
         ZStack {
             if let dpad = bindings.dpadElement {
@@ -279,7 +486,7 @@ private struct PortraitPrimaryControlsOverlay: View {
                     buttons: bindings.leftTriggers,
                     size: CGSize(width: metrics.portraitTriggerWidth, height: metrics.portraitTriggerHeight),
                     center: CGPoint(
-                        x: dpadX + metrics.zoneSize - (metrics.portraitTriggerWidth / 2),
+                        x: dpadX + metrics.zoneSize / 2,
                         y: triggerCenterY
                     ),
                     opacity: bindings.primaryOpacity
@@ -292,7 +499,7 @@ private struct PortraitPrimaryControlsOverlay: View {
                     buttons: bindings.rightTriggers,
                     size: CGSize(width: metrics.portraitTriggerWidth, height: metrics.portraitTriggerHeight),
                     center: CGPoint(
-                        x: buttonX + metrics.zoneSize - (metrics.portraitTriggerWidth / 2),
+                        x: buttonX + metrics.zoneSize / 2,
                         y: triggerCenterY
                     ),
                     opacity: bindings.primaryOpacity
@@ -313,7 +520,7 @@ private struct PortraitTertiaryControlsOverlay: View {
     var body: some View {
         let controlRowTop = viewportFrame.maxY + metrics.controlRowTopOffset
         let menuHalf = metrics.menuButtonSize / 2
-        let menuTop = safeAreaInsets.top + 14 + menuHalf
+        let menuTop = max(menuHalf + 8, safeAreaInsets.top / 2)
         let leadingMenuX = max(
             metrics.screenEdgeInset + menuHalf,
             viewportFrame.minX + menuHalf + 8
@@ -687,37 +894,48 @@ private struct SystemTouchButton: View {
                         Task { await onRelease() }
                     }
             )
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(button.label)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction {
+                Task {
+                    await onPress()
+                    try? await Task.sleep(for: .milliseconds(100))
+                    await onRelease()
+                }
+            }
             .accessibilityIdentifier("player.touch.\(button.id)")
     }
 }
 
 private struct DSPointerOverlay: View {
     let feature: PlayerFeatureModel
-    let viewportFrame: CGRect
+    /// Where the touch screen is drawn: below, beside, or before the top screen.
+    let touchScreenFrame: CGRect
 
     var body: some View {
-        let width = viewportFrame.width * 0.92
-        let height = viewportFrame.height * 0.44
-        let centerX = viewportFrame.midX
-        let centerY = viewportFrame.minY + viewportFrame.height * 0.72
-
-        RoundedRectangle(cornerRadius: 18)
-            .fill(Color.white.opacity(0.01))
-            .overlay {
-                RoundedRectangle(cornerRadius: 18)
-                    .stroke(Color.white.opacity(0.18), style: StrokeStyle(lineWidth: 1, dash: [8, 6]))
-            }
+        let width = touchScreenFrame.width
+        let height = touchScreenFrame.height
+        // libretro pointer coordinates cover the combined video frame. The DS
+        // touch screen is exactly its lower half, including all four edges.
+        Color.clear
             .frame(width: width, height: height)
-            .position(x: centerX, y: centerY)
+            .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        let localX = min(max((value.location.x - (centerX - width / 2)) / width, 0), 1)
-                        let localY = min(max((value.location.y - (centerY - height / 2)) / height, 0), 1)
-                        Task { await feature.dispatchPointer(normalizedX: localX, normalizedY: localY) }
-                    }
+                    .onChanged { value in send(value.location, width: width, height: height, pressed: true) }
+                    .onEnded { value in send(value.location, width: width, height: height, pressed: false) }
             )
+            .position(x: touchScreenFrame.midX, y: touchScreenFrame.midY)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Nintendo DS touch screen")
             .accessibilityIdentifier("player.nds.pointer")
+    }
+
+    private func send(_ point: CGPoint, width: CGFloat, height: CGFloat, pressed: Bool) {
+        let x = min(max(point.x / max(width, 1), 0), 1)
+        let y = 0.5 + min(max(point.y / max(height, 1), 0), 1) / 2
+        feature.enqueuePointer(normalizedX: x, normalizedY: y, pressed: pressed)
     }
 }
 
@@ -740,6 +958,7 @@ private struct PlayerMenuButton: View {
                 .frame(width: 40, height: 40)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Pause game")
         .accessibilityIdentifier("player.menu")
     }
 }
@@ -786,6 +1005,16 @@ private struct TouchButtonControl: View {
                         Task { await onRelease() }
                     }
             )
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(button.label)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction {
+                Task {
+                    await onPress()
+                    try? await Task.sleep(for: .milliseconds(100))
+                    await onRelease()
+                }
+            }
             .accessibilityIdentifier("player.touch.\(button.id)")
     }
 
@@ -965,17 +1194,17 @@ private struct PlayerPauseSheet: View {
             }
             .accessibilityIdentifier("player.pause.controls")
 
-            Button("Quick save") {
+            Button("Save snapshot") {
                 Task { await feature.quickSave() }
             }
             .accessibilityIdentifier("player.pause.quickSave")
 
-            Button("Browse states") {
+            Button("Saved progress") {
                 Task { await feature.openStateBrowser() }
             }
             .accessibilityIdentifier("player.pause.stateBrowser")
 
-            Button("Sync saves") {
+            Button("Sync game saves and snapshots") {
                 Task { await feature.syncSaves() }
             }
             .accessibilityIdentifier("player.pause.sync")
@@ -1033,8 +1262,20 @@ private struct PlayerControlsSheet: View {
                             get: { feature.controlsState?.touchLayout?.globalScale ?? 1.0 },
                             set: { value in Task { await feature.updateTouchGlobalScale(value) } }
                         ),
-                        range: 0.75...1.35
+                        range: 0.92...1.3
                     )
+                }
+
+                if !feature.isDualScreen && feature.supportTier == .touchSupported {
+                    Section {
+                        Toggle("Game and controls side by side", isOn: Binding(
+                            get: { feature.prefersSplitPad },
+                            set: { feature.prefersSplitPad = $0 }
+                        ))
+                        .accessibilityIdentifier("player.controls.splitPad")
+                    } footer: {
+                        Text("On a wide display such as iPhone Duo open, the game takes one half and full-size controls the other. Folding the device like a book does this automatically.")
+                    }
                 }
 
                 Section("Controller") {
@@ -1076,7 +1317,7 @@ private struct PlayerControlsSheet: View {
                     Toggle("Console colors", isOn: Binding(
                         get: { feature.controlsState?.preferences.consoleColorsEnabled ?? false },
                         set: { value in Task { await feature.setConsoleColorsEnabled(value) } }
-                    ))
+                    )).accessibilityIdentifier("player.controls.consoleColors")
                 }
 
                 Section {

@@ -76,14 +76,30 @@ SERIAL="$(resolve_device_serial)"
 
 for core_path in "${CORES[@]}"; do
   core_name="$(basename "$core_path")"
+  [[ "$core_name" =~ ^[A-Za-z0-9_.-]+\.so$ ]] || die "Invalid core library filename."
+  case "$core_name" in
+    lib*_libretro_android.so) ;;
+    *_libretro_android.so) core_name="lib$core_name" ;;
+  esac
   echo "Pushing core: $core_name"
   push_file_into_app "$SERIAL" "$core_path" "files/library/cores/$core_name"
+  echo "Legacy bootstrap copy staged; an existing versioned core selection is retained."
 done
 
 for bios_path in "${BIOS_FILES[@]}"; do
   bios_name="$(basename "$bios_path")"
+  [[ "$bios_name" =~ ^[A-Za-z0-9_.-]+$ && "$bios_name" != "." && "$bios_name" != ".." ]] || die "Invalid BIOS filename."
+  bios_relative="$bios_name"
+  case "$bios_name" in
+    dc_boot.bin|naomi.zip|naomi2.zip|hod2bios.zip|f355dlx.zip|f355bios.zip|airlbios.zip|awbios.zip|segasp.zip)
+      bios_relative="dc/$bios_name"
+      ;;
+    dc_flash.bin)
+      die "dc_flash.bin is mutable runtime data, not a BIOS import. Preserve it for explicit progress recovery."
+      ;;
+  esac
   echo "Pushing BIOS: $bios_name"
-  push_file_into_app "$SERIAL" "$bios_path" "files/library/bios/$bios_name"
+  push_file_into_app "$SERIAL" "$bios_path" "files/library/system/$bios_relative"
 done
 
 for rom_path in "${ROMS[@]}"; do

@@ -236,19 +236,25 @@ public struct InteractiveSessionConfig: Codable, Hashable, Sendable {
     public var startURL: URL
     public var provider: InteractiveSessionProvider
     public var expectedBaseURL: URL
+    public var cookieGeneration: String?
+    public var cookies: [BrowserCookie]?
 
     public init(
         profileID: String,
         title: String,
         startURL: URL,
         provider: InteractiveSessionProvider,
-        expectedBaseURL: URL
+        expectedBaseURL: URL,
+        cookieGeneration: String? = nil,
+        cookies: [BrowserCookie]? = nil
     ) {
         self.profileID = profileID
         self.title = title
         self.startURL = startURL
         self.provider = provider
         self.expectedBaseURL = expectedBaseURL
+        self.cookieGeneration = cookieGeneration
+        self.cookies = cookies
     }
 
     enum CodingKeys: String, CodingKey {
@@ -257,6 +263,8 @@ public struct InteractiveSessionConfig: Codable, Hashable, Sendable {
         case startURL = "start_url"
         case provider
         case expectedBaseURL = "expected_base_url"
+        case cookieGeneration = "cookie_generation"
+        case cookies
     }
 }
 

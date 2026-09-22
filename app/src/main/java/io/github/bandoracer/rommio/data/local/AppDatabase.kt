@@ -43,8 +43,8 @@ interface DownloadedRomDao {
     @Query("SELECT * FROM downloaded_roms WHERE romId = :romId ORDER BY downloadedAtEpochMs DESC")
     fun observeByRomId(romId: Int): Flow<List<DownloadedRomEntity>>
 
-    @Query("SELECT * FROM downloaded_roms WHERE romId = :romId AND fileId = :fileId LIMIT 1")
-    suspend fun getByIds(romId: Int, fileId: Int): DownloadedRomEntity?
+    @Query("SELECT * FROM downloaded_roms WHERE namespaceKey = :namespaceKey AND romId = :romId AND fileId = :fileId LIMIT 1")
+    suspend fun getByIds(romId: Int, fileId: Int, namespaceKey: String = "legacy"): DownloadedRomEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: DownloadedRomEntity)
@@ -52,8 +52,8 @@ interface DownloadedRomDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(entities: List<DownloadedRomEntity>)
 
-    @Query("DELETE FROM downloaded_roms WHERE romId = :romId AND fileId = :fileId")
-    suspend fun delete(romId: Int, fileId: Int)
+    @Query("DELETE FROM downloaded_roms WHERE namespaceKey = :namespaceKey AND romId = :romId AND fileId = :fileId")
+    suspend fun delete(romId: Int, fileId: Int, namespaceKey: String = "legacy")
 
     @Query("DELETE FROM downloaded_roms")
     suspend fun deleteAll()
@@ -67,11 +67,11 @@ interface DownloadRecordDao {
     @Query("SELECT * FROM download_records")
     suspend fun listAll(): List<DownloadRecordEntity>
 
-    @Query("SELECT * FROM download_records WHERE romId = :romId AND fileId = :fileId LIMIT 1")
-    fun observeByIds(romId: Int, fileId: Int): Flow<DownloadRecordEntity?>
+    @Query("SELECT * FROM download_records WHERE namespaceKey = :namespaceKey AND romId = :romId AND fileId = :fileId LIMIT 1")
+    fun observeByIds(romId: Int, fileId: Int, namespaceKey: String = "legacy"): Flow<DownloadRecordEntity?>
 
-    @Query("SELECT * FROM download_records WHERE romId = :romId AND fileId = :fileId LIMIT 1")
-    suspend fun getByIds(romId: Int, fileId: Int): DownloadRecordEntity?
+    @Query("SELECT * FROM download_records WHERE namespaceKey = :namespaceKey AND romId = :romId AND fileId = :fileId LIMIT 1")
+    suspend fun getByIds(romId: Int, fileId: Int, namespaceKey: String = "legacy"): DownloadRecordEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: DownloadRecordEntity)
@@ -79,8 +79,8 @@ interface DownloadRecordDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(entities: List<DownloadRecordEntity>)
 
-    @Query("DELETE FROM download_records WHERE romId = :romId AND fileId = :fileId")
-    suspend fun delete(romId: Int, fileId: Int)
+    @Query("DELETE FROM download_records WHERE namespaceKey = :namespaceKey AND romId = :romId AND fileId = :fileId")
+    suspend fun delete(romId: Int, fileId: Int, namespaceKey: String = "legacy")
 
     @Query("DELETE FROM download_records")
     suspend fun deleteAll()
@@ -88,8 +88,8 @@ interface DownloadRecordDao {
 
 @Dao
 interface SaveStateDao {
-    @Query("SELECT * FROM save_states WHERE romId = :romId ORDER BY slot ASC")
-    fun observeByRomId(romId: Int): Flow<List<SaveStateEntity>>
+    @Query("SELECT * FROM save_states WHERE progressScope = :progressScope AND romId = :romId ORDER BY slot ASC")
+    fun observeByRomId(romId: Int, progressScope: String = "legacy"): Flow<List<SaveStateEntity>>
 
     @Query("SELECT * FROM save_states ORDER BY romId ASC, slot ASC")
     suspend fun listAll(): List<SaveStateEntity>
@@ -100,8 +100,8 @@ interface SaveStateDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(entities: List<SaveStateEntity>)
 
-    @Query("DELETE FROM save_states WHERE romId = :romId AND slot = :slot")
-    suspend fun delete(romId: Int, slot: Int)
+    @Query("DELETE FROM save_states WHERE progressScope = :progressScope AND romId = :romId AND slot = :slot")
+    suspend fun delete(romId: Int, slot: Int, progressScope: String = "legacy")
 
     @Query("DELETE FROM save_states")
     suspend fun deleteAll()
@@ -156,8 +156,11 @@ interface ServerProfileDao {
         GameSyncJournalEntity::class,
         SaveStateSyncJournalEntity::class,
         RecoveryStateEntity::class,
+        ProgressNamespaceRow::class, ProgressContentRow::class, ProgressOperationRow::class,
+        ProgressHeadRow::class, ProgressOutboxRow::class, ProgressQuarantineRow::class,
+        ProgressHistoryRow::class, ProgressHistoryIndexRow::class,
     ],
-    version = 8,
+    version = 13,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -178,8 +181,100 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun gameSyncJournalDao(): GameSyncJournalDao
     abstract fun saveStateSyncJournalDao(): SaveStateSyncJournalDao
     abstract fun recoveryStateDao(): RecoveryStateDao
+    abstract fun progressDao(): ProgressDao
 
     companion object {
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE progress_v2_operations ADD COLUMN localSequence INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("UPDATE progress_v2_operations SET localSequence = rowid")
+                database.execSQL("CREATE UNIQUE INDEX index_progress_v2_operations_namespaceId_contentId_localSequence ON progress_v2_operations(namespaceId, contentId, localSequence)")
+                database.execSQL("CREATE TABLE IF NOT EXISTS progress_v2_history (sequence INTEGER NOT NULL, namespaceId TEXT NOT NULL, contentId TEXT NOT NULL, checkpointId TEXT NOT NULL, operationId TEXT NOT NULL, recordedAt INTEGER NOT NULL, manual INTEGER NOT NULL, pinned INTEGER NOT NULL, evicted INTEGER NOT NULL, pinOverride INTEGER, PRIMARY KEY(namespaceId, contentId, checkpointId))")
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_progress_v2_history_namespaceId_contentId_checkpointId ON progress_v2_history(namespaceId, contentId, checkpointId)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_progress_v2_history_namespaceId_contentId_sequence ON progress_v2_history(namespaceId, contentId, sequence)")
+                database.execSQL("CREATE TABLE IF NOT EXISTS progress_v2_history_index (namespaceId TEXT NOT NULL, contentId TEXT NOT NULL, throughRowId INTEGER NOT NULL, PRIMARY KEY(namespaceId, contentId))")
+            }
+        }
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Older versions set these flags after partial screen refreshes. Keep all
+                // cached content, but require one complete inventory to certify coverage.
+                database.execSQL("UPDATE profile_cache_state SET catalogReady = 0, mediaReady = 0, isRefreshing = 0, lastFullSyncAtEpochMs = NULL, lastMediaSyncAtEpochMs = NULL")
+            }
+        }
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                for (table in listOf("download_records", "downloaded_roms")) {
+                    database.execSQL("ALTER TABLE $table ADD COLUMN namespaceKey TEXT NOT NULL DEFAULT 'legacy'")
+                    database.query("SELECT romId, fileId, ownerBaseUrl, ownerAccountId FROM $table").use { rows ->
+                        while (rows.moveToNext()) {
+                            if (!rows.isNull(2) && !rows.isNull(3)) {
+                                val key = io.github.bandoracer.rommio.model.InstallIdentity.namespace(rows.getString(2), rows.getInt(3))
+                                database.execSQL("UPDATE $table SET namespaceKey = ? WHERE romId = ? AND fileId = ?", arrayOf(key, rows.getInt(0), rows.getInt(1)))
+                            }
+                        }
+                    }
+                    if (table == "downloaded_roms") database.execSQL("ALTER TABLE $table ADD COLUMN progressScope TEXT NOT NULL DEFAULT 'legacy'")
+                    rebuildScopedKey(database, table, listOf("namespaceKey", "romId", "fileId"))
+                }
+                // Existing save ownership/content cannot be inferred from an installed ROM alone.
+                for ((table, keys) in mapOf(
+                    "save_states" to listOf("progressScope", "romId", "slot"),
+                    "game_sync_journal" to listOf("progressScope", "profileId", "romId", "fileId"),
+                    "save_state_sync_journal" to listOf("progressScope", "profileId", "romId", "fileId", "slot"),
+                    "recovery_states" to listOf("progressScope", "romId", "fileId", "entryId"),
+                )) {
+                    database.execSQL("ALTER TABLE $table ADD COLUMN progressScope TEXT NOT NULL DEFAULT 'legacy'")
+                    rebuildScopedKey(database, table, keys)
+                }
+            }
+        }
+
+        private fun rebuildScopedKey(database: SupportSQLiteDatabase, table: String, keys: List<String>) {
+            val columns = mutableListOf<String>()
+            val definitions = mutableListOf<String>()
+            database.query("PRAGMA table_info(`$table`)").use { rows ->
+                while (rows.moveToNext()) {
+                    val name = rows.getString(1); columns += "`$name`"
+                    // New tables match Room's schema; migration-only defaults are intentionally dropped.
+                    definitions += "`$name` ${rows.getString(2)}" + if (rows.getInt(3) == 1) " NOT NULL" else ""
+                }
+            }
+            database.execSQL("CREATE TABLE `${table}_scoped` (${definitions.joinToString()}, PRIMARY KEY (${keys.joinToString { "`$it`" }}))")
+            database.execSQL("INSERT INTO `${table}_scoped` (${columns.joinToString()}) SELECT ${columns.joinToString()} FROM `$table`")
+            database.execSQL("DROP TABLE `$table`")
+            database.execSQL("ALTER TABLE `${table}_scoped` RENAME TO `$table`")
+        }
+
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Preserve unowned rows exactly. Account binding cannot be inferred during schema migration.
+                for (table in listOf("download_records", "downloaded_roms")) {
+                    database.execSQL("ALTER TABLE $table ADD COLUMN ownerProfileId TEXT")
+                    database.execSQL("ALTER TABLE $table ADD COLUMN ownerBaseUrl TEXT")
+                    database.execSQL("ALTER TABLE $table ADD COLUMN ownerAccountId INTEGER")
+                    database.execSQL("ALTER TABLE $table ADD COLUMN contentSha256 TEXT")
+                }
+                database.execSQL("ALTER TABLE download_records ADD COLUMN attemptId TEXT")
+                database.execSQL("ALTER TABLE download_records ADD COLUMN destinationRelativePath TEXT")
+                database.execSQL("ALTER TABLE download_records ADD COLUMN retryAfterEpochMs INTEGER")
+                database.execSQL("ALTER TABLE download_records ADD COLUMN parkedForAuthentication INTEGER")
+            }
+        }
+
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("CREATE TABLE IF NOT EXISTS progress_v2_namespaces (namespaceId TEXT NOT NULL PRIMARY KEY, serverKey TEXT NOT NULL, accountId TEXT NOT NULL)")
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_progress_v2_namespaces_serverKey_accountId ON progress_v2_namespaces(serverKey, accountId)")
+                database.execSQL("CREATE TABLE IF NOT EXISTS progress_v2_contents (contentId TEXT NOT NULL PRIMARY KEY, namespaceId TEXT NOT NULL, bindingKey TEXT NOT NULL)")
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_progress_v2_contents_namespaceId_bindingKey ON progress_v2_contents(namespaceId, bindingKey)")
+                database.execSQL("CREATE TABLE IF NOT EXISTS progress_v2_operations (namespaceId TEXT NOT NULL, contentId TEXT NOT NULL, operationId TEXT NOT NULL, payload BLOB NOT NULL, payloadHash TEXT NOT NULL, PRIMARY KEY(namespaceId, contentId, operationId))")
+                database.execSQL("CREATE TABLE IF NOT EXISTS progress_v2_heads (namespaceId TEXT NOT NULL, contentId TEXT NOT NULL, reference TEXT NOT NULL, operationId TEXT NOT NULL, PRIMARY KEY(namespaceId, contentId, reference, operationId))")
+                database.execSQL("CREATE TABLE IF NOT EXISTS progress_v2_outbox (namespaceId TEXT NOT NULL, contentId TEXT NOT NULL, operationId TEXT NOT NULL, payloadHash TEXT NOT NULL, status TEXT NOT NULL, attempts INTEGER NOT NULL, leaseId TEXT, leaseUntil INTEGER, nextAttempt INTEGER NOT NULL, lastError TEXT, PRIMARY KEY(namespaceId, contentId, operationId))")
+                database.execSQL("CREATE TABLE IF NOT EXISTS progress_v2_quarantine (namespaceId TEXT NOT NULL, contentId TEXT NOT NULL, payloadHash TEXT NOT NULL, payload BLOB NOT NULL, reason TEXT NOT NULL, PRIMARY KEY(namespaceId, contentId, payloadHash))")
+            }
+        }
+
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL(

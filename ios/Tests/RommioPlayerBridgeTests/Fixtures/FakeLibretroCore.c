@@ -59,10 +59,19 @@ static retro_input_poll_t g_input_poll = 0;
 static retro_input_state_t g_input_state = 0;
 
 static uint32_t g_framebuffer[4];
+static uint16_t g_framebuffer16[6];
+static unsigned g_pixel_format = 1;
 static uint8_t g_save_ram[4] = {1, 2, 3, 4};
 static uint8_t g_state_buffer[8] = {9, 8, 7, 6, 5, 4, 3, 2};
 
-void retro_set_environment(retro_environment_t callback) { g_environment = callback; }
+static bool g_directories_ready = false;
+void retro_set_environment(retro_environment_t callback) {
+    g_environment = callback;
+    // melonDS caches these during callback registration, before retro_init.
+    const char *system = 0, *saves = 0;
+    g_directories_ready = callback(9, &system) && system && system[0]
+        && callback(31, &saves) && saves && saves[0];
+}
 void retro_set_video_refresh(retro_video_refresh_t callback) { g_video = callback; }
 void retro_set_audio_sample(retro_audio_sample_t callback) { (void)callback; }
 void retro_set_audio_sample_batch(retro_audio_sample_batch_t callback) { g_audio_batch = callback; }
@@ -123,8 +132,32 @@ void retro_run(void) {
         g_framebuffer[index] = color;
     }
 
+    struct retro_variable input_test = {"faux_input", 0};
+    if (g_environment(15, &input_test) && input_test.value && strcmp(input_test.value, "true") == 0) {
+        g_framebuffer[0] = 0;
+        for (unsigned key = 0; key < 16; key++) if (g_input_state(0, 1, 0, key)) g_framebuffer[0] |= 1u << key;
+        g_framebuffer[1] = (uint16_t)g_input_state(0, 5, 0, 0) | ((uint32_t)(uint16_t)g_input_state(0, 5, 0, 1) << 16);
+        g_framebuffer[2] = (uint16_t)g_input_state(0, 5, 1, 0) | ((uint32_t)(uint16_t)g_input_state(0, 5, 1, 1) << 16);
+    }
+    struct retro_variable pointer_test = {"faux_pointer", 0};
+    if (g_environment && g_environment(15, &pointer_test) && pointer_test.value && g_input_state) {
+        g_framebuffer[1] = (uint32_t)(int32_t)g_input_state(0, 6, 0, 0);
+        g_framebuffer[2] = (uint32_t)(int32_t)g_input_state(0, 6, 0, 1);
+        g_framebuffer[3] = g_input_state(0, 6, 0, 2);
+    }
+
     if (g_video) {
-        g_video(g_framebuffer, 2, 2, sizeof(uint32_t) * 2);
+        if (g_pixel_format == 1) {
+            g_video(g_framebuffer, 2, 2, sizeof(uint32_t) * 2);
+        } else {
+            g_framebuffer16[0] = g_pixel_format == 2 ? 0xf800 : 0x7c00;
+            g_framebuffer16[1] = g_pixel_format == 2 ? 0x07e0 : 0x03e0;
+            g_framebuffer16[2] = 0xffff; // row padding
+            g_framebuffer16[3] = 0x001f;
+            g_framebuffer16[4] = g_pixel_format == 2 ? 0xffff : 0x7fff;
+            g_framebuffer16[5] = 0xffff;
+            g_video(g_framebuffer16, 2, 2, sizeof(uint16_t) * 3);
+        }
     }
 
     if (g_audio_batch) {
@@ -169,13 +202,27 @@ size_t retro_get_memory_size(unsigned id) {
 }
 
 bool retro_load_game(const struct retro_game_info *game) {
+    if (!g_directories_ready) return false;
+    bool can_dupe = false;
+    if (!g_environment || !g_environment(3, &can_dupe) || !can_dupe) return false;
     if (!game || !game->path) {
         return false;
     }
 
     if (g_environment) {
-        unsigned pixel_format = 1;
-        g_environment(10, &pixel_format);
+        struct retro_variable variable = {"faux_pixel_format", 0};
+        g_pixel_format = 1;
+        if (g_environment(15, &variable) && variable.value) {
+            if (strcmp(variable.value, "rgb565") == 0) g_pixel_format = 2;
+            if (strcmp(variable.value, "0rgb1555") == 0) g_pixel_format = 0;
+            if (strcmp(variable.value, "default1555") == 0) { g_pixel_format = 0; return true; }
+            if (strcmp(variable.value, "invalid") == 0) {
+                unsigned unsupported = 99;
+                g_pixel_format = 0;
+                return !g_environment(10, &unsupported);
+            }
+        }
+        if (!g_environment(10, &g_pixel_format)) return false;
     }
     return true;
 }

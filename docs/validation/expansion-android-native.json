@@ -1,0 +1,70 @@
+{
+  "status": "passed",
+  "platform": "android-emulator",
+  "api": 35,
+  "architecture": "arm64-v8a",
+  "apkSHA256": "fe601548a32347c4943a671503bdac43c1f98f53f9bbac471d9ba439291a17d6",
+  "testClass": "ExpansionProgressTest",
+  "fixtures": [
+    {
+      "runtime": "genesis_plus_gx",
+      "system": "genesis",
+      "coreSHA256": "f25e46e2ec52d5ac6c1567bce83f27b1a8419f7f171a4fbb275040c7c143ecef",
+      "gameSave": "passed",
+      "coldBoot": "passed",
+      "snapshotRestore": "passed",
+      "freshSnapshot": "passed",
+      "cleanExit": "passed"
+    },
+    {
+      "runtime": "genesis_plus_gx",
+      "system": "sms",
+      "coreSHA256": "f25e46e2ec52d5ac6c1567bce83f27b1a8419f7f171a4fbb275040c7c143ecef",
+      "gameSave": "passed",
+      "coldBoot": "passed",
+      "snapshotRestore": "passed",
+      "freshSnapshot": "passed",
+      "cleanExit": "passed"
+    },
+    {
+      "runtime": "genesis_plus_gx",
+      "system": "gamegear",
+      "coreSHA256": "f25e46e2ec52d5ac6c1567bce83f27b1a8419f7f171a4fbb275040c7c143ecef",
+      "gameSave": "passed",
+      "coldBoot": "passed",
+      "snapshotRestore": "passed",
+      "freshSnapshot": "passed",
+      "cleanExit": "passed"
+    },
+    {
+      "runtime": "pcsx_rearmed",
+      "system": "psx",
+      "coreSHA256": "d84930b72540600255f8d52de1f7f0c206e0281633138bfded9eacf435d16ba4",
+      "gameSave": "passed",
+      "coldBoot": "passed",
+      "snapshotRestore": "passed",
+      "freshSnapshot": "passed",
+      "cleanExit": "passed"
+    },
+    {
+      "runtime": "mupen64plus_next_gles3",
+      "system": "n64",
+      "coreSHA256": "6c4ecbd207f09362c40dd91c4b5de14c44ce59dae60bce6c8c50df408ca33fa0",
+      "gameSave": "passed",
+      "coldBoot": "passed",
+      "snapshotRestore": "passed",
+      "freshSnapshot": "passed",
+      "cleanExit": "passed"
+    },
+    {
+      "runtime": "ppsspp",
+      "system": "psp",
+      "coreSHA256": "a23921dafd81568a5781ef7298bf93bd7d411182b84b99d28b8304c1852f4e62",
+      "gameSave": "passed",
+      "coldBoot": "passed",
+      "snapshotRestore": "passed",
+      "freshSnapshot": "passed",
+      "cleanExit": "passed"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "server_version": "5.2.0",
+  "server_source_commit": "42e8043372522089a3bd724e8f4a0635aa1c6bf9",
+  "image_digest": [
+    "rommapp/romm@sha256:3512f2ca455782f90247271bed23116e6bc675bc74e379be2c41696e607ab11e"
+  ],
+  "executed_at_utc": "2026-09-18T00:03:26Z",
+  "isolated_stack": "rommio-protocol-test",
+  "synthetic_rom_id": 1,
+  "passed": [
+    "opaque JSON state manifests",
+    "binary hash readback",
+    "unique filename preservation",
+    "same-operation sequential retry",
+    "cross-account list/read/update isolation",
+    "same-name account isolation",
+    "55 concurrent unique records retained and read back",
+    "inventory exceeds default catalog page size",
+    "upload with unread response discovered and retried"
+  ],
+  "conditional_post_supported": false,
+  "conditional_put_supported": false,
+  "selected_transport": "immutable operation inventory over private states",
+  "limitations": [
+    "Server permits same-name overwrites; immutability must be enforced by protocol-v2 clients and payload verification",
+    "Only RomM 5.2.0 qualified by this probe",
+    "No remote garbage collection qualified",
+    "Finite concurrency test does not guarantee global linearizability",
+    "Client protocol graph/recovery fixtures still required"
+  ]
+}

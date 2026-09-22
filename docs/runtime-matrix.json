@@ -70,7 +70,7 @@
         "render_backend": "SOFTWARE_FRAMEBUFFER",
         "interaction_profile": "TOUCH",
         "bundle_relative_path": "Cores/genesis_plus_gx.dylib",
-        "supported_extensions": [],
+        "supported_extensions": ["md", "gen", "bin", "smd", "sms", "gg", "chd", "iso"],
         "required_bios_files": [],
         "validation_state": "PLAYABLE"
       }
@@ -95,16 +95,15 @@
       "family_id": "n64",
       "display_name": "Nintendo 64",
       "platform_slugs": ["n64"],
-      "support_tier": "controller",
+      "support_tier": "touch",
       "default_runtime_id": "mupen64plus_next_gles3",
       "ios": {
-        "render_backend": "HARDWARE_RENDER",
-        "interaction_profile": "CONTROLLER",
+        "render_backend": "SOFTWARE_FRAMEBUFFER",
+        "interaction_profile": "TOUCH",
         "bundle_relative_path": "Cores/mupen64plus_next_gles3.dylib",
-        "supported_extensions": [],
+        "supported_extensions": ["z64", "n64", "v64", "bin"],
         "required_bios_files": [],
-        "validation_state": "BLOCKED_BY_VALIDATION",
-        "validation_block_reason": "The iOS hardware-render host is not implemented for Nintendo 64 yet."
+        "validation_state": "PLAYABLE"
       }
     },
     {
@@ -117,7 +116,7 @@
         "render_backend": "SOFTWARE_FRAMEBUFFER",
         "interaction_profile": "TOUCH",
         "bundle_relative_path": "Cores/pcsx_rearmed.dylib",
-        "supported_extensions": ["cue", "bin", "img", "iso", "pbp"],
+        "supported_extensions": ["chd", "bin", "img", "iso", "pbp", "exe"],
         "required_bios_files": ["scph5501.bin"],
         "validation_state": "PLAYABLE"
       }
@@ -126,16 +125,15 @@
       "family_id": "psp",
       "display_name": "PlayStation Portable",
       "platform_slugs": ["psp"],
-      "support_tier": "controller",
+      "support_tier": "touch",
       "default_runtime_id": "ppsspp",
       "ios": {
-        "render_backend": "HARDWARE_RENDER",
-        "interaction_profile": "CONTROLLER",
+        "render_backend": "SOFTWARE_FRAMEBUFFER",
+        "interaction_profile": "TOUCH",
         "bundle_relative_path": "Cores/ppsspp.dylib",
-        "supported_extensions": [],
+        "supported_extensions": ["iso", "cso", "pbp", "elf", "prx"],
         "required_bios_files": [],
-        "validation_state": "BLOCKED_BY_VALIDATION",
-        "validation_block_reason": "The iOS hardware-render host is not implemented for PSP yet."
+        "validation_state": "PLAYABLE"
       }
     },
     {

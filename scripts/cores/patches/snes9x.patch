@@ -1,0 +1,14 @@
+--- a/libretro/libretro.cpp
++++ b/libretro/libretro.cpp
+@@ -2663,3 +2663,11 @@
+ {
+     return;
+ }
++
++extern "C" RETRO_API const char *retro_rommio_persistence_descriptor() {
++    static char result[128];
++    if (!Memory.ROM || Multi.cartType || Settings.BSXItself || Settings.BSXBootup || Settings.SRTC || Settings.SPC7110RTC || Settings.MSU1) return "";
++    snprintf(result,sizeof(result),"rommio-cart-v1:snes9x:snes:%zu:0",retro_get_memory_size(RETRO_MEMORY_SAVE_RAM));
++    return result;
++}
++extern "C" RETRO_API bool retro_rommio_memory_restored() { return retro_rommio_persistence_descriptor()[0] != 0; }

@@ -99,7 +99,8 @@ fi
 sleep 5
 
 if [[ "$WAIT_FOR_BOOT" -eq 1 ]]; then
-  wait_for_boot_complete
+  EMULATOR_SERIAL="$(wait_for_avd_serial "$ANDROID_AVD_NAME")"
+  wait_for_boot_complete "$EMULATOR_SERIAL"
   echo "Android boot completed."
 fi
 

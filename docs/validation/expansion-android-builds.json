@@ -1,0 +1,125 @@
+{
+  "qualification": "four ABI builds; execution qualified separately on arm64-v8a",
+  "cores": {
+    "genesis_plus_gx": {
+      "sourceRevision": "c2838c7dc4236fc2fe94e5dbd08b41486067918e",
+      "patchSha256": "523ca80dc2e2b4832639340f80a3f777795c34b9e2f50d74b2f9906c351f7fc7",
+      "artifacts": [
+        {
+          "abi": "arm64-v8a",
+          "assetPath": "cores/genesis_plus_gx/arm64-v8a/libgenesis_plus_gx_libretro_android.so",
+          "sha256": "f25e46e2ec52d5ac6c1567bce83f27b1a8419f7f171a4fbb275040c7c143ecef",
+          "sizeBytes": 11115008
+        },
+        {
+          "abi": "armeabi-v7a",
+          "assetPath": "cores/genesis_plus_gx/armeabi-v7a/libgenesis_plus_gx_libretro_android.so",
+          "sha256": "2130c28ffe97f1b7d03511908c2dfb4dfd356e670e11a1b9fb762616f1fecf5c",
+          "sizeBytes": 6044812
+        },
+        {
+          "abi": "x86",
+          "assetPath": "cores/genesis_plus_gx/x86/libgenesis_plus_gx_libretro_android.so",
+          "sha256": "f78501b735c97c6eb7367ce50cf7058be96b26e9b9d64216b154a6702f339efe",
+          "sizeBytes": 6288856
+        },
+        {
+          "abi": "x86_64",
+          "assetPath": "cores/genesis_plus_gx/x86_64/libgenesis_plus_gx_libretro_android.so",
+          "sha256": "3d03589c88152744f97184d0515ca03c28677aa2448485666d12d1762447759a",
+          "sizeBytes": 11199912
+        }
+      ]
+    },
+    "pcsx_rearmed": {
+      "sourceRevision": "8625c395a24411f8c77e69802b516df9c613a712",
+      "patchSha256": "36620d6248dd37ae0bed42a3c69585816682ff894f350a844da02acc894bbb10",
+      "artifacts": [
+        {
+          "abi": "arm64-v8a",
+          "assetPath": "cores/pcsx_rearmed/arm64-v8a/libpcsx_rearmed_libretro_android.so",
+          "sha256": "d84930b72540600255f8d52de1f7f0c206e0281633138bfded9eacf435d16ba4",
+          "sizeBytes": 1582816
+        },
+        {
+          "abi": "armeabi-v7a",
+          "assetPath": "cores/pcsx_rearmed/armeabi-v7a/libpcsx_rearmed_libretro_android.so",
+          "sha256": "9444fb8845ed4545f20d9633210e9f62b1566292de98eb5bd3e170f106872f97",
+          "sizeBytes": 1227040
+        },
+        {
+          "abi": "x86",
+          "assetPath": "cores/pcsx_rearmed/x86/libpcsx_rearmed_libretro_android.so",
+          "sha256": "50b6eb39a4a5625156e3192c3e21ee095b6ae52df5a01a1dd405875a90769ed8",
+          "sizeBytes": 1631384
+        },
+        {
+          "abi": "x86_64",
+          "assetPath": "cores/pcsx_rearmed/x86_64/libpcsx_rearmed_libretro_android.so",
+          "sha256": "555084b3dc137dca099755f11cca5459cffd56e5d8d4badcd841f5af1ec18a01",
+          "sizeBytes": 1941256
+        }
+      ]
+    },
+    "mupen64plus_next_gles3": {
+      "sourceRevision": "6752836de8b224febfd5708444755b77712ac939",
+      "patchSha256": "42688b8114e7eac5a8a510314b9934c0f176b13f3a1805a9d617ced3fe4d98a8",
+      "artifacts": [
+        {
+          "abi": "arm64-v8a",
+          "assetPath": "cores/mupen64plus_next_gles3/arm64-v8a/libmupen64plus_next_gles3_libretro_android.so",
+          "sha256": "6c4ecbd207f09362c40dd91c4b5de14c44ce59dae60bce6c8c50df408ca33fa0",
+          "sizeBytes": 4421680
+        },
+        {
+          "abi": "armeabi-v7a",
+          "assetPath": "cores/mupen64plus_next_gles3/armeabi-v7a/libmupen64plus_next_gles3_libretro_android.so",
+          "sha256": "0c0a354aaae1fe67305b49e01772d7d8958da96ae424431a5e5487b2de60291d",
+          "sizeBytes": 3787860
+        },
+        {
+          "abi": "x86",
+          "assetPath": "cores/mupen64plus_next_gles3/x86/libmupen64plus_next_gles3_libretro_android.so",
+          "sha256": "b76f1e1b77eb6d2583c016d7af75df1c90631d13b87b70d0d578b6969deed15e",
+          "sizeBytes": 4775292
+        },
+        {
+          "abi": "x86_64",
+          "assetPath": "cores/mupen64plus_next_gles3/x86_64/libmupen64plus_next_gles3_libretro_android.so",
+          "sha256": "2590ef0c9746714c323c2afc0c40449d9db764fa38254e4222a10eca7c337afa",
+          "sizeBytes": 4639320
+        }
+      ]
+    },
+    "ppsspp": {
+      "sourceRevision": "ab6ccbd08c45288b52e517163e196a3569137ed1",
+      "patchSha256": "68dcf8d6a60a6291500c7564e084742e75238a9cde737f8b55d004efc735fb0d",
+      "artifacts": [
+        {
+          "abi": "arm64-v8a",
+          "assetPath": "cores/ppsspp/arm64-v8a/libppsspp_libretro_android.so",
+          "sha256": "a23921dafd81568a5781ef7298bf93bd7d411182b84b99d28b8304c1852f4e62",
+          "sizeBytes": 19510656
+        },
+        {
+          "abi": "armeabi-v7a",
+          "assetPath": "cores/ppsspp/armeabi-v7a/libppsspp_libretro_android.so",
+          "sha256": "883b627705232ae08d96c13e51aba101832982e19d86f8b42581232acd53e05c",
+          "sizeBytes": 14194688
+        },
+        {
+          "abi": "x86",
+          "assetPath": "cores/ppsspp/x86/libppsspp_libretro_android.so",
+          "sha256": "0ee972cdc27e5aa5bfd2240ff6c2aaf6592d2b49194c974a28835db9d0bba11d",
+          "sizeBytes": 22775668
+        },
+        {
+          "abi": "x86_64",
+          "assetPath": "cores/ppsspp/x86_64/libppsspp_libretro_android.so",
+          "sha256": "61a9033e863fd4afbe31f98c896663ddfb6cce7a58fc0cb6aecb91a81579fb06",
+          "sizeBytes": 21429088
+        }
+      ]
+    }
+  }
+}

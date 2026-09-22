@@ -21,10 +21,12 @@ final class PlayerSurfaceController: UIViewController, MTKViewDelegate {
     private let statusProvider: @Sendable () -> String
     private let preferredFPSProvider: @Sendable () -> Int
     private let preferredAspectRatioProvider: @Sendable () -> Double?
+    private let inputConfigurationProvider: @Sendable () -> PlayerInputConfiguration
     private let topAlignedInPortraitProvider: @Sendable () -> Bool
 
     private var metalView: MTKView?
     private var ciContext: CIContext?
+    private var commandQueue: MTLCommandQueue?
     private let statusLabel = UILabel()
 
     init(
@@ -33,7 +35,8 @@ final class PlayerSurfaceController: UIViewController, MTKViewDelegate {
         statusProvider: @escaping @Sendable () -> String,
         preferredFPSProvider: @escaping @Sendable () -> Int,
         preferredAspectRatioProvider: @escaping @Sendable () -> Double?,
-        topAlignedInPortraitProvider: @escaping @Sendable () -> Bool
+        topAlignedInPortraitProvider: @escaping @Sendable () -> Bool,
+        inputConfigurationProvider: @escaping @Sendable () -> PlayerInputConfiguration
     ) {
         self.frameAdvanceProvider = frameAdvanceProvider
         self.frameProvider = frameProvider
@@ -41,6 +44,7 @@ final class PlayerSurfaceController: UIViewController, MTKViewDelegate {
         self.preferredFPSProvider = preferredFPSProvider
         self.preferredAspectRatioProvider = preferredAspectRatioProvider
         self.topAlignedInPortraitProvider = topAlignedInPortraitProvider
+        self.inputConfigurationProvider = inputConfigurationProvider
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -51,18 +55,20 @@ final class PlayerSurfaceController: UIViewController, MTKViewDelegate {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .black
+        view.backgroundColor = .clear
         view.accessibilityIdentifier = "player.surface"
 
         if let device = MTLCreateSystemDefaultDevice() {
             let metalView = MTKView(frame: .zero, device: device)
             metalView.translatesAutoresizingMaskIntoConstraints = false
             metalView.framebufferOnly = false
+            metalView.isOpaque = false
+            metalView.backgroundColor = .clear
             metalView.enableSetNeedsDisplay = false
             metalView.isPaused = false
             metalView.preferredFramesPerSecond = preferredFPSProvider()
             metalView.delegate = self
-            metalView.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+            metalView.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
             metalView.accessibilityIdentifier = "player.surface.metal"
             view.addSubview(metalView)
             NSLayoutConstraint.activate([
@@ -73,6 +79,7 @@ final class PlayerSurfaceController: UIViewController, MTKViewDelegate {
             ])
             self.metalView = metalView
             self.ciContext = CIContext(mtlDevice: device)
+            self.commandQueue = device.makeCommandQueue()
         }
 
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -104,10 +111,10 @@ final class PlayerSurfaceController: UIViewController, MTKViewDelegate {
         let status = statusProvider()
         statusLabel.text = status
         statusLabel.isHidden = status == "Running" || status == "Ready"
+            || (inputConfigurationProvider().stage?.trailingPaneWidth ?? 0) > 0
 
         guard let currentDrawable = view.currentDrawable,
-              let commandQueue = view.device?.makeCommandQueue(),
-              let commandBuffer = commandQueue.makeCommandBuffer() else {
+              let commandBuffer = commandQueue?.makeCommandBuffer() else {
             return
         }
 
@@ -125,8 +132,9 @@ final class PlayerSurfaceController: UIViewController, MTKViewDelegate {
             return
         }
 
-        let targetRect = resolvePlayerViewportLayout(
-            containerSize: view.drawableSize,
+        let configuration = inputConfigurationProvider()
+        let layout = resolvePlayerStageLayout(
+            containerSize: view.bounds.size,
             safeAreaInsets: PlayerViewportSafeAreaInsets(
                 top: view.safeAreaInsets.top,
                 bottom: view.safeAreaInsets.bottom,
@@ -134,53 +142,59 @@ final class PlayerSurfaceController: UIViewController, MTKViewDelegate {
                 right: view.safeAreaInsets.right
             ),
             aspectRatio: preferredAspectRatioProvider() ?? (Double(frame.width) / Double(max(frame.height, 1))),
-            topAlignedInPortrait: topAlignedInPortraitProvider()
-        ).frame
-        let ciTargetRect = CGRect(
-            x: targetRect.minX,
-            y: view.drawableSize.height - targetRect.maxY,
-            width: targetRect.width,
-            height: targetRect.height
+            topAlignedInPortrait: topAlignedInPortraitProvider(),
+            controlDeckHeight: configuration.controlDeckHeight ?? 200,
+            controlScale: configuration.controlScale ?? 1,
+            reserveTouchSpace: configuration.reserveTouchSpace,
+            utilityCount: configuration.controlUtilityCount ?? 3,
+            stage: configuration.stage ?? PlayerStageContext()
         )
-        let scaleX = targetRect.width / CGFloat(frame.width)
-        let scaleY = targetRect.height / CGFloat(frame.height)
-        let scaled = ciImage.transformed(by: .init(scaleX: scaleX, y: scaleY))
-        let translated = scaled.transformed(by: .init(translationX: ciTargetRect.minX, y: ciTargetRect.minY))
-        ciContext.render(translated, to: currentDrawable.texture, commandBuffer: commandBuffer, bounds: CGRect(origin: .zero, size: view.drawableSize), colorSpace: CGColorSpaceCreateDeviceRGB())
+        // Layout and safe-area insets are UIKit points; Metal draws physical pixels.
+        let drawableScaleX = view.drawableSize.width / max(view.bounds.width, 1)
+        let drawableScaleY = view.drawableSize.height / max(view.bounds.height, 1)
+        let frameWidth = CGFloat(frame.width)
+        let frameHeight = CGFloat(frame.height)
+        var composite: CIImage?
+        // Draw each emulated screen (one, or a DS pair) into its own rect.
+        for screen in layout.screens {
+            // Core Image is bottom-left based; the source rect is top-left based.
+            let sourcePixels = CGRect(
+                x: screen.source.minX * frameWidth,
+                y: (1 - screen.source.maxY) * frameHeight,
+                width: screen.source.width * frameWidth,
+                height: screen.source.height * frameHeight
+            )
+            let targetRect = screen.frame.applying(CGAffineTransform(scaleX: drawableScaleX, y: drawableScaleY))
+            let ciTargetRect = CGRect(
+                x: targetRect.minX,
+                y: view.drawableSize.height - targetRect.maxY,
+                width: targetRect.width,
+                height: targetRect.height
+            )
+            let placed = ciImage.cropped(to: sourcePixels)
+                .transformed(by: .init(translationX: -sourcePixels.minX, y: -sourcePixels.minY))
+                .transformed(by: .init(scaleX: targetRect.width / max(sourcePixels.width, 1), y: targetRect.height / max(sourcePixels.height, 1)))
+                .transformed(by: .init(translationX: ciTargetRect.minX, y: ciTargetRect.minY))
+            composite = composite.map { placed.composited(over: $0) } ?? placed
+        }
+        guard let composite else { return }
+        // Drawables are recycled: clear everything outside the screens so a
+        // previous arrangement (for example before a fold) never lingers.
+        let fullDrawable = CGRect(origin: .zero, size: view.drawableSize)
+        let cleared = composite.composited(over: CIImage(color: .clear).cropped(to: fullDrawable))
+        ciContext.render(cleared, to: currentDrawable.texture, commandBuffer: commandBuffer, bounds: CGRect(origin: .zero, size: view.drawableSize), colorSpace: CGColorSpaceCreateDeviceRGB())
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
     private func makeImage(from frame: PlayerVideoFrameSnapshot) -> CIImage? {
-        switch frame.pixelFormat.rawValue {
-        case 0, 1:
-            let cfData = frame.pixelData as CFData
-            guard let provider = CGDataProvider(data: cfData) else {
-                return nil
-            }
-            let bitmapInfo = CGBitmapInfo.byteOrder32Little.union(.init(rawValue: CGImageAlphaInfo.noneSkipFirst.rawValue))
-            guard let image = CGImage(
-                width: frame.width,
-                height: frame.height,
-                bitsPerComponent: 8,
-                bitsPerPixel: 32,
-                bytesPerRow: frame.pitch,
-                space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: bitmapInfo,
-                provider: provider,
-                decode: nil,
-                shouldInterpolate: false,
-                intent: .defaultIntent
-            ) else {
-                return nil
-            }
-            return CIImage(cgImage: image)
-        case 2:
-            return nil
-        default:
-            return nil
-        }
+        guard let image = PlayerFrameImage.make(
+            data: frame.pixelData, width: frame.width, height: frame.height,
+            pitch: frame.pitch, format: frame.pixelFormat
+        ) else { return nil }
+        return CIImage(cgImage: image)
     }
+
 }
 #else
 struct PlayerVideoFrameSnapshot: Sendable {

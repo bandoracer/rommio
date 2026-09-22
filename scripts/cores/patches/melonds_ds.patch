@@ -1,0 +1,92 @@
+--- a/src/libretro/core/core.hpp
++++ b/src/libretro/core/core.hpp
+@@ -77,6 +77,11 @@
+         [[nodiscard]] retro_system_av_info GetSystemAvInfo(RenderMode renderer) const noexcept;
+         [[gnu::hot]] void Run() noexcept;
+         void Reset();
++        const char *RommioDescriptor() const noexcept;
++        size_t RommioSaveSize() const noexcept;
++        void *RommioSaveData() noexcept;
++        bool RommioMemoryRestored() noexcept;
++        std::vector<melonDS::u8> _rommioSave;
+         size_t SerializeSize() const noexcept;
+         [[gnu::hot]] bool Serialize(std::span<std::byte> data) const noexcept;
+         bool Unserialize(std::span<const std::byte> data) noexcept;
+--- a/src/libretro/core/core.cpp
++++ b/src/libretro/core/core.cpp
+@@ -1018,3 +1018,39 @@
+         Console->AREngine.Cheats.push_back(std::move(curcode));
+     }
+ }
++
++// Cartridge bytes and generated firmware's persistent WFC identity are one
++// complete portable save inventory. No native structs or pointers are persisted.
++size_t MelonDsDs::CoreState::RommioSaveSize() const noexcept {
++    if (!Console || Console->ConsoleType != 0 || _messageScreen || !_ndsInfo || _gbaInfo || !_ndsSaveManager ||
++        Console->GetFirmware().GetHeader().Identifier != melonDS::GENERATED_FIRMWARE_IDENTIFIER) return 0;
++    const auto& firmware = Console->GetFirmware();
++    static_assert(sizeof(firmware.GetExtendedAccessPoints()) + sizeof(firmware.GetAccessPoints()) == 2304);
++    return size_t(_ndsSaveManager->SramLength()) + 2308;
++}
++const char *MelonDsDs::CoreState::RommioDescriptor() const noexcept {
++    static char result[128];
++    if (!RommioSaveSize()) return "";
++    snprintf(result,sizeof(result),"rommio-cart-v1:melonds_ds:nds:%zu:0",RommioSaveSize());
++    return result;
++}
++void *MelonDsDs::CoreState::RommioSaveData() noexcept {
++    const size_t total = RommioSaveSize();
++    if (!total) return nullptr;
++    const auto size = _ndsSaveManager->SramLength();
++    _rommioSave.resize(total);
++    for (unsigned i=0;i<4;++i) _rommioSave[i] = size >> (i*8);
++    memcpy(_rommioSave.data()+4,_ndsSaveManager->Sram(),size);
++    memcpy(_rommioSave.data()+4+size,Console->GetFirmware().GetExtendedAccessPointPosition(),2304);
++    return _rommioSave.data();
++}
++bool MelonDsDs::CoreState::RommioMemoryRestored() noexcept {
++    if (!RommioSaveSize() || _rommioSave.size()!=RommioSaveSize()) return false;
++    uint32_t size=0; for(unsigned i=0;i<4;++i) size |= uint32_t(_rommioSave[i]) << (i*8);
++    if (size != _ndsSaveManager->SramLength()) return false;
++    memcpy(_ndsSaveManager->Sram(),_rommioSave.data()+4,size);
++    memcpy(Console->GetFirmware().GetExtendedAccessPointPosition(),_rommioSave.data()+4+size,2304);
++    _ndsSramInstalled = false;
++    InstallNdsSram();
++    return true;
++}
+--- a/src/libretro/core/tasks.cpp
++++ b/src/libretro/core/tasks.cpp
+@@ -146,6 +146,9 @@
+     retro_assert(Console != nullptr);
+ 
+     const Firmware& firmware = Console->GetFirmware();
++    // The audited save container owns generated WFC bytes. Imported firmware
++    // and unsupported console layouts retain their original file-writing path.
++    if (RommioSaveSize()) return;
+ 
+     retro_assert(firmware.Buffer() != nullptr);
+ 
+--- a/src/libretro/libretro.cpp
++++ b/src/libretro/libretro.cpp
+@@ -258,12 +258,14 @@
+     ZoneScopedN(TracyFunction);
+     retro::debug("retro_get_memory_data({})\n", memory_type_name(type));
+ 
++    if (type == RETRO_MEMORY_SAVE_RAM && MelonDsDs::Core.RommioSaveSize()) return MelonDsDs::Core.RommioSaveData();
+     return MelonDsDs::Core.GetMemoryData(type);
+ }
+ 
+ PUBLIC_SYMBOL size_t retro_get_memory_size(unsigned type) {
+     ZoneScopedN(TracyFunction);
+ 
++    if (type == RETRO_MEMORY_SAVE_RAM && MelonDsDs::Core.RommioSaveSize()) return MelonDsDs::Core.RommioSaveSize();
+     return MelonDsDs::Core.GetMemorySize(type);
+ }
+ 
+@@ -409,3 +411,6 @@
+     }
+     return ret;
+ }
++
++extern "C" PUBLIC_SYMBOL const char *retro_rommio_persistence_descriptor() { return MelonDsDs::Core.RommioDescriptor(); }
++extern "C" PUBLIC_SYMBOL bool retro_rommio_memory_restored() { return MelonDsDs::Core.RommioMemoryRestored(); }

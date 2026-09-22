@@ -1,19 +1,22 @@
 package io.github.bandoracer.rommio.data.network
 
-import android.webkit.CookieManager
+import io.github.bandoracer.rommio.data.auth.ProfileCookies
+import io.github.bandoracer.rommio.data.auth.ProfileCookieContext
+import kotlinx.coroutines.runBlocking
 import okhttp3.Interceptor
 import okhttp3.Response
 
-class CookiePersistenceInterceptor : Interceptor {
-    override fun intercept(chain: Interceptor.Chain): Response {
-        val response = chain.proceed(chain.request())
-        val url = response.request.url.toString()
-        val cookieManager = CookieManager.getInstance()
-        response.headers("Set-Cookie").forEach { cookie ->
-            cookieManager.setCookie(url, cookie)
-        }
-        cookieManager.flush()
-        return response
+/** Runs on every network hop, so path changes and Set-Cookie redirects use the correct jar. */
+class CookiePersistenceInterceptor(private val cookies: ProfileCookies) : Interceptor {
+    override fun intercept(chain: Interceptor.Chain): Response = runBlocking {
+        val request = chain.request()
+        val context = request.tag(ProfileCookieContext::class.java)
+        val builder = request.newBuilder().removeHeader("Cookie")
+        cookies.header(context, request.url)?.let { builder.header("Cookie", it) }
+        val response = chain.proceed(builder.build())
+        try { cookies.persist(context, response.request.url, response.headers("Set-Cookie")) }
+        catch (error: Exception) { response.close(); throw error }
+        response
     }
 }
 

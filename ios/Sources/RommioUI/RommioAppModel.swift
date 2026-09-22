@@ -4,6 +4,9 @@ import OSLog
 import RommioContract
 import RommioFoundation
 import RommioPlayerKit
+#if canImport(UIKit)
+import UIKit
+#endif
 
 public struct PlayerPresentationState: Identifiable, Hashable, Sendable {
     public let id: UUID
@@ -57,7 +60,11 @@ public final class RommioAppModel {
     public var route: AppRoute = .gate
     public var selectedTab: ShellTab = .home
 
-    public var serverURL: String = ""
+    public var serverURL: String = "" {
+        didSet {
+            if serverURL != oldValue { serverAddressChanged() }
+        }
+    }
     public var profileLabel: String = ""
     public var username: String = ""
     public var password: String = ""
@@ -119,7 +126,7 @@ public final class RommioAppModel {
         self.homeFeature = HomeFeatureModel(services: services)
         self.libraryFeature = LibraryFeatureModel(
             services: services,
-            resolveProfile: { services.playerControlsRepository.resolveProfile(platformSlug: $0) }
+            resolveProfile: { Self.availableControlProfile(for: $0, services: services, catalog: coreCatalog, installer: coreInstaller, bundle: coreBundle) }
         )
         self.collectionsFeature = CollectionsFeatureModel(services: services)
         self.downloadsFeature = DownloadsFeatureModel(
@@ -184,7 +191,39 @@ public final class RommioAppModel {
     public func bootstrap() async {
         guard route == .gate else { return }
         await reloadProfiles()
+        await resumeDownloads()
         transitionFromGateDecision()
+        #if DEBUG && canImport(UIKit)
+        Task { await self.runProgressProbe(services: self.services) }
+        #endif
+    }
+
+    public func resumeDownloads() async {
+        await services.progress.startForeground()
+        do { try await services.downloadQueue.resumePending() }
+        catch { errorMessage = error.localizedDescription }
+    }
+
+    public func playerSceneChanged(active: Bool) async {
+        if active {
+            await services.progress.startForeground()
+            await activePlayer?.sceneBecameActive()
+            return
+        }
+        await services.progress.stopForeground()
+        #if canImport(UIKit)
+        let progress = services.progress
+        var token: UIBackgroundTaskIdentifier = .invalid
+        token = UIApplication.shared.beginBackgroundTask(withName: "Preserve game progress") {
+            Task { @MainActor in
+                if token != .invalid { UIApplication.shared.endBackgroundTask(token); token = .invalid }
+                await progress.cancelNetworkWork()
+            }
+        }
+        defer { if token != .invalid { UIApplication.shared.endBackgroundTask(token) } }
+        #endif
+        await activePlayer?.sceneBecameInactive()
+        await services.progress.wake()
     }
 
     public func reloadProfiles() async {
@@ -245,6 +284,97 @@ public final class RommioAppModel {
             model.route = .onboarding(.serverAccess)
             model.noticeMessage = "Server access was reset. Verify protected access again before signing in."
         }
+    }
+
+    /// One Connect action discovers the server, verifies native access, and
+    /// advances to sign-in. Gateway browser authentication is only a fallback.
+    public func connectServer() async {
+        guard !isBusy else { return }
+        guard !serverURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            errorMessage = "Enter your RomM server address."
+            return
+        }
+        await performBusyOperation { model in
+            model.noticeMessage = nil
+            let result = try await model.services.authController.discoverServer(rawBaseURL: model.serverURL)
+            model.discoveryResult = result
+            model.serverURL = result.baseURL.absoluteString
+            if !model.isEdgeAuthModeOverridden {
+                model.selectedEdgeAuthMode = model.profiles.first(where: { $0.baseURL == result.baseURL })?.edgeAuthMode
+                    ?? result.recommendedEdgeAuthMode
+            }
+            if model.profileLabel.isEmpty { model.profileLabel = result.baseURL.host ?? "RomM" }
+            let profile = try await model.ensureConfiguredProfileForServerStep()
+            let access = try await model.services.authController.testServerAccess(profileID: profile.id)
+            model.serverAccessResult = access
+            await model.reloadProfiles()
+            if access.status == .ready {
+                model.route = .onboarding(.login)
+            } else if model.requiresInteractiveEdgeAuth,
+                      access.responseKind == .html || access.responseKind == .unauthorized {
+                guard model.interactiveAuthenticator != nil else {
+                    model.errorMessage = "This server requires a browser login. Open Access profile to choose another connection method."
+                    return
+                }
+                try await model.services.authController.beginEdgeAccess(profileID: profile.id)
+                model.route = .interactive(InteractiveAuthContext(provider: .edge, returnRoute: .serverAccess))
+            } else {
+                model.errorMessage = "Could not connect to RomM. Check the address and your network, or configure an access profile."
+            }
+        }
+    }
+
+    /// Provision edge credentials through the same profile-scoped Keychain path
+    /// as manual setup, and verify RomM before advancing to account sign-in.
+    public func applyOneTouchConfiguration(_ configuration: SetupConfiguration) async throws {
+        try configuration.validate()
+        guard !isBusy else { throw OneTouchSetupError.unavailable }
+        isBusy = true
+        defer { isBusy = false }
+        clearTransientMessages()
+        let discovery = AuthDiscoveryResult(
+            baseURL: configuration.rommUrl,
+            capabilities: AuthCapabilities(cloudflareAccessDetected: true, rommTokenAvailable: true),
+            recommendedEdgeAuthMode: .cloudflareAccessService,
+            recommendedOriginAuthMode: .rommBearerPassword
+        )
+        let profile = try await services.authController.configureProfile(
+            baseURL: configuration.rommUrl.absoluteString,
+            edgeAuthMode: .cloudflareAccessService,
+            originAuthMode: .rommBearerPassword,
+            discoveryResult: discovery
+        )
+        try await services.authController.saveCloudflareCredentials(
+            profileID: profile.id,
+            credentials: CloudflareServiceCredentials(
+                clientID: configuration.accessProfile.clientId,
+                clientSecret: configuration.accessProfile.clientSecret
+            )
+        )
+        serverURL = configuration.rommUrl.absoluteString
+        discoveryResult = discovery
+        selectedEdgeAuthMode = .cloudflareAccessService
+        isEdgeAuthModeOverridden = true
+        // Keep the token out of text-field state after secure storage.
+        cloudflareClientID = ""
+        cloudflareClientSecret = ""
+        serverAccessResult = try await services.authController.testServerAccess(profileID: profile.id)
+        await reloadProfiles()
+        guard serverAccessResult?.status == .ready else { throw OneTouchSetupError.unavailable }
+        route = .onboarding(.login)
+    }
+
+    public func serverAddressChanged() {
+        guard !isBusy else { return }
+        discoveryResult = nil
+        serverAccessResult = nil
+        profileLabel = ""
+        password = ""
+        cloudflareClientID = ""
+        cloudflareClientSecret = ""
+        selectedEdgeAuthMode = .none
+        isEdgeAuthModeOverridden = false
+        clearTransientMessages()
     }
 
     public func discoverServer() async {
@@ -382,17 +512,19 @@ public final class RommioAppModel {
                 profileID: activeProfile.id,
                 provider: context.provider
             )
-            _ = try await interactiveAuthenticator.authenticate(using: config)
+            let result = try await interactiveAuthenticator.authenticate(using: config)
+            try await services.authController.importBrowserCookies(config: config, cookies: result.cookies)
 
             switch context.provider {
             case .edge:
-                let accessState = try await services.authController.completeEdgeAccessAttempt(profileID: activeProfile.id)
+                _ = try await services.authController.completeEdgeAccessAttempt(profileID: activeProfile.id)
+                let access = try await services.authController.testServerAccess(profileID: activeProfile.id)
+                serverAccessResult = access
                 await reloadProfiles()
-                if let refreshed = self.activeProfile {
-                    prepareServerAccessDraft(from: refreshed)
+                route = .onboarding(access.status == .ready ? .login : .serverAccess)
+                if access.status != .ready {
+                    errorMessage = "Browser sign-in finished, but Rommio still cannot reach the server. Check your access profile and try again."
                 }
-                route = .onboarding(.serverAccess)
-                noticeMessage = accessState.lastError ?? "Protected login finished. Run the native access test next."
             case .origin:
                 let status = try await services.authController.completeInteractiveLogin(
                     profileID: activeProfile.id,
@@ -400,8 +532,7 @@ public final class RommioAppModel {
                 )
                 await reloadProfiles()
                 if status == .connected {
-                    route = .onboarding(.success)
-                    noticeMessage = "RomM sign-in completed."
+                    await enterApp()
                 } else {
                     route = .onboarding(.login)
                     errorMessage = "RomM sign-in is still incomplete. Finish the web flow and try again."
@@ -414,6 +545,7 @@ public final class RommioAppModel {
     }
 
     public func submitLogin() async {
+        guard !isBusy else { return }
         guard let activeProfile else {
             errorMessage = "Configure a server profile before signing in."
             return
@@ -446,8 +578,8 @@ public final class RommioAppModel {
 
             model.password = ""
             await model.reloadProfiles()
-            model.route = .onboarding(.success)
-            model.noticeMessage = "RomM sign-in completed."
+            model.noticeMessage = nil
+            await model.enterApp()
         }
     }
 
@@ -492,6 +624,7 @@ public final class RommioAppModel {
     }
 
     public func refreshShell(forceRemote: Bool = true) async {
+        await resumeDownloads()
         guard activeProfile != nil else { return }
         isRefreshing = true
         defer { isRefreshing = false }
@@ -518,6 +651,7 @@ public final class RommioAppModel {
     }
 
     private func refreshDownloads() async {
+        await resumeDownloads()
         await downloadsFeature.refresh()
         await homeFeature.refresh(refreshCatalog: false)
         updateDownloadPollingState()
@@ -570,6 +704,9 @@ public final class RommioAppModel {
     }
 
     public func localROMPath(for rom: RomDTO, file: RomFileDTO) -> String? {
+        if let record = downloadsFeature.records.first(where: { $0.profileID == activeProfile?.id && $0.romID == rom.id && $0.fileID == file.id }) {
+            return record.localPath.flatMap { FileManager.default.fileExists(atPath: $0) ? $0 : nil }
+        }
         let url = services.libraryStore.romURL(platformSlug: rom.platformSlug, fileName: file.fileName)
         return FileManager.default.fileExists(atPath: url.path) ? url.path : nil
     }
@@ -626,15 +763,28 @@ public final class RommioAppModel {
     }
 
     public func controlProfile(for platformSlug: String) -> PlatformControlProfile {
-        services.playerControlsRepository.resolveProfile(platformSlug: platformSlug)
+        Self.availableControlProfile(for: platformSlug, services: services, catalog: coreCatalog, installer: coreInstaller, bundle: coreBundle)
+    }
+
+    private static func availableControlProfile(for slug: String, services: RommioServices,
+                                                catalog: CoreCatalog, installer: any CoreInstalling,
+                                                bundle: Bundle) -> PlatformControlProfile {
+        var profile = services.playerControlsRepository.resolveProfile(platformSlug: slug)
+        let available = catalog.family(for: slug)?.runtimeOptions.contains { runtime in
+            guard runtime.validationState != .blockedByValidation else { return false }
+            let status = installer.inspect(runtime: runtime, libraryStore: services.libraryStore, bundle: bundle).provisioningStatus
+            return status == .ready || status == .missingCoreInstallable
+        } ?? false
+        if !available { profile.supportTier = .unsupported }
+        return profile
     }
 
     func makePlatformDetailFeature(platform: PlatformDTO) -> PlatformDetailFeatureModel {
         PlatformDetailFeatureModel(
             platform: platform,
             services: services,
-            resolveProfile: { [services] in
-                services.playerControlsRepository.resolveProfile(platformSlug: $0)
+            resolveProfile: { [services, coreCatalog, coreInstaller, coreBundle] in
+                Self.availableControlProfile(for: $0, services: services, catalog: coreCatalog, installer: coreInstaller, bundle: coreBundle)
             }
         )
     }
@@ -643,10 +793,39 @@ public final class RommioAppModel {
         CollectionDetailFeatureModel(
             collection: collection,
             services: services,
-            resolveProfile: { [services] in
-                services.playerControlsRepository.resolveProfile(platformSlug: $0)
+            resolveProfile: { [services, coreCatalog, coreInstaller, coreBundle] in
+                Self.availableControlProfile(for: $0, services: services, catalog: coreCatalog, installer: coreInstaller, bundle: coreBundle)
             }
         )
+    }
+
+    /// Cores such as melonDS DS show this as the player's name. Launch uses the
+    /// last known RomM username immediately and never waits on the network; the
+    /// cached name refreshes in the background for the next launch.
+    private func updateFrontendUsername() {
+        let key = "player.frontendUsername.\(activeProfile?.id ?? "none")"
+        PlayerFrontendIdentity.setUsername(UserDefaults.standard.string(forKey: key))
+        guard services.networkMonitor.connectivity == .online else { return }
+        let authController = services.authController
+        Task.detached {
+            guard let client = try? await authController.activeClient(),
+                  let user = try? await client.getCurrentUser() else { return }
+            UserDefaults.standard.set(user.username, forKey: key)
+            PlayerFrontendIdentity.setUsername(user.username)
+        }
+    }
+
+    /// Resumes a Continue playing game directly from Home, using the same file
+    /// choice and readiness rules as the detail page's primary Play action.
+    func quickResume(rom: RomDTO) async {
+        let detail = makeGameDetailFeature(rom: rom)
+        await detail.refresh(forceRemote: false)
+        guard let primary = detail.actionDeckPresentation?.primary,
+              primary.kind == .play, primary.enabled else {
+            errorMessage = "\(rom.displayName) isn't ready to resume yet. Open it to download or set it up."
+            return
+        }
+        await detail.playFromResume()
     }
 
     func makeGameDetailFeature(rom: RomDTO) -> GameDetailFeatureModel {
@@ -718,7 +897,8 @@ public final class RommioAppModel {
 
     private func ensureConfiguredProfileForServerStep() async throws -> ServerProfile {
         let discovery: AuthDiscoveryResult
-        if let existingDiscovery = discoveryResult {
+        if let existingDiscovery = discoveryResult,
+           normalizedServerURLCandidates(serverURL).contains(existingDiscovery.baseURL) {
             discovery = existingDiscovery
         } else {
             let result = try await services.authController.discoverServer(rawBaseURL: serverURL)
@@ -860,7 +1040,15 @@ public final class RommioAppModel {
             errorMessage = nil
             try await operation(self)
         } catch {
-            errorMessage = error.localizedDescription
+            if route == .onboarding(.login) {
+                if (error as? URLError)?.code == .userAuthenticationRequired {
+                    errorMessage = "Sign-in was rejected. Check your username, password, and account access."
+                } else {
+                    errorMessage = "Could not sign in. Check your connection and try again."
+                }
+            } else {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -898,10 +1086,29 @@ public final class RommioAppModel {
         downloadPollingTask = nil
     }
 
+    private var progressPlayerLease: String?
     private func presentInstalledGame(rom: RomDTO, file: RomFileDTO) async throws {
+        if let activePlayer {
+            await activePlayer.leaveGame()
+            guard self.activePlayer == nil else { throw ProgressStoreError.invalid("Finish saving the active session before launching another game") }
+        }
+        let lease = try await services.progress.beginPlayer()
+        do {
+            try await prepareInstalledGame(rom: rom, file: file)
+            progressPlayerLease = lease
+        } catch { await services.progress.endPlayer(lease); throw error }
+    }
+    private func prepareInstalledGame(rom: RomDTO, file: RomFileDTO) async throws {
         logger.info("presentInstalledGame romID=\(rom.id, privacy: .public) fileID=\(file.id, privacy: .public)")
         NSLog("[RommioAppModel] presentInstalledGame romID=%d fileID=%d", rom.id, file.id)
-        guard let romPath = localROMPath(for: rom, file: file) else {
+        let launchProfileID = activeProfile?.id
+        let launchPath: String?
+        if let launchProfileID,
+           try await services.downloadQueue.records(profileID: launchProfileID).contains(where: { $0.romID == rom.id && $0.fileID == file.id }) {
+            launchPath = try await services.downloadQueue.verifiedLocalURL(profileID: launchProfileID, romID: rom.id, fileID: file.id)?.path
+        } else { launchPath = localROMPath(for: rom, file: file) }
+        guard activeProfile?.id == launchProfileID else { throw CancellationError() }
+        guard let romPath = launchPath else {
             throw NSError(
                 domain: "RommioPlayer",
                 code: 100,
@@ -925,7 +1132,10 @@ public final class RommioAppModel {
         }
 
         try services.libraryStore.ensureRootLayout()
-        await closePlayer(noticeMessage: nil)
+        if let activePlayer {
+            await activePlayer.leaveGame()
+            guard self.activePlayer == nil else { throw ProgressStoreError.invalid("Finish saving the active session before launching another game") }
+        }
 
         let installation = InstalledROMReference(
             romID: rom.id,
@@ -941,7 +1151,37 @@ public final class RommioAppModel {
         } else {
             selectedProfile = try? await services.profileStore.activeProfile()
         }
-        if let profile = selectedProfile {
+        let manifest = coreBundle.bundleURL.appending(path: runtime.runtimeID == "fceumm" ? "FceummProvenance.json" : "\(runtime.runtimeID)Provenance.json")
+        var progressIdentity: ProgressIdentity?
+        var coreDigest: String?
+        let sessionID = UUID().uuidString.lowercased()
+        let workspace = services.progress.root.appending(path: "sessions/\(sessionID)")
+        var cloudMessage: String?
+        var legacyProgressFiles: [URL] = []
+        if (runtime.runtimeID == "fceumm" || PinnedAppleCore.cartridgeRuntimes.contains(runtime.runtimeID)), FileManager.default.fileExists(atPath: manifest.path), let profile = selectedProfile,
+           let record = try await services.downloadQueue.records(profileID: profile.id).first(where: { $0.romID == rom.id && $0.fileID == file.id }),
+           let owner = record.owner, let digest = record.contentSHA256 {
+            guard try await services.authController.verifiedAccount(profileID: profile.id) == owner,
+                  owner.baseURL == profile.baseURL, try ProgressFileHash.sha256(URL(fileURLWithPath: romPath)) == digest else { throw AccountBindingError() }
+            coreDigest = try PinnedAppleCore.verify(core: coreURL, manifest: manifest, runtimeID: runtime.runtimeID)
+            let binding = ProgressBinding(serverKey: ApplicationProgress.serverKey(owner.baseURL), accountId: String(owner.userID), romId: Int64(rom.id), files: [ProgressContentFile(fileId: Int64(file.id), discIndex: 0, contentSha256: digest, containerSha256: nil, memberPath: nil)])
+            let store = try await services.progress.store()
+            progressIdentity = try await store.resolveIdentity(binding)
+            let upgradeWarnings = try await ProgressUpgrade.run(store: store, identity: progressIdentity!)
+            cloudMessage = await services.progress.checkBeforeLaunch(progressIdentity!)
+            if !upgradeWarnings.isEmpty { cloudMessage = upgradeWarnings.joined(separator: " ") }
+            let oldDirectory = services.libraryStore.saveStatesDirectory(for: installation)
+            legacyProgressFiles = [services.libraryStore.saveRAMURL(for: installation), services.libraryStore.continuityResumeStateURL(for: installation)]
+                + ((try? FileManager.default.contentsOfDirectory(at: oldDirectory, includingPropertiesForKeys: [.isRegularFileKey])) ?? [])
+            legacyProgressFiles += try await services.progress.legacyRecoveryFiles()
+            legacyProgressFiles = Array(Set(legacyProgressFiles)).filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
+            if !(try await store.references(progressIdentity!)).keys.contains("game/current") && !legacyProgressFiles.isEmpty {
+                cloudMessage = "Older local progress is retained and needs an explicit import. Continue with local progress to open recovery, then choose the file to assign to this account and game. " + (cloudMessage ?? "")
+            }
+        }
+        if progressIdentity != nil {
+            launchPreparation = PlayerLaunchPreparation()
+        } else if let profile = selectedProfile {
             if let preparedLaunch = try? await services.syncBridge.preparePlayerLaunch(
                 profile: profile,
                 installation: installation,
@@ -964,8 +1204,9 @@ public final class RommioAppModel {
                 connectivity: offlineState.connectivity
             )
         }
+        updateFrontendUsername()
         let playerEngine = playerEngineFactory()
-        let session = makePlayerSession(
+        var session = makePlayerSession(
             rom: rom,
             file: file,
             installation: installation,
@@ -974,10 +1215,35 @@ public final class RommioAppModel {
             coreURL: coreURL
         )
 
+        if progressIdentity != nil {
+            session.ownsProgress = true; session.initialSaveRAM = nil
+            let isolatedContent = workspace.appending(path: "content/game.\(file.effectiveFileExtension.lowercased())")
+            try FileManager.default.createDirectory(at: isolatedContent.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: session.romURL, to: isolatedContent)
+            guard try ProgressFileHash.sha256(isolatedContent) == progressIdentity?.binding.files.first?.contentSha256 else {
+                throw ProgressStoreError.invalid("Content changed while preparing the session")
+            }
+            session.romURL = isolatedContent
+            session.savesDirectory = workspace.appending(path: "saves")
+            session.saveRAMURL = session.savesDirectory.appending(path: "save.srm")
+            session.saveStatesDirectory = workspace.appending(path: "states")
+            session.systemDirectory = workspace.appending(path: "system")
+            for dir in [session.savesDirectory, session.saveStatesDirectory, session.systemDirectory] { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
+        }
+        let systemFiles = progressIdentity == nil ? [:] : try ProgressFirmware.prepare(runtime: runtime, platform: rom.platformSlug,
+            roots: [services.libraryStore.systemDirectory(), services.libraryStore.biosDirectory()], destination: session.systemDirectory, assets: coreBundle.bundleURL.appending(path: "Cores/system/ppsspp"))
+        var progressOwner: ProgressSessionOwner?
         do {
             logger.info("player prepare begin")
             NSLog("[RommioAppModel] player prepare begin")
             try await playerEngine.prepare(session: session)
+            if let identity = progressIdentity, let coreDigest {
+                guard let engine = playerEngine as? any ProgressPlayerEngine else { throw ProgressStoreError.invalid("The player does not implement coherent persistence") }
+                let capture = try await engine.captureProgress(includeState: false)
+                let qualification = try CartridgePersistence(capture: capture, coreSHA256: coreDigest, systemFiles: systemFiles)
+                progressOwner = ProgressSessionOwner(identity: identity, sessionID: sessionID, qualification: qualification, store: try await services.progress.store(), engine: engine, deviceID: try await services.progress.deviceID(), captureRoot: services.progress.root.appending(path: "captures/\(identity.contentId)"), workspace: workspace, sync: services.progress, preparedSession: session)
+            }
+            guard activeProfile?.id == launchProfileID else { throw CancellationError() }
             logger.info("player prepare complete")
             NSLog("[RommioAppModel] player prepare complete")
             _ = try playerEngine.makeHostController()
@@ -1008,11 +1274,21 @@ public final class RommioAppModel {
             file: file,
             installation: installation,
             runtimeID: runtime.runtimeID,
-            onLeave: { [weak self] in
-                await self?.closePlayer(noticeMessage: nil)
+            progressOwner: progressOwner,
+            cloudMessage: cloudMessage,
+            legacyProgressFiles: legacyProgressFiles,
+            onLeave: { [weak self] message in
+                await self?.closePlayer(noticeMessage: message)
             }
         )
+        activePlayer?.backdropURL = artworkURL(path: rom.urlCover)
         self.noticeMessage = "Launching \(rom.displayName) with \(runtime.displayName)."
+    }
+
+    public func importBIOS(_ url: URL) throws -> String {
+        let access = url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+        return try ProgressFirmware.importBIOS(url, destination: services.libraryStore.biosDirectory())
     }
 
     private func makePlayerSession(
@@ -1047,6 +1323,7 @@ public final class RommioAppModel {
     }
 
     private func closePlayer(noticeMessage: String?) async {
+        if let lease = progressPlayerLease { await services.progress.endPlayer(lease); progressPlayerLease = nil }
         activePlayer = nil
         if let noticeMessage {
             self.noticeMessage = noticeMessage

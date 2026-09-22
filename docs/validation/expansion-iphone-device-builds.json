@@ -1,0 +1,33 @@
+{
+  "qualification": "native-core compilation only; no physical gameplay",
+  "cores": {
+    "genesis_plus_gx": {
+      "sha256": "6fd550f9e80e801a84ad96d5882dc4a0fbd6e887d8ef27eea5b58a7a87bf3c01",
+      "sourceRevision": "c2838c7dc4236fc2fe94e5dbd08b41486067918e",
+      "patchSha256": "523ca80dc2e2b4832639340f80a3f777795c34b9e2f50d74b2f9906c351f7fc7",
+      "architecture": "arm64",
+      "sdk": "iphoneos"
+    },
+    "pcsx_rearmed": {
+      "sha256": "cf05426346435c29a1c6613c2c7e09c54a7c2b3d2064e63e7b1c0d2259b6f4d7",
+      "sourceRevision": "8625c395a24411f8c77e69802b516df9c613a712",
+      "patchSha256": "36620d6248dd37ae0bed42a3c69585816682ff894f350a844da02acc894bbb10",
+      "architecture": "arm64",
+      "sdk": "iphoneos"
+    },
+    "mupen64plus_next_gles3": {
+      "sha256": "5d3b28acf241c3081d7ffa3659d4f981c45ffeb764d6069fefd9fc82eabaead3",
+      "sourceRevision": "6752836de8b224febfd5708444755b77712ac939",
+      "patchSha256": "42688b8114e7eac5a8a510314b9934c0f176b13f3a1805a9d617ced3fe4d98a8",
+      "architecture": "arm64",
+      "sdk": "iphoneos"
+    },
+    "ppsspp": {
+      "sha256": "d89843f38cc3fba4a48e575329a156e30e9a8e4c791c341221caebfd70cdd041",
+      "sourceRevision": "ab6ccbd08c45288b52e517163e196a3569137ed1",
+      "patchSha256": "68dcf8d6a60a6291500c7564e084742e75238a9cde737f8b55d004efc735fb0d",
+      "architecture": "arm64",
+      "sdk": "iphoneos"
+    }
+  }
+}

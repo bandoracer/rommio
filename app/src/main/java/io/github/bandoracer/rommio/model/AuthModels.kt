@@ -1,5 +1,7 @@
 package io.github.bandoracer.rommio.model
 
+import io.github.bandoracer.rommio.data.auth.ProfileCookieContext
+
 enum class EdgeAuthMode {
     NONE,
     CLOUDFLARE_ACCESS_SESSION,
@@ -102,6 +104,7 @@ data class InteractiveSessionConfig(
     val startUrl: String,
     val provider: InteractiveSessionProvider,
     val expectedBaseUrl: String,
+    val cookieContext: ProfileCookieContext? = null,
 )
 
 enum class InteractiveSessionProvider {
@@ -113,6 +116,8 @@ data class RequestDecoration(
     val url: String,
     val headers: Map<String, String>,
     val shouldPersistCookies: Boolean = true,
+    val credentialBaseUrl: String? = null,
+    val cookieContext: ProfileCookieContext? = null,
 )
 
 data class ServerAccessResult(

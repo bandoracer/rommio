@@ -1,0 +1,129 @@
+--- a/jni/Android.mk
++++ b/jni/Android.mk
+@@ -8,13 +8,11 @@
+ 
+ COREFLAGS := $(COREDEFINES) -DPSS_STYLE=1 $(INCFLAGS)
+ 
+-GIT_VERSION := " $(shell git rev-parse --short HEAD || echo unknown)"
+-ifneq ($(GIT_VERSION)," unknown")
+-	COREFLAGS += -DGIT_VERSION=\"$(GIT_VERSION)\"
+-endif
++# Exact core revision; never inherit the enclosing application's Git revision.
++COREFLAGS += -DGIT_VERSION=\"236ccdfc-rommio3\" -g0 -ffile-prefix-map=$(LOCAL_PATH)/..=fceumm
+ 
+ include $(CLEAR_VARS)
+-LOCAL_MODULE    := retro
++LOCAL_MODULE    := fceumm_libretro_android
+ LOCAL_SRC_FILES := $(SOURCES_C)
+ LOCAL_CFLAGS    := $(COREFLAGS)
+ LOCAL_LDFLAGS   := -Wl,-version-script=$(CORE_DIR)/drivers/libretro/link.T,-z,max-page-size=16384
+--- a/src/boards/n106.c
++++ b/src/boards/n106.c
+@@ -389,6 +389,18 @@
+ 		FixCache(x, IRAM[x]);
+ }
+ 
++/* Rommio: raw battery restoration bypasses Mapper19_write. Rebuild the
++ * derived register caches and install audio callbacks without resetting the
++ * oscillator phase restored by a serialized state. */
++void Mapper19_PersistentMemoryRestored(void) {
++    Mapper19_StateRestore(0);
++    if (FSettings.SndRate) {
++        GameExpSound.Fill = NamcoSound;
++        GameExpSound.HiFill = DoNamcoSoundHQ;
++        GameExpSound.HiSync = SyncHQ;
++    }
++}
++
+ static void M19SC(void) {
+ 	if (FSettings.SndRate)
+ 		Mapper19_ESI();
+--- a/src/drivers/libretro/libretro.c
++++ b/src/drivers/libretro/libretro.c
+@@ -3413,8 +3413,7 @@
+    if (!data || size != retro_serialize_size())
+       return false;
+ 
+-   FCEUSS_Save_Mem(data, size);
+-   return true;
++   return FCEUSS_Save_Mem(data, size) == size;
+ }
+ 
+ bool retro_unserialize(const void * data, size_t size)
+@@ -4359,9 +4358,35 @@
+    return FSettings.PAL ? RETRO_REGION_PAL : RETRO_REGION_NTSC;
+ }
+ 
++/* Rommio persistence ABI 2: called after all battery regions have been copied.
++ * Mapper 19 caches waveform length/frequency/envelope outside battery IRAM.
++ * Its restore callback rebuilds those caches without advancing emulation. */
++void Mapper19_PersistentMemoryRestored(void);
++
++bool retro_rommio_memory_restored(void)
++{
++   if (!GameInfo)
++      return false;
++   if (iNESCart.mapper == 19 && iNESCart.SaveGame[1])
++      Mapper19_PersistentMemoryRestored();
++   return true;
++}
++
+ void *retro_get_memory_data(unsigned type)
+ {
+    uint8_t* data;
++
++   /* Rommio persistence ABI 2: 0x100/0x200/0x300 are battery segments 1/2/3.
++    * No aliasing or per-frame copies; region zero retains upstream semantics. */
++   if (type == 0x100 || type == 0x200 || type == 0x300)
++   {
++      unsigned index = type >> 8;
++      if (iNESCart.battery && iNESCart.SaveGame[index] && iNESCart.SaveGameLen[index])
++         return iNESCart.SaveGame[index];
++      if (UNIFCart.battery && UNIFCart.SaveGame[index] && UNIFCart.SaveGameLen[index])
++         return UNIFCart.SaveGame[index];
++      return NULL;
++   }
+ 
+    switch(type)
+    {
+@@ -4390,6 +4415,18 @@
+ {
+    unsigned size;
+ 
++   /* Rommio persistence ABI 2: 0x100/0x200/0x300 are battery segments 1/2/3.
++    * No aliasing or per-frame copies; region zero retains upstream semantics. */
++   if (type == 0x100 || type == 0x200 || type == 0x300)
++   {
++      unsigned index = type >> 8;
++      if (iNESCart.battery && iNESCart.SaveGame[index] && iNESCart.SaveGameLen[index])
++         return iNESCart.SaveGameLen[index];
++      if (UNIFCart.battery && UNIFCart.SaveGame[index] && UNIFCart.SaveGameLen[index])
++         return UNIFCart.SaveGameLen[index];
++      return 0;
++   }
++
+    switch(type)
+    {
+       case RETRO_MEMORY_SAVE_RAM:
+--- a/src/ines.c
++++ b/src/ines.c
+@@ -118,6 +118,19 @@
+ 		}
+ 		break;
+ 	}
++}
++
++/* Optional Rommio descriptor: report the effective board after database/header
++ * correction. Comparing GameInterface prevents stale iNES metadata from
++ * describing UNIF/FDS/NSF content loaded later in the same core instance. */
++const char *retro_rommio_persistence_descriptor(void) {
++    static char descriptor[96];
++    if (!GameInfo || GameInfo->type != GIT_CART || GameInterface != iNESGI)
++        return NULL;
++    snprintf(descriptor, sizeof(descriptor), "fceumm-ines-v1:%d:%d:%d:%d:%d:%d",
++        iNESCart.iNES2 ? 2 : 1, iNESCart.mapper, iNESCart.submapper, iNESCart.battery ? 1 : 0,
++        iNESCart.PRGRamSaveSize, iNESCart.CHRRamSaveSize);
++    return descriptor;
+ }
+ 
+ struct CRCMATCH {

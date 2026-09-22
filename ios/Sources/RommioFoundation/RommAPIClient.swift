@@ -20,6 +20,15 @@ public enum RommClientError: Error, LocalizedError, Sendable {
 
 public protocol RequestDecorating: Sendable {
     func decorate(_ request: URLRequest) async throws -> URLRequest
+    func retryAfterUnauthorized(_ request: URLRequest, response: HTTPURLResponse) async throws -> URLRequest?
+    func receive(_ response: HTTPURLResponse, for request: URLRequest) async throws
+    func redirect(_ request: URLRequest, original: URLRequest) async throws -> URLRequest
+}
+
+public extension RequestDecorating {
+    func receive(_ response: HTTPURLResponse, for request: URLRequest) async throws {}
+    func redirect(_ request: URLRequest, original: URLRequest) async throws -> URLRequest { request }
+    func retryAfterUnauthorized(_ request: URLRequest, response: HTTPURLResponse) async throws -> URLRequest? { nil }
 }
 
 public struct PassthroughRequestDecorator: RequestDecorating {
@@ -154,16 +163,39 @@ public final class RommAPIClient: RommServicing, @unchecked Sendable {
     }
 
     public func download(from absoluteURL: URL, to destinationURL: URL) async throws {
+        _ = try await download(from: absoluteURL, to: destinationURL, expectedBytes: nil)
+    }
+
+    @discardableResult
+    public func download(from absoluteURL: URL, to destinationURL: URL, expectedBytes: Int64?) async throws -> Int64 {
         var request = URLRequest(url: absoluteURL)
         request.httpMethod = "GET"
         request = try await decorator.decorate(request)
-        let (temporaryURL, response) = try await session.download(for: request)
-        try validate(response: response, responseBody: "")
-        try FileManager.default.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if FileManager.default.fileExists(atPath: destinationURL.path) {
-            try FileManager.default.removeItem(at: destinationURL)
+        let (temporaryURL, response) = try await session.download(for: request, delegate: ScopedRedirectDelegate(baseURL: baseURL, decorator: decorator, original: request))
+        defer { try? FileManager.default.removeItem(at: temporaryURL) }
+        if let http = response as? HTTPURLResponse { try await decorator.receive(http, for: request) }
+        if let http = response as? HTTPURLResponse, http.statusCode == 401,
+           let retry = try await decorator.retryAfterUnauthorized(request, response: http) {
+            let (retryURL, retryResponse) = try await session.download(for: retry, delegate: ScopedRedirectDelegate(baseURL: baseURL, decorator: decorator, original: retry))
+            defer { try? FileManager.default.removeItem(at: retryURL) }
+            if let http = retryResponse as? HTTPURLResponse { try await decorator.receive(http, for: retry) }
+            return try AtomicFileInstaller.installDownload(at: retryURL, response: retryResponse, to: destinationURL, expectedBytes: expectedBytes)
         }
-        try FileManager.default.moveItem(at: temporaryURL, to: destinationURL)
+        return try AtomicFileInstaller.installDownload(at: temporaryURL, response: response, to: destinationURL, expectedBytes: expectedBytes)
+    }
+
+    private func authenticatedData(for request: URLRequest) async throws -> (Data, URLResponse) {
+        let decorated = try await decorator.decorate(request)
+        let result = try await session.data(for: decorated, delegate: ScopedRedirectDelegate(baseURL: baseURL, decorator: decorator, original: decorated))
+        if let http = result.1 as? HTTPURLResponse { try await decorator.receive(http, for: decorated) }
+        if let http = result.1 as? HTTPURLResponse, http.statusCode == 401,
+           ["GET", "HEAD"].contains(request.httpMethod ?? "GET"),
+           let retry = try await decorator.retryAfterUnauthorized(decorated, response: http) {
+            let retried = try await session.data(for: retry, delegate: ScopedRedirectDelegate(baseURL: baseURL, decorator: decorator, original: retry))
+            if let http = retried.1 as? HTTPURLResponse { try await decorator.receive(http, for: retry) }
+            return retried
+        }
+        return result
     }
 
     private func send<Response: Decodable>(_ endpoint: RommEndpoint) async throws -> Response {
@@ -178,8 +210,7 @@ public final class RommAPIClient: RommServicing, @unchecked Sendable {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request = try await decorator.decorate(request)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await authenticatedData(for: request)
         try validate(response: response, responseBody: String(decoding: data, as: UTF8.self))
         return try decoder.decode(Response.self, from: data)
     }
@@ -201,8 +232,7 @@ public final class RommAPIClient: RommServicing, @unchecked Sendable {
         request.httpBody = try MultipartFormDataBuilder(boundary: boundary)
             .addFile(partName: partName, fileURL: fileURL)
             .build()
-        request = try await decorator.decorate(request)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await authenticatedData(for: request)
         try validate(response: response, responseBody: String(decoding: data, as: UTF8.self))
         return try decoder.decode(Response.self, from: data)
     }

@@ -2,12 +2,12 @@
 
 This document is the narrative product spec for the native iOS RomM client. It describes the iOS app as it exists today, while explicitly calling out parity gaps and agreed near-term direction where iOS is still catching up to Android.
 
-The runtime catalog, recommended cores, validation gates, and shared contract remain canonical in:
+The runtime catalog, recommended cores, validation gates, and target save/sync architecture remain canonical in:
 
 - [core-matrix.md](core-matrix.md)
 - [core-matrix-ios.md](core-matrix-ios.md)
 - [validation-matrix.md](validation-matrix.md)
-- [client-contract.md](client-contract.md)
+- [save-sync-spec.md](save-sync-spec.md) — shared target architecture; authoritative for save/sync behavior where this document differs
 
 ## Product Overview
 
@@ -70,23 +70,27 @@ Get an iPhone or iPad from zero configuration to a signed-in, offline-capable Ro
 
 ### Information hierarchy
 
-The setup flow is step-based rather than one long form. It separates:
+The iOS flow follows Marquee's server-entry and sign-in pattern:
 
-1. welcome / profile selection
-2. server access validation
-3. RomM login
-4. success and shell entry
+1. enter a server address and tap Connect
+2. sign in to RomM; successful authentication opens the library directly
 
-Interactive edge access and interactive origin sign-in are treated as separate handoff paths and return to their respective setup steps instead of collapsing into one generic web-auth state.
+Connect performs discovery and native heartbeat verification automatically. Access
+profile settings (automatic, direct, Cloudflare browser login, service token, or
+other browser login) live in an optional sheet. A protected server can hand off
+to browser authentication; returning from that flow automatically verifies access
+and advances to RomM sign-in. Gateway access and RomM identity remain separate
+internally. Errors stay beside the form, and saved servers remain available on
+the connection screen. There are no mandatory welcome or success pages.
 
 ### Major states
 
 - loading / session recovery while checking stored auth and cache state
-- welcome / resume setup
+- server entry / resume setup
 - server validation in progress
 - protected-edge or access handoff required
 - sign-in required
-- success / ready to enter the app shell
+- authenticated shell entry
 - offline resume when the active profile is already hydrated
 
 ### Important outcomes

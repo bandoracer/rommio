@@ -46,16 +46,24 @@ enum class AndroidCoreAbi(val folderName: String, private val androidAbi: String
     }
 }
 
+data class CoreArtifactPin(val url: String, val archiveSha256: String, val librarySha256: String) {
+    init {
+        require(archiveSha256.matches(Regex("[0-9a-f]{64}")) && librarySha256.matches(Regex("[0-9a-f]{64}")))
+    }
+}
+
 data class CoreDownloadDescriptor(
     val provider: CoreDistributionProvider,
     val artifactBaseName: String,
     val documentationUrl: String? = null,
+    val artifacts: Map<String, CoreArtifactPin> = emptyMap(),
 ) {
     fun archiveFileName(): String = "${artifactBaseName}_libretro_android.so.zip"
 
     fun extractedFileName(): String = "${artifactBaseName}_libretro_android.so"
 
     fun archiveUrl(abi: AndroidCoreAbi): String {
+        artifacts[abi.folderName]?.let { return it.url }
         return when (provider) {
             CoreDistributionProvider.LIBRETRO_BUILDBOT ->
                 "https://buildbot.libretro.com/nightly/android/latest/${abi.folderName}/${archiveFileName()}"
@@ -93,6 +101,7 @@ data class CoreResolution(
     val coreLibrary: File? = null,
     val missingBios: List<String> = emptyList(),
     val message: String? = null,
+    val coreIdentity: CoreArtifactIdentity? = null,
 )
 
 data class PlayerSession(
@@ -107,6 +116,9 @@ data class PlayerSession(
     val saveStatesDirectory: File,
     val variables: Map<String, String> = emptyMap(),
     val initialSaveRam: ByteArray? = null,
+    val firmwareSha256: Map<String, String> = emptyMap(),
+    val coreIdentity: CoreArtifactIdentity? = null,
+    val progressBinding: io.github.bandoracer.rommio.domain.progress.ProgressBinding? = null,
 )
 
 enum class PlayerMotionSource {
@@ -133,6 +145,7 @@ data class PlayerRumbleSignal(
 
 interface CoreResolver {
     fun resolve(platformSlug: String, fileExtension: String?): CoreResolution
+    fun prepareCore(profile: RuntimeProfile, expected: CoreArtifactIdentity): InstalledCore
     fun platformSupport(platformSlug: String): PlatformRuntimeFamily?
     fun supportedPlatforms(): List<PlatformRuntimeFamily>
 }
@@ -144,12 +157,20 @@ interface PlayerEngine {
         session: PlayerSession,
     ): View
 
+    suspend fun awaitReady()
+    fun failureSignals(): Flow<String>
+    suspend fun prepareForProgressSelection(): CoreMemorySnapshot = error("Fresh-session preparation is not supported by this engine.")
+    suspend fun captureMemorySnapshot(includeState: Boolean): CoreMemorySnapshot
+    suspend fun restoreMemorySnapshot(snapshot: CoreMemorySnapshot): Boolean
+    suspend fun close()
     suspend fun persistSaveRam(): File?
     suspend fun saveState(slot: Int): File
+    suspend fun saveResumeState(target: File): File
     suspend fun loadState(file: File): Boolean
     suspend fun setPaused(paused: Boolean)
     suspend fun reset()
     suspend fun updateVariables(variables: Map<String, String>)
+    suspend fun effectiveVariables(): Map<String, String>
     suspend fun dispatchDigital(keyCode: Int, pressed: Boolean, port: Int = 0)
     suspend fun dispatchMotion(source: PlayerMotionSource, x: Float, y: Float, port: Int = 0)
     suspend fun updateInputConfiguration(configuration: PlayerInputConfiguration)

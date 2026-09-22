@@ -15,7 +15,19 @@ public final class PlayerFeatureModel: Identifiable {
     public let id: UUID
     let presentation: PlayerPresentationState
 
+    let legacyProgressFiles: [URL]
+    let progressOwner: ProgressSessionOwner?
+    var cloudMessage: String?
+    var progressHistory: [ProgressHistoryEntry] = []
+    var progressReferences: [String: [ProgressHead]] = [:]
+    var progressSyncMessage = "Cloud progress not checked"
+    var pendingRestoreID: String?
+    var preferColdBoot = false
+    private var resumeAfterBackground = false
+    private var backgrounded = false
     var controlsState: PlayerControlsState?
+    /// Game artwork shown softly behind letterboxing so the player fills the display.
+    var backdropURL: URL?
     var pauseSheetPresented = false
     var controlsSheetPresented = false
     var stateBrowserPresented = false
@@ -44,7 +56,7 @@ public final class PlayerFeatureModel: Identifiable {
     @ObservationIgnored
     private let runtimeID: String
     @ObservationIgnored
-    private let onLeave: @MainActor () async -> Void
+    private let onLeave: @MainActor (String?) async -> Void
     @ObservationIgnored
     private var primaryFadeTask: Task<Void, Never>?
     @ObservationIgnored
@@ -73,8 +85,14 @@ public final class PlayerFeatureModel: Identifiable {
         file: RomFileDTO,
         installation: InstalledROMReference,
         runtimeID: String,
-        onLeave: @escaping @MainActor () async -> Void
+        progressOwner: ProgressSessionOwner? = nil,
+        cloudMessage: String? = nil,
+        legacyProgressFiles: [URL] = [],
+        onLeave: @escaping @MainActor (String?) async -> Void
     ) {
+        self.legacyProgressFiles = legacyProgressFiles
+        self.progressOwner = progressOwner
+        self.cloudMessage = cloudMessage
         self.id = presentation.id
         self.presentation = presentation
         self.engine = engine
@@ -99,6 +117,52 @@ public final class PlayerFeatureModel: Identifiable {
         controlsState?.platformProfile.playerOrientationPolicy ?? .auto
     }
 
+    // MARK: Stage (iPhone Duo fold, DS screens, side panes)
+
+    /// Shared with the renderer so video, stylus, and controls agree on layout.
+    private(set) var stageContext = PlayerStageContext()
+    private var windowFold: CGRect?
+    private var windowFoldIsActive = false
+    /// Width of a live side pane (controls editor or saved progress) beside the game.
+    private(set) var sidePaneWidth: CGFloat = 0
+
+    var isDualScreen: Bool { controlsState?.platformProfile.familyID == "nds" }
+
+    /// Game on one half of a wide display and a full-size pad on the other.
+    var prefersSplitPad: Bool = UserDefaults.standard.bool(forKey: "player.splitPad") {
+        didSet {
+            UserDefaults.standard.set(prefersSplitPad, forKey: "player.splitPad")
+            recomputeStage()
+        }
+    }
+
+    func updateWindowFold(_ fold: CGRect?, isActive: Bool) {
+        windowFold = fold
+        windowFoldIsActive = isActive
+        recomputeStage()
+    }
+
+    func updateSidePaneWidth(_ width: CGFloat) {
+        sidePaneWidth = width
+        recomputeStage()
+    }
+
+    private func recomputeStage() {
+        let next = PlayerStageContext(
+            fold: windowFold,
+            foldIsActive: windowFoldIsActive,
+            dualScreen: isDualScreen,
+            prefersPortrait: orientationPolicy == .auto ? nil : orientationPolicy == .portraitOnly,
+            trailingPaneWidth: sidePaneWidth,
+            leftHanded: controlsState?.touchLayout?.leftHanded ?? false,
+            prefersSplitPad: prefersSplitPad && !isDualScreen
+        )
+        guard next != stageContext else { return }
+        stageContext = next
+        let deadzone = controlsState?.hardwareBinding.deadzone ?? 0.2
+        Task { try? await engine.updateInputConfiguration(PlayerInputConfiguration(deadzone: deadzone, stage: next)) }
+    }
+
     var supportTier: EmbeddedSupportTier {
         controlsState?.platformProfile.supportTier ?? .unsupported
     }
@@ -115,7 +179,8 @@ public final class PlayerFeatureModel: Identifiable {
         return resolvePlayerOverlaySnapshot(
             containerSize: containerSize,
             safeAreaInsets: safeAreaInsets,
-            controlsState: controlsState
+            controlsState: controlsState,
+            stage: stageContext
         )
     }
 
@@ -124,7 +189,8 @@ public final class PlayerFeatureModel: Identifiable {
     }
 
     func startIfNeeded() async {
-        guard !hasStarted, !isStarting else { return }
+        guard !hasStarted, !isStarting, cloudMessage == nil else { return }
+        errorMessage = nil
         isStarting = true
         defer { isStarting = false }
         await reloadControlsState()
@@ -133,12 +199,21 @@ public final class PlayerFeatureModel: Identifiable {
             if let deadzone = controlsState?.hardwareBinding.deadzone {
                 try await engine.updateInputConfiguration(PlayerInputConfiguration(deadzone: deadzone))
             }
-            if let controllerTypeID = controlsState?.hardwareBinding.controllerTypeID {
+            if let controllerTypeID = controlsState?.hardwareBinding.controllerTypeID ?? defaultConsoleControllerType {
                 try await engine.setControllerType(port: 0, controllerTypeID: controllerTypeID)
             }
             availableControllerTypes = (try? await engine.availableControllerTypes(port: 0)) ?? []
             startSignalTasksIfNeeded()
-            try await engine.start()
+            #if canImport(GameController)
+            if gamepadInput == nil { gamepadInput = PlayerGamepadInput(feature: self) }
+            gamepadInput?.start()
+            #endif
+            var initiallyPaused = false
+            #if DEBUG && canImport(UIKit)
+            initiallyPaused = ProcessInfo.processInfo.environment["ROMMIO_PROGRESS_PROBE_PAUSED"] == "1"
+            #endif
+            if let progressOwner { noticeMessage = try await progressOwner.launch(coldBoot: preferColdBoot, startPaused: initiallyPaused); isPaused = initiallyPaused }
+            else { try await engine.start() }
             hasStarted = true
             sessionStartedAtEpochMS = Int64(Date().timeIntervalSince1970 * 1000)
             if let target = initialLaunchTarget {
@@ -153,11 +228,21 @@ public final class PlayerFeatureModel: Identifiable {
         } catch PlayerEngineError.frameLoopAlreadyRunning {
             hasStarted = true
         } catch {
+            NSLog("[PlayerFeatureModel] start failed: %@", error.localizedDescription)
             errorMessage = error.localizedDescription
         }
     }
 
     func leaveGame() async {
+        if let progressOwner {
+            do {
+                let result = try await progressOwner.exit()
+                noticeMessage = result?.message
+            } catch { errorMessage = error.localizedDescription; isPaused = true; return }
+        }
+        #if canImport(GameController)
+        gamepadInput?.stop()
+        #endif
         primaryFadeTask?.cancel()
         tertiaryFadeTask?.cancel()
         controllerUpdatesTask?.cancel()
@@ -165,16 +250,20 @@ public final class PlayerFeatureModel: Identifiable {
         rumbleTask?.cancel()
         syncRetryTask?.cancel()
         continuitySyncTask?.cancel()
-        await captureContinuity(syncManualSlots: false, sessionActive: false)
-        await engine.stop()
-        engine.detach()
-        await onLeave()
+        if progressOwner == nil {
+            await captureContinuity(syncManualSlots: false, sessionActive: false)
+            await engine.stop()
+            engine.detach()
+        }
+        await onLeave(noticeMessage)
     }
 
     func openPauseMenu() async {
         bumpTertiaryControls(wakePrimary: true)
         do {
-            try await engine.setPaused(true)
+            if let progressOwner {
+                noticeMessage = try await progressOwner.capture(reason: "pause", remainPaused: true).message
+            } else { try await engine.setPaused(true) }
             isPaused = true
             pauseSheetPresented = true
         } catch {
@@ -184,7 +273,8 @@ public final class PlayerFeatureModel: Identifiable {
 
     func resumeGame() async {
         do {
-            try await engine.setPaused(false)
+            if let progressOwner { try await progressOwner.resume() }
+            else { try await engine.setPaused(false) }
             isPaused = false
             pauseSheetPresented = false
             bumpPrimaryControls()
@@ -195,6 +285,13 @@ public final class PlayerFeatureModel: Identifiable {
     }
 
     func quickSave() async {
+        if let progressOwner {
+            do {
+                noticeMessage = try await progressOwner.capture(reason: "manual", slotID: UUID().uuidString.lowercased(), remainPaused: isPaused).message
+                await refreshProgress()
+            } catch { errorMessage = error.localizedDescription; isPaused = true }
+            return
+        }
         do {
             let url = try await engine.saveState(slot: 0)
             if let profile = await currentProfile() {
@@ -214,6 +311,12 @@ public final class PlayerFeatureModel: Identifiable {
     }
 
     func quickLoadPreferredState() async {
+        if progressOwner != nil {
+            await refreshProgress()
+            if let state = progressHistory.first(where: { $0.checkpoint.stateCompatibility == progressOwner?.qualification.state }) { await restoreProgress(state.id) }
+            else { errorMessage = "No compatible snapshot is available. Game-save data remains separate." }
+            return
+        }
         if let resumePath = stateBrowser.resume?.localPath,
            FileManager.default.fileExists(atPath: resumePath) {
             await loadState(from: URL(fileURLWithPath: resumePath), label: "Resume")
@@ -233,6 +336,7 @@ public final class PlayerFeatureModel: Identifiable {
     }
 
     func loadResumeState() async {
+        if progressOwner != nil { await quickLoadPreferredState(); return }
         guard let localPath = stateBrowser.resume?.localPath else {
             errorMessage = "No resume state exists yet."
             return
@@ -263,6 +367,15 @@ public final class PlayerFeatureModel: Identifiable {
     }
 
     func syncSaves() async {
+        if let progressOwner {
+            do {
+                if hasStarted { noticeMessage = try await progressOwner.capture(reason: "manual", remainPaused: isPaused).message }
+                let result = try await services.progress.synchronize(progressOwner.identity)
+                progressSyncMessage = result.message
+                await refreshProgress()
+            } catch { errorMessage = error.localizedDescription }
+            return
+        }
         let profile: ServerProfile?
         if let cachedProfile = services.profileStoreActiveCache {
             profile = cachedProfile
@@ -271,12 +384,6 @@ public final class PlayerFeatureModel: Identifiable {
         }
         guard let profile else {
             errorMessage = "Sign in again before syncing saves."
-            return
-        }
-
-        guard services.networkMonitor.connectivity == .online else {
-            noticeMessage = "Save sync deferred until connectivity returns."
-            queueDeferredSync()
             return
         }
 
@@ -302,7 +409,8 @@ public final class PlayerFeatureModel: Identifiable {
 
     func resetCore() async {
         do {
-            try await engine.reset()
+            if let progressOwner { try await progressOwner.reset(); isPaused = true }
+            else { try await engine.reset() }
             noticeMessage = "Core reset."
         } catch {
             errorMessage = error.localizedDescription
@@ -391,7 +499,7 @@ public final class PlayerFeatureModel: Identifiable {
         )
         do {
             try await services.playerControlsRepository.saveHardwareBinding(binding)
-            if let controllerTypeID {
+            if let controllerTypeID = controllerTypeID ?? defaultConsoleControllerType {
                 try await engine.setControllerType(port: 0, controllerTypeID: controllerTypeID)
             }
             await reloadControlsState()
@@ -411,6 +519,59 @@ public final class PlayerFeatureModel: Identifiable {
             await reloadControlsState()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private var defaultConsoleControllerType: Int? {
+        switch controlsState?.platformProfile.familyID {
+        case "sega16": return 513 // Genesis Plus GX six-button pad
+        case "psx": return 517 // PCSX-ReARMed DualShock
+        default: return nil
+        }
+    }
+
+    // Keep touch-down, motion, and release ordered even when a core operation suspends.
+    private var consoleInputTask: Task<Void, Never>?
+    func enqueueConsoleDigital(_ key: Int, pressed: Bool) {
+        if pressed { clearTransientMessages(); bumpPrimaryControls() }
+        let previous = consoleInputTask
+        consoleInputTask = Task { @MainActor in
+            await previous?.value
+            do { try await engine.dispatchDigital(keyCode: key, pressed: pressed, port: 0) }
+            catch { errorMessage = error.localizedDescription }
+        }
+    }
+    func enqueueConsoleMotion(_ stick: Int, x: Double, y: Double) {
+        if abs(x) + abs(y) > 0.01 { clearTransientMessages(); bumpPrimaryControls() }
+        let previous = consoleInputTask
+        consoleInputTask = Task { @MainActor in
+            await previous?.value
+            do { try await engine.dispatchMotion(source: stick == 0 ? .analogLeft : .analogRight, x: x, y: y, port: 0) }
+            catch { errorMessage = error.localizedDescription }
+        }
+    }
+
+    #if canImport(GameController)
+    @ObservationIgnored private var gamepadInput: PlayerGamepadInput?
+    #endif
+
+    private var pointerPressedAt: ContinuousClock.Instant?
+    /// Stylus events share the ordered input queue, so a quick tap's release can
+    /// never overtake its press; each press is held long enough for the core to
+    /// sample it (about two frames).
+    func enqueuePointer(normalizedX: Double, normalizedY: Double, pressed: Bool) {
+        if pressed, pointerPressedAt == nil { pointerPressedAt = .now; clearTransientMessages(); bumpPrimaryControls() }
+        let pressStart = pressed ? nil : pointerPressedAt
+        if !pressed { pointerPressedAt = nil }
+        let previous = consoleInputTask
+        consoleInputTask = Task { @MainActor in
+            await previous?.value
+            if let pressStart {
+                let held = ContinuousClock.now - pressStart
+                if held < .milliseconds(34) { try? await Task.sleep(for: .milliseconds(34) - held) }
+            }
+            do { try await engine.dispatchPointer(x: normalizedX * 2 - 1, y: normalizedY * 2 - 1, pressed: pressed, port: 0) }
+            catch { errorMessage = error.localizedDescription }
         }
     }
 
@@ -442,10 +603,10 @@ public final class PlayerFeatureModel: Identifiable {
         }
     }
 
-    func dispatchPointer(normalizedX: Double, normalizedY: Double) async {
+    func dispatchPointer(normalizedX: Double, normalizedY: Double, pressed: Bool = true) async {
         bumpPrimaryControls()
         do {
-            try await engine.dispatchMotion(source: .pointer, x: normalizedX, y: normalizedY, port: 0)
+            try await engine.dispatchPointer(x: normalizedX * 2 - 1, y: normalizedY * 2 - 1, pressed: pressed, port: 0)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -453,8 +614,9 @@ public final class PlayerFeatureModel: Identifiable {
 
     func bumpPrimaryControls() {
         primaryControlsVisible = true
-        guard !pauseSheetPresented, !controlsSheetPresented else { return }
         primaryFadeTask?.cancel()
+        guard !pauseSheetPresented, !controlsSheetPresented,
+              controlsState?.connectedControllers.isEmpty == false else { return }
         primaryFadeTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(10))
             guard !Task.isCancelled else { return }
@@ -470,8 +632,9 @@ public final class PlayerFeatureModel: Identifiable {
             bumpPrimaryControls()
         }
         tertiaryControlsVisible = true
-        guard !pauseSheetPresented, !controlsSheetPresented else { return }
         tertiaryFadeTask?.cancel()
+        guard !pauseSheetPresented, !controlsSheetPresented,
+              controlsState?.connectedControllers.isEmpty == false else { return }
         tertiaryFadeTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(10))
             guard !Task.isCancelled else { return }
@@ -485,6 +648,16 @@ public final class PlayerFeatureModel: Identifiable {
     private func reloadControlsState() async {
         do {
             controlsState = try await services.playerControlsRepository.controls(platformSlug: presentation.platformSlug)
+            if let state = controlsState {
+                recomputeStage()
+                try await engine.updateInputConfiguration(PlayerInputConfiguration(
+                    deadzone: state.hardwareBinding.deadzone,
+                    reserveTouchSpace: state.showTouchControls && state.platformProfile.supportTier == .touchSupported,
+                    controlDeckHeight: ExpansionControls.deckHeight(ExpansionControls.controls(for: state.platformProfile.familyID) ?? []),
+                    controlScale: state.touchLayout?.globalScale ?? 1,
+                    controlUtilityCount: (ExpansionControls.controls(for: state.platformProfile.familyID) ?? []).filter(\.center).count + 1,
+                    stage: stageContext))
+            }
             availableControllerTypes = (try? await engine.availableControllerTypes(port: 0)) ?? availableControllerTypes
         } catch {
             errorMessage = error.localizedDescription
@@ -522,6 +695,8 @@ public final class PlayerFeatureModel: Identifiable {
             guard let self else { return }
             for await _ in self.services.controllerMonitor.updates() {
                 await self.reloadControlsState()
+                self.bumpPrimaryControls()
+                self.bumpTertiaryControls(wakePrimary: false)
             }
         }
 
@@ -539,6 +714,77 @@ public final class PlayerFeatureModel: Identifiable {
                 await self.deliverDeviceRumble(signal)
             }
         }
+    }
+
+    #if DEBUG && canImport(UIKit)
+    func probeCapture() async throws -> NativeProgressCapture {
+        guard let core = engine as? any ProgressPlayerEngine else { throw ProgressStoreError.invalid("Missing native progress engine") }
+        return try await core.captureProgress(includeState: true)
+    }
+    #endif
+    func deleteProgressSnapshot(_ id: String) async {
+        do { try await progressOwner?.deleteSnapshot(checkpointID: id); await refreshProgress() }
+        catch { errorMessage = error.localizedDescription }
+    }
+    func importProgress(_ file: URL, snapshot: Bool) async {
+        let access = file.startAccessingSecurityScopedResource()
+        defer { if access { file.stopAccessingSecurityScopedResource() } }
+        do { noticeMessage = try await progressOwner?.importLegacy(file: file, snapshot: snapshot).message; isPaused = true; await refreshProgress() }
+        catch { errorMessage = error.localizedDescription; isPaused = true }
+    }
+    func refreshProgress() async {
+        guard let progressOwner else { return }
+        do {
+            progressHistory = try await progressOwner.history()
+            progressReferences = try await progressOwner.references()
+            progressSyncMessage = await services.progress.status(progressOwner.identity)
+        } catch { errorMessage = error.localizedDescription }
+    }
+    func continueLocal(coldBoot: Bool = false) async {
+        preferColdBoot = coldBoot; cloudMessage = nil
+        await startIfNeeded()
+    }
+    func retryCloudCheck() async {
+        guard let progressOwner else { return }
+        // Explicit retry joins the application-owned drain. Repeating the bounded
+        // launch check can time out forever once retained history grows.
+        do {
+            let result = try await services.progress.synchronize(progressOwner.identity)
+            cloudMessage = result.errors.isEmpty ? nil : result.message
+        } catch { cloudMessage = error.localizedDescription }
+        await refreshProgress()
+        if cloudMessage == nil { await startIfNeeded() }
+    }
+    func retryProgress() async {
+        guard let progressOwner else { return }
+        do { try await progressOwner.retry(); errorMessage = nil; noticeMessage = "Retained captures recovered."; await refreshProgress() }
+        catch { errorMessage = error.localizedDescription }
+    }
+    func restoreProgress(_ id: String, confirmed: Bool = false) async {
+        guard let progressOwner else { return }
+        do {
+            try await progressOwner.restore(checkpointID: id, confirmed: confirmed)
+            pendingRestoreID = nil; isPaused = true; noticeMessage = "Restored progress. The safety checkpoint is retained."
+            await refreshProgress()
+        } catch let confirmation as ProgressRestoreConfirmation { pendingRestoreID = confirmation.checkpointID; isPaused = true }
+        catch { errorMessage = error.localizedDescription; isPaused = true }
+    }
+    func resolveProgress(reference: String, selected: String, expected: [String]) async {
+        guard let progressOwner else { return }
+        do { try await progressOwner.resolve(reference: reference, selected: selected, expected: expected); await refreshProgress(); noticeMessage = "Choice saved. Running gameplay has not been replaced." }
+        catch { errorMessage = error.localizedDescription }
+    }
+    func sceneBecameInactive() async {
+        guard let progressOwner, hasStarted, !backgrounded else { return }
+        backgrounded = true
+        resumeAfterBackground = !isPaused
+        do { noticeMessage = try await progressOwner.capture(reason: "background", remainPaused: true).message; if backgrounded { isPaused = true } }
+        catch { errorMessage = error.localizedDescription; isPaused = true; resumeAfterBackground = false }
+    }
+    func sceneBecameActive() async {
+        backgrounded = false
+        if resumeAfterBackground { resumeAfterBackground = false; await resumeGame() }
+        await refreshProgress()
     }
 
     private func currentProfile() async -> ServerProfile? {
@@ -580,6 +826,7 @@ public final class PlayerFeatureModel: Identifiable {
     }
 
     private func refreshStateBrowser() async {
+        if progressOwner != nil { await refreshProgress(); return }
         guard let profile = await currentProfile() else {
             do {
                 stateBrowser = try services.syncBridge.cachedStateBrowser(
@@ -633,16 +880,23 @@ public final class PlayerFeatureModel: Identifiable {
             stateBrowserPresented = false
             pauseSheetPresented = false
             noticeMessage = "Loaded \(label)."
+            await resumeGame()
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
     private func captureContinuity(syncManualSlots: Bool, sessionActive: Bool) async {
+        if let progressOwner {
+            guard hasStarted else { return }
+            do { noticeMessage = try await progressOwner.capture(reason: "periodic", remainPaused: isPaused).message; await refreshProgress() }
+            catch { errorMessage = error.localizedDescription; isPaused = true }
+            return
+        }
         guard presentation.supportsSaveStates else { return }
         do {
             try await captureContinuityLocally()
-            if let profile = await currentProfile(), services.networkMonitor.connectivity == .online {
+            if let profile = await currentProfile() {
                 let summary = try await services.syncBridge.flushContinuity(
                     profile: profile,
                     installation: installation,
@@ -661,6 +915,9 @@ public final class PlayerFeatureModel: Identifiable {
                 ).syncPresentation
                 await refreshStateBrowser()
             }
+        } catch is LegacySyncUnavailableError {
+            syncPresentation = GameSyncPresentation(kind: .localOnly, message: legacySyncPausedMessage)
+            await refreshStateBrowser()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -672,6 +929,12 @@ public final class PlayerFeatureModel: Identifiable {
         _ = try await engine.saveState(to: services.libraryStore.continuityResumeStateURL(for: installation))
     }
 
+    func capturePeriodicProgressIfActive() async {
+        // A paused device must not create a new branch after another device takes over.
+        guard hasStarted, !isPaused, !backgrounded else { return }
+        await captureContinuity(syncManualSlots: false, sessionActive: true)
+    }
+
     private func scheduleContinuitySync() {
         continuitySyncTask?.cancel()
         guard presentation.supportsSaveStates else { return }
@@ -679,7 +942,7 @@ public final class PlayerFeatureModel: Identifiable {
             while let self, !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(120))
                 guard !Task.isCancelled else { return }
-                await self.captureContinuity(syncManualSlots: false, sessionActive: true)
+                await self.capturePeriodicProgressIfActive()
             }
         }
     }

@@ -127,10 +127,13 @@ final class ShellFeatureModelsTests: XCTestCase {
     }
 
     func testDownloadsFeatureDownloadNowPromotesFailedRecordBackToQueued() async throws {
-        let harness = try ShellFeatureHarness()
+        let harness = try ShellFeatureHarness(transfer: { _, _, _, _, _ in
+            try await Task.sleep(for: .seconds(60))
+            throw CancellationError()
+        })
         let profile = try await harness.seedActiveProfile(connectivity: .online)
 
-        let record = DownloadRecord(
+        var record = DownloadRecord(
             profileID: profile.id,
             romID: 9,
             fileID: 9,
@@ -146,6 +149,10 @@ final class ShellFeatureModelsTests: XCTestCase {
             enqueuedAtEpochMS: 10,
             updatedAtEpochMS: 10
         )
+        let owner = VerifiedAccount(baseURL: profile.baseURL, userID: 1)
+        try harness.secretStore.bindVerifiedAccount(owner, profileID: profile.id)
+        record.owner = owner
+        record.attemptID = UUID().uuidString.lowercased()
         try harness.saveDownloadRecord(record)
 
         let feature = DownloadsFeatureModel(
@@ -160,6 +167,7 @@ final class ShellFeatureModelsTests: XCTestCase {
         let refreshedStatus = try XCTUnwrap(refreshed.first?.status)
         XCTAssertTrue([DownloadStatus.queued, .running].contains(refreshedStatus))
         XCTAssertNil(refreshed.first?.lastError)
+        try await harness.services.downloadQueue.cancel(recordID: record.id)
     }
 
     func testSettingsFeatureSharesPlayerPreferencesWithRepository() async throws {
@@ -219,9 +227,9 @@ final class ShellFeatureModelsTests: XCTestCase {
         )
         let controllerRom = harness.makeRom(
             id: 202,
-            name: "Ridge Racer",
-            platformSlug: "psp",
-            files: [harness.makeFile(id: 2, romID: 202, fileName: "ridge.cso", fileSizeBytes: 256)]
+            name: "Crazy Taxi",
+            platformSlug: "dreamcast",
+            files: [harness.makeFile(id: 2, romID: 202, fileName: "crazy-taxi.chd", fileSizeBytes: 256)]
         )
         try harness.cacheRoms([touchRom, controllerRom])
 
@@ -357,14 +365,14 @@ final class ShellFeatureModelsTests: XCTestCase {
         let failedState = try XCTUnwrap(feature.fileStates.first(where: { $0.file.id == failedFile.id }))
         XCTAssertEqual(failedState.actionDeck.primary?.kind, .retryCoreSetup)
         XCTAssertEqual(failedState.actionDeck.secondary.map(\.kind), [.retry])
-        XCTAssertEqual(failedState.playabilityLabel, "Missing core")
+        XCTAssertEqual(failedState.playabilityLabel, "Core setup failed")
 
         await feature.selectFile(failedFile.id)
         XCTAssertEqual(feature.selectedFileState?.file.id, failedFile.id)
         XCTAssertEqual(feature.selectedFilePresentation?.title, failedFile.fileName)
         XCTAssertEqual(feature.actionDeckPresentation?.primary?.kind, .retryCoreSetup)
         XCTAssertEqual(feature.actionDeckPresentation?.secondary.map(\.kind), [.retry])
-        XCTAssertEqual(feature.actionDeckPresentation?.badge, "Missing core")
+        XCTAssertEqual(feature.actionDeckPresentation?.badge, "Core setup failed")
     }
 
     func testGameDetailFeatureSuppressesSegmentedPickerForSingleFileTitles() async throws {
@@ -433,7 +441,7 @@ private struct ShellFeatureHarness {
     let services: RommioServices
     let bundle: Bundle
 
-    init() throws {
+    init(transfer: ManagedDownloadQueue.Transfer? = nil) throws {
         root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         database = try AppDatabase(rootDirectory: root.appending(path: "Database"))
@@ -457,8 +465,9 @@ private struct ShellFeatureHarness {
         downloadQueue = ManagedDownloadQueue(
             database: database,
             profileStore: profileStore,
-            secretStore: secretStore,
-            libraryStore: libraryStore
+            authController: authController,
+            libraryStore: libraryStore,
+            transfer: transfer
         )
         services = RommioServices(
             database: database,

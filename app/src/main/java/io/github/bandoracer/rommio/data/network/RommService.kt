@@ -23,6 +23,10 @@ import retrofit2.http.Query
 import retrofit2.http.Url
 
 interface RommService {
+    @retrofit2.http.Streaming
+    @GET("api/states/{id}/content")
+    suspend fun stateContent(@retrofit2.http.Path("id") id: Int): okhttp3.ResponseBody
+
     @GET("api/users/me")
     suspend fun getCurrentUser(): UserDto
 
@@ -48,7 +52,11 @@ interface RommService {
         @Query("group_by_meta_id") groupByMetaId: Int = 1,
         @Query("order_by") orderBy: String? = null,
         @Query("order_dir") orderDir: String? = null,
+        @Query("with_files") withFiles: Boolean = false,
     ): ItemsResponse<RomDto>
+
+    @GET("api/roms/identifiers")
+    suspend fun getRomIdentifiers(): List<Int>
 
     @GET("api/roms/{romId}")
     suspend fun getRomById(@retrofit2.http.Path("romId") romId: Int): RomDto

@@ -1,5 +1,7 @@
 package io.github.bandoracer.rommio.data.repository
 
+import io.github.bandoracer.rommio.domain.storage.StorageAccess
+
 import io.github.bandoracer.rommio.data.input.ControlsJsonCodec
 import io.github.bandoracer.rommio.data.input.ExternalControllerMonitor
 import io.github.bandoracer.rommio.data.input.PlayerControlsPreferencesStore
@@ -54,7 +56,7 @@ class PlayerControlsRepository(
         }
     }
 
-    suspend fun saveTouchLayout(profile: TouchLayoutProfile) {
+    suspend fun saveTouchLayout(profile: TouchLayoutProfile) = StorageAccess.normal {
         touchLayoutDao.upsert(
             TouchLayoutProfileEntity(
                 platformFamilyId = profile.platformFamilyId,
@@ -68,11 +70,11 @@ class PlayerControlsRepository(
         )
     }
 
-    suspend fun resetTouchLayout(platformSlug: String, presetId: String? = null) {
+    suspend fun resetTouchLayout(platformSlug: String, presetId: String? = null) = StorageAccess.normal {
         val profile = resolver.resolve(platformSlug)
         val defaultLayout = profile.defaultTouchLayout() ?: run {
             touchLayoutDao.delete(profile.familyId)
-            return
+            return@normal
         }
         val layout = defaultLayout.copy(
             presetId = presetId ?: defaultLayout.presetId,
@@ -81,7 +83,7 @@ class PlayerControlsRepository(
         saveTouchLayout(layout)
     }
 
-    suspend fun saveHardwareBinding(profile: HardwareBindingProfile) {
+    suspend fun saveHardwareBinding(profile: HardwareBindingProfile) = StorageAccess.normal {
         hardwareBindingDao.upsert(
             HardwareBindingProfileEntity(
                 platformFamilyId = profile.platformFamilyId,
@@ -93,23 +95,23 @@ class PlayerControlsRepository(
         )
     }
 
-    suspend fun setTouchControlsEnabled(enabled: Boolean) {
+    suspend fun setTouchControlsEnabled(enabled: Boolean) = StorageAccess.normal {
         preferencesStore.setTouchControlsEnabled(enabled)
     }
 
-    suspend fun setAutoHideTouchOnController(enabled: Boolean) {
+    suspend fun setAutoHideTouchOnController(enabled: Boolean) = StorageAccess.normal {
         preferencesStore.setAutoHideTouchOnController(enabled)
     }
 
-    suspend fun setRumbleToDeviceEnabled(enabled: Boolean) {
+    suspend fun setRumbleToDeviceEnabled(enabled: Boolean) = StorageAccess.normal {
         preferencesStore.setRumbleToDeviceEnabled(enabled)
     }
 
-    suspend fun setOledBlackModeEnabled(enabled: Boolean) {
+    suspend fun setOledBlackModeEnabled(enabled: Boolean) = StorageAccess.normal {
         preferencesStore.setOledBlackModeEnabled(enabled)
     }
 
-    suspend fun setConsoleColorsEnabled(enabled: Boolean) {
+    suspend fun setConsoleColorsEnabled(enabled: Boolean) = StorageAccess.normal {
         preferencesStore.setConsoleColorsEnabled(enabled)
     }
 

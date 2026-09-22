@@ -6,6 +6,7 @@ typedef NS_ENUM(NSInteger, RMLLibretroPixelFormat) {
     RMLLibretroPixelFormatUnknown = 0,
     RMLLibretroPixelFormatXRGB8888 = 1,
     RMLLibretroPixelFormatRGB565 = 2,
+    RMLLibretroPixelFormat0RGB1555 = 3,
 };
 
 typedef NS_ENUM(NSInteger, RMLInputDevice) {
@@ -62,6 +63,10 @@ typedef NS_ENUM(NSInteger, RMLMotionSource) {
 
 @interface RMLLibretroBridge : NSObject
 
+/// Player name reported to cores through RETRO_ENVIRONMENT_GET_USERNAME
+/// (for example, the Nintendo DS firmware nickname). Nil leaves it unset.
+@property (class, nonatomic, copy, nullable) NSString *frontendUsername;
+
 @property (nonatomic, readonly) NSURL *coreURL;
 @property (nonatomic, readonly, getter=isPrepared) BOOL prepared;
 @property (nonatomic, readonly, getter=isRunning) BOOL running;
@@ -94,11 +99,14 @@ typedef NS_ENUM(NSInteger, RMLMotionSource) {
 - (BOOL)unserializeState:(NSData *)stateData
                    error:(NSError * _Nullable * _Nullable)error;
 
+- (nullable NSDictionary<NSString *, id> *)captureProgressIncludingState:(BOOL)includeState error:(NSError * _Nullable * _Nullable)error;
+- (BOOL)restoreProgress:(NSDictionary<NSNumber *, NSData *> *)memory state:(nullable NSData *)state error:(NSError * _Nullable * _Nullable)error;
 - (void)setPaused:(BOOL)paused;
 - (void)reset;
 - (void)setDigitalInputPressed:(BOOL)pressed
                        keyCode:(NSInteger)keyCode
                           port:(NSUInteger)port;
+- (void)setPointerX:(double)x y:(double)y pressed:(BOOL)pressed port:(NSUInteger)port;
 - (void)setMotionSource:(RMLMotionSource)motionSource
                       x:(double)x
                       y:(double)y

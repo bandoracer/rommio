@@ -1,0 +1,17 @@
+{
+  "name": "rommio-setup",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "jose": "^6.1.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "miniflare": "5.20260918.0-alpha",
+    "wrangler": "4.135.0"
+  }
+}

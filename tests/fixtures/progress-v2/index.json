@@ -1,0 +1,150 @@
+{
+  "valid": [
+    {
+      "file": "coherent.json",
+      "bindingKey": "f39d96a667a0f2aee64e49e695bde442aab3d2876bb1f6123d08a9ce1b51f8a8",
+      "payloadSha256": "c95de101c0ea56678581881a73080a942afb210a1deae7d82f3db6f030b0abfd",
+      "stateKey": "6c793c71c3db231778a7713dc7d7575cddfc02e5ec0e70ec1d2c3e694ed01beb"
+    },
+    {
+      "file": "unicode.json",
+      "bindingKey": "398c0ba2c28dd583e905725c45136b1bfc324a425eeec62765b7199b9977e775",
+      "payloadSha256": "1e305721155874dd4b2bec99ccc310dfaf9f24a3c6f7d5dba6c70c77e9912381",
+      "stateKey": "d2443fe4471430273b31237354f01b4d7e38f4e257b7759813e6db7f9138c961"
+    },
+    {
+      "file": "explicit-null.json",
+      "bindingKey": "f39d96a667a0f2aee64e49e695bde442aab3d2876bb1f6123d08a9ce1b51f8a8",
+      "payloadSha256": "b04ea508a0b4e33606f317ad75a6b386ea96bb9e7c22e53f6de16baa66b1bff7",
+      "stateKey": "6c793c71c3db231778a7713dc7d7575cddfc02e5ec0e70ec1d2c3e694ed01beb"
+    },
+    {
+      "file": "sram-only.json",
+      "bindingKey": "f39d96a667a0f2aee64e49e695bde442aab3d2876bb1f6123d08a9ce1b51f8a8",
+      "payloadSha256": "078a0b596925c1a13061e0b85d052b328068bb38ef8d75bd349d1e9ec1b915f1"
+    },
+    {
+      "file": "tombstone.json",
+      "bindingKey": "f39d96a667a0f2aee64e49e695bde442aab3d2876bb1f6123d08a9ce1b51f8a8",
+      "payloadSha256": "c3de5a55229b63735bf697099dfa853a9512d587c38d107018f8c3bdc3654e8d"
+    },
+    {
+      "file": "v3-game.json",
+      "bindingKey": "f39d96a667a0f2aee64e49e695bde442aab3d2876bb1f6123d08a9ce1b51f8a8",
+      "payloadSha256": "0dffbdd252885818cb0f2edc6b5cfa9f5d8c226bbd384d5e9e330974c38d3fa7"
+    },
+    {
+      "file": "v3-state.json",
+      "bindingKey": "f39d96a667a0f2aee64e49e695bde442aab3d2876bb1f6123d08a9ce1b51f8a8",
+      "payloadSha256": "843bc4bbaa16d85d666e59ab893903a6ccc83b8e95905a72f88778316e99a528",
+      "stateKey": "6c793c71c3db231778a7713dc7d7575cddfc02e5ec0e70ec1d2c3e694ed01beb"
+    }
+  ],
+  "invalid": [
+    {
+      "file": "unknown-version.json"
+    },
+    {
+      "file": "unknown-field.json"
+    },
+    {
+      "file": "wrong-type.json"
+    },
+    {
+      "file": "bool-number.json"
+    },
+    {
+      "file": "unsafe-number.json"
+    },
+    {
+      "file": "missing-target.json"
+    },
+    {
+      "file": "resume-only.json"
+    },
+    {
+      "file": "duplicate-reference.json"
+    },
+    {
+      "file": "self-parent.json"
+    },
+    {
+      "file": "tombstone-target.json"
+    },
+    {
+      "file": "duplicate-artifact.json"
+    },
+    {
+      "file": "traversal.json"
+    },
+    {
+      "file": "absolute.json"
+    },
+    {
+      "file": "backslash.json"
+    },
+    {
+      "file": "empty-part.json"
+    },
+    {
+      "file": "non-nfc.json"
+    },
+    {
+      "file": "empty-state.json"
+    },
+    {
+      "file": "missing-save-data.json"
+    },
+    {
+      "file": "mismatched-binding.json"
+    },
+    {
+      "file": "uppercase-id.json"
+    },
+    {
+      "file": "trailing-newline-id.json"
+    },
+    {
+      "file": "duplicate-file.json"
+    },
+    {
+      "file": "noncanonical-server.json"
+    },
+    {
+      "file": "artifact-directory-collision.json"
+    },
+    {
+      "file": "non-nfc-account.json"
+    },
+    {
+      "file": "non-nfc-option.json"
+    },
+    {
+      "file": "duplicate-key.json"
+    },
+    {
+      "file": "duplicate-null.json"
+    },
+    {
+      "file": "exponent.json"
+    },
+    {
+      "file": "fraction.json"
+    },
+    {
+      "file": "trailing-json.json"
+    },
+    {
+      "file": "bad-utf8.json"
+    },
+    {
+      "file": "unpaired-surrogate.json"
+    },
+    {
+      "file": "v3-missing-pair.json"
+    },
+    {
+      "file": "v3-mixed-lanes.json"
+    }
+  ]
+}

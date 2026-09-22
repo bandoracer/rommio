@@ -209,7 +209,7 @@ public struct PlayerControlsPreferences: Codable, Hashable, Sendable {
         autoHideTouchOnController: Bool = true,
         rumbleToDeviceEnabled: Bool = true,
         oledBlackModeEnabled: Bool = false,
-        consoleColorsEnabled: Bool = false
+        consoleColorsEnabled: Bool = true
     ) {
         self.touchControlsEnabled = touchControlsEnabled
         self.autoHideTouchOnController = autoHideTouchOnController

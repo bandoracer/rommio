@@ -83,7 +83,8 @@ class GameDetailViewModel(
             combine(
                 repository.observeCachedRom(romId),
                 repository.observeInstalledFiles(romId),
-            ) { cachedRom, files ->
+                repository.observeRuntimeAssets(),
+            ) { cachedRom, files, _ ->
                 cachedRom to files
             }.collect { (cachedRom, files) ->
                 val rom = cachedRom ?: files.toFallbackRom()

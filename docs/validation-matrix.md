@@ -14,6 +14,12 @@ Use this matrix before promoting a platform from backlog or research into the us
 - Recovers cleanly when the required core library is missing
 - Recovers cleanly when required BIOS files are missing
 
+## Save and sync qualification
+
+The checks above remain basic runtime smoke tests. Qualification of the new persistence architecture also requires the applicable [save/sync acceptance scenarios](save-sync-spec.md#13-acceptance-scenarios) and [release gates](save-sync-spec.md#14-implementation-order-and-release-gates).
+
+Record local-save durability, same-platform synchronization, cross-platform in-game-save compatibility, and save-state compatibility separately. A successful file upload alone does not qualify conflict handling or recovery. Automatic synchronization must remain disabled for transport/client combinations that have not passed the capability investigation and concurrency tests defined in that specification. These target requirements do not retroactively mark existing catalog entries as validated.
+
 ## Reference outcomes
 
 - `READY`
@@ -74,3 +80,11 @@ Use this matrix before promoting a platform from backlog or research into the us
 - Wii U
 - Systems that cannot maintain stable performance or state integrity on the reference device set
 - Any platform that needs a more complex multi-screen, motion, or per-core UI than the current milestone provides
+
+## Qualified Apple progress cutover — 2026-09-18
+
+See [iOS progress qualification](ios-progress-player.md) for the pinned native core, ordered session owner and independent game/snapshot sync evidence. Swift: 132 tests, two existing environment skips, zero failures. Real simulator/emulator/RomM 5.2.0 tests pass bidirectional game saves, separate snapshot streams, a fresh iOS cloud snapshot restore, offline process restart and reconnect. Physical test build/sign/install pass; gameplay/lifecycle launch is blocked by the paired iPhone lock screen. This does not qualify other cores or close full platform/release parity.
+
+## iOS progress backup/recovery — 2026-09-18
+
+Twelve backup/recovery tests cover exact metadata and file round trips, conflicts/slots/tombstones, all outbox intents, device identity, staged captures before first commit, damaged archives/artifacts/journals, retry/rollback, active-player exclusion and stable-lock fencing. The real simulator app passes external SIGKILL/restart at all five activation boundaries. Physical qualification is deferred. See [reproduction and format limits](ios-progress-backup.md).

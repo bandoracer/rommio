@@ -1,0 +1,67 @@
+{
+  "fixtures": [
+    {
+      "coldBoot": "passed",
+      "coreSHA256": "eab8fee15e5d81fd0d6a67b474ba4a4a19ffcbf7e19573c74b1f79838936b6a6",
+      "freshSnapshot": "passed",
+      "gameSave": "passed",
+      "runtime": "genesis_plus_gx",
+      "snapshotBytes": "1036288",
+      "snapshotReplay": "passed",
+      "system": "genesis"
+    },
+    {
+      "coldBoot": "passed",
+      "coreSHA256": "eab8fee15e5d81fd0d6a67b474ba4a4a19ffcbf7e19573c74b1f79838936b6a6",
+      "freshSnapshot": "passed",
+      "gameSave": "passed",
+      "runtime": "genesis_plus_gx",
+      "snapshotBytes": "1036288",
+      "snapshotReplay": "passed",
+      "system": "sms"
+    },
+    {
+      "coldBoot": "passed",
+      "coreSHA256": "eab8fee15e5d81fd0d6a67b474ba4a4a19ffcbf7e19573c74b1f79838936b6a6",
+      "freshSnapshot": "passed",
+      "gameSave": "passed",
+      "runtime": "genesis_plus_gx",
+      "snapshotBytes": "1036288",
+      "snapshotReplay": "passed",
+      "system": "gamegear"
+    },
+    {
+      "coldBoot": "passed",
+      "coreSHA256": "7a9ad3bea62b53f6d719ed8c33e058fffedf77d35fb296bdec1654792a27e58a",
+      "freshSnapshot": "passed",
+      "gameSave": "passed",
+      "runtime": "pcsx_rearmed",
+      "snapshotBytes": "4456448",
+      "snapshotReplay": "passed",
+      "system": "psx"
+    },
+    {
+      "coldBoot": "passed",
+      "coreSHA256": "3d535b276c3abe63053ef6adf540f203879aa097bd3e794002a003e6458f0c22",
+      "freshSnapshot": "passed",
+      "gameSave": "passed",
+      "runtime": "mupen64plus_next_gles3",
+      "snapshotBytes": "16793412",
+      "snapshotReplay": "passed",
+      "system": "n64"
+    },
+    {
+      "coldBoot": "passed",
+      "coreSHA256": "6495b280783215c4d5d1ee97718415079c24303b27ad85f0e22cd9adb29f69d1",
+      "freshSnapshot": "passed",
+      "gameSave": "passed",
+      "runtime": "ppsspp",
+      "snapshotBytes": "113642",
+      "snapshotReplay": "passed",
+      "system": "psp"
+    }
+  ],
+  "platform": "ios-simulator",
+  "status": "passed",
+  "terminationAfterNativeSessions": "passed"
+}

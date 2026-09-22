@@ -3,10 +3,10 @@ import Foundation
 public struct UserDTO: Codable, Hashable, Sendable {
     public var id: Int
     public var username: String
-    public var email: String
+    public var email: String?
     public var role: String
 
-    public init(id: Int, username: String, email: String, role: String) {
+    public init(id: Int, username: String, email: String? = nil, role: String) {
         self.id = id
         self.username = username
         self.email = email

@@ -5,10 +5,15 @@ on:
     paths:
       - "ios/**"
       - "scripts/ios/**"
+      - "scripts/cores/**"
+      - "third_party/fceumm/**"
       - "docs/ios-player-spec.md"
       - "docs/ios-product-spec.md"
       - "docs/core-matrix-ios.md"
       - "docs/runtime-matrix.json"
+      - "docs/save-sync-spec.md"
+      - "tests/fixtures/**"
+      - ".github/workflows/ios-validate.yml"
   workflow_dispatch:
 
 jobs:
@@ -20,6 +25,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install host build tools
+        run: command -v cmake >/dev/null || brew install cmake
+
       - name: Fetch bundled cores
         run: scripts/ios/fetch_bundled_cores.sh --if-missing
 
@@ -28,6 +36,9 @@ jobs:
 
       - name: Verify bundled core resources
         run: scripts/ios/verify_bundled_core_resources.sh
+
+      - name: Build pinned host core for native persistence tests
+        run: python3 scripts/ios/build_pinned_core.py --sdk macosx --arch "$(uname -m)"
 
       - name: Run Swift package tests
         run: swift test --package-path ios

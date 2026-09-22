@@ -25,20 +25,20 @@ Goals:
 
 | Family | Platform slugs | Support tier | Recommended core | Alternates in catalog | BIOS | Artifact | Confidence | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| NES / Famicom | `nes`, `famicom` | Touch | `FCEUmm` | `Nestopia UE` | None | `fceumm` | strong | Fast, broadly compatible default for Android. |
+| NES / Famicom | `nes`, `famicom` | Touch | `FCEUmm` | `Nestopia UE` | None | `fceumm` | strong | Source-pinned APK bundle; synthetic SRAM/state tests pass on arm64. Complete mapper persistence and device qualification remain open. |
 | SNES / Super Famicom | `snes`, `sfam` | Touch | `Snes9x` | `bsnes` | None | `snes9x` | strong | `bsnes` remains available internally for future accuracy-first overrides. |
 | Game Boy / Game Boy Color | `gb`, `gbc` | Touch | `Gambatte` | `SameBoy` | None | `gambatte` | strong | Good handheld default with LCD shader profile. |
 | Game Boy Advance | `gba` | Touch | `mGBA` | `VBA Next` | None | `mgba` | strong | Best practical balance of accuracy, compatibility, and Android performance. |
 | Sega 8/16-bit | `genesis`, `sms`, `gamegear`, `segacd` | Touch | `Genesis Plus GX` | `PicoDrive` | Sega CD BIOS for `segacd` content | `genesis_plus_gx` | strong | `PicoDrive` stays internal as a future fallback for weaker devices. |
 | Sega 32X | `32x`, `sega32x`, `sega-32x` | Controller | `PicoDrive` | None | None | `picodrive` | provisional | First controller-first Sega expansion target. |
-| Nintendo 64 | `n64` | Controller | `Mupen64Plus-Next (GLES3)` | `Parallel N64` | None | `mupen64plus_next_gles3` | provisional | Needs renderer and device validation before wide enablement. |
+| Nintendo 64 | `n64` | Touch | `Mupen64Plus-Next (GLES3)` | `Parallel N64` | None | `mupen64plus_next_gles3` | provisional | Needs renderer and device validation before wide enablement. |
 | PlayStation | `psx`, `ps1`, `playstation` | Touch | `PCSX ReARMed` | `SwanStation` | `scph5501.bin` | `pcsx_rearmed` | strong | Keeps v1 aligned to a proven Android-first PS1 path. |
-| PlayStation Portable | `psp` | Controller | `PPSSPP` | None | None | `ppsspp` | provisional | Right default, but still performance-sensitive on some Android devices. |
+| PlayStation Portable | `psp` | Touch | `PPSSPP` | None | None | `ppsspp` | provisional | Right default, but still performance-sensitive on some Android devices. |
 | Nintendo DS / DSi-enhanced | `nds`, `nintendo-dsi` | Controller | `melonDS DS` | `DeSmuME` | None | `melondsds` | strong | DSi content stays in the DS family unless RomM ever needs a truly separate runtime path. |
 | Nintendo 3DS | `3ds`, `new-nintendo-3ds` | Controller | `Citra Canary/Experimental` | None | None | `citra` | provisional | `New Nintendo 3DS` stays under the same Citra family instead of becoming a separate public runtime family. |
 | GameCube / Wii | `gamecube`, `ngc`, `wii` | Controller | `Dolphin` | None | None | `dolphin` | provisional | Flagship expansion target once Android validation clears. |
-| Dreamcast / NAOMI | `dreamcast`, `naomi` | Controller | `Flycast` | None | `dc_boot.bin`, `dc_flash.bin` | `flycast` | provisional | First controller-first console/arcade expansion tier. |
-| 3DO | `3do` | Controller | `Opera` | None | Varies by ROM set / firmware path | `opera` | provisional | Keep controller-first until heavier per-core validation clears. |
+| Dreamcast / NAOMI | `dreamcast`, `naomi` | Controller | `Flycast` | None | `dc/dc_boot.bin` (Dreamcast; NAOMI contract pending) | `flycast` | provisional | First controller-first console/arcade expansion tier. |
+| 3DO | `3do` | Controller | `Opera` | None | One recognized Opera boot BIOS | `opera` | provisional | Keep controller-first until heavier per-core validation clears. |
 | Virtual Boy | `virtualboy`, `virtual-boy` | Controller | `Beetle VB` | None | None | `mednafen_vb` | provisional | Good breadth win with modest UI risk. |
 | Atari 2600 | `atari2600` | Touch | `Stella` | `Stella 2023` | None | `stella` | provisional | Lightweight family; both cores remain viable. |
 | Atari 7800 | `atari7800` | Touch | `ProSystem` | None | None | `prosystem` | provisional | Narrow platform surface, simple default. |
@@ -64,7 +64,7 @@ These families stay out of the user-facing support catalog until Android validat
 - The app can resolve cores from either:
   - packaged native libraries in the APK
   - app-managed storage under `files/library/cores/`
-- The current UX uses app-managed storage and downloads the recommended core on demand.
+- FCEUmm, Gambatte, mGBA, Snes9x, and melonDS DS are source-built into normal APKs and installed into immutable app-managed storage on demand. Other recommended cores retain their download path. See [cartridge persistence scope and qualification](cartridge-progress.md).
 - Alternate cores are intentionally hidden from the UI until we have a validation-backed reason to expose advanced runtime overrides.
 
 ## Validation expectations
@@ -80,3 +80,5 @@ Before a family should be considered fully enabled in the embedded player, valid
 - acceptable performance on the reference Android device set
 
 The current platform validation rubric is tracked separately in `docs/validation-matrix.md`.
+
+Firmware implementation and remaining qualification limits are described in [Android firmware provisioning](android-firmware.md). Normal BIOS import is available in Settings; use that flow instead of relying on developer helper scripts.

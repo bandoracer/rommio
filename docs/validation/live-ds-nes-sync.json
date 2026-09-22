@@ -1,0 +1,36 @@
+{
+  "server": "http://192.168.1.221:30062",
+  "version": "5.2.0",
+  "account": "codex-player-qa",
+  "games": [
+    {
+      "romId": 95,
+      "platform": "nds",
+      "runtime": "melonds_ds",
+      "iosPublication": true,
+      "iosProcessRestart": true,
+      "iosReconnect": true,
+      "iosFreshRootSnapshotRestore": true,
+      "androidHandoff": true,
+      "gameHash": "2bc62cb44c22eceab429d801cddb49114bd113ee70b5f1a69e1fc08f959d8889",
+      "clockHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "snapshotHash": "aa427db9ad0bbdb7f8055c95c71fc8692c36466039d4a95c387beaad48e92962",
+      "androidFreshStoreSnapshotRestore": true
+    },
+    {
+      "romId": 3,
+      "platform": "nes",
+      "runtime": "fceumm",
+      "iosPublication": true,
+      "iosProcessRestart": true,
+      "iosReconnect": true,
+      "iosFreshRootSnapshotRestore": true,
+      "androidHandoff": true,
+      "gameHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "clockHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "snapshotHash": "7920ab234164e3ca1aa0648200219959b208606a28f9f6c38df8ec6934453a60",
+      "androidFreshStoreSnapshotRestore": true
+    }
+  ],
+  "networkFailure": "application transport injection; server stays online"
+}

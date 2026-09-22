@@ -16,7 +16,7 @@ data class MigrationBundleManifest(
     val exportedAtEpochMs: Long,
 ) {
     companion object {
-        const val CURRENT_FORMAT_VERSION = 1
+        const val CURRENT_FORMAT_VERSION = 3
     }
 }
 
@@ -29,6 +29,11 @@ data class MigrationDownloadedRomRecord(
     val localPathRelative: String,
     val fileSizeBytes: Long,
     val downloadedAtEpochMs: Long,
+    val ownerProfileId: String? = null,
+    val ownerBaseUrl: String? = null,
+    val ownerAccountId: Int? = null,
+    val contentSha256: String? = null,
+    val progressScope: String = InstallIdentity.LEGACY,
 )
 
 data class MigrationDownloadRecord(
@@ -49,6 +54,14 @@ data class MigrationDownloadRecord(
     val startedAtEpochMs: Long? = null,
     val completedAtEpochMs: Long? = null,
     val updatedAtEpochMs: Long,
+    val ownerProfileId: String? = null,
+    val ownerBaseUrl: String? = null,
+    val ownerAccountId: Int? = null,
+    val attemptId: String? = null,
+    val destinationRelativePath: String? = null,
+    val contentSha256: String? = null,
+    val retryAfterEpochMs: Long? = null,
+    val parkedForAuthentication: Boolean? = null,
 )
 
 data class MigrationSaveStateSyncJournalRecord(
@@ -67,6 +80,7 @@ data class MigrationSaveStateSyncJournalRecord(
     val pendingUpload: Boolean = false,
     val pendingDelete: Boolean = false,
     val lastSyncedAtEpochMs: Long? = null,
+    val progressScope: String = InstallIdentity.LEGACY,
 )
 
 data class MigrationRecoveryStateRecord(
@@ -84,9 +98,19 @@ data class MigrationRecoveryStateRecord(
     val sourceDeviceName: String? = null,
     val capturedAtEpochMs: Long,
     val lastSyncedAtEpochMs: Long? = null,
+    val progressScope: String = InstallIdentity.LEGACY,
+)
+
+data class MigrationSaveStateRecord(
+    val romId: Int, val slot: Int, val label: String, val localPathRelative: String,
+    val screenshotPathRelative: String?, val updatedAtEpochMs: Long,
+    val progressScope: String = InstallIdentity.LEGACY,
 )
 
 data class MigrationDatabaseExport(
+    val progress: io.github.bandoracer.rommio.data.migration.MigrationProgressSnapshot? = null,
+    val saveStates: List<MigrationSaveStateRecord>? = null,
+    val pendingRemoteActions: List<io.github.bandoracer.rommio.data.local.PendingRemoteActionEntity> = emptyList(),
     val serverProfiles: List<ServerProfileEntity> = emptyList(),
     val downloadedRoms: List<MigrationDownloadedRomRecord> = emptyList(),
     val downloadRecords: List<MigrationDownloadRecord> = emptyList(),
@@ -123,6 +147,9 @@ data class MigrationBundleInspection(
     val manualSlotCount: Int,
     val libraryBytes: Long,
     val requiresReplace: Boolean,
+    val progressCheckpointCount: Int = 0,
+    val progressBytes: Long = 0,
+    val progressArtifactIssues: Int = 0,
 )
 
 data class MigrationImportSummary(
@@ -134,10 +161,14 @@ data class MigrationImportSummary(
     val recoveryStateCount: Int,
     val manualSlotCount: Int,
     val libraryBytes: Long,
+    val progressCheckpointCount: Int = 0,
+    val progressBytes: Long = 0,
+    val progressArtifactIssues: Int = 0,
 )
 
 internal fun SaveStateSyncJournalEntity.toMigrationRecord(localPathRelative: String?): MigrationSaveStateSyncJournalRecord {
     return MigrationSaveStateSyncJournalRecord(
+        progressScope = progressScope,
         profileId = profileId,
         romId = romId,
         fileId = fileId,
@@ -158,6 +189,7 @@ internal fun SaveStateSyncJournalEntity.toMigrationRecord(localPathRelative: Str
 
 internal fun RecoveryStateEntity.toMigrationRecord(localPathRelative: String): MigrationRecoveryStateRecord {
     return MigrationRecoveryStateRecord(
+        progressScope = progressScope,
         romId = romId,
         fileId = fileId,
         entryId = entryId,

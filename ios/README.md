@@ -1,18 +1,34 @@
 # Rommio iOS
 
+Android and iOS must meet the same [save/sync specification](../docs/save-sync-spec.md). Synced game saves and synced resume snapshots have equal priority. Qualified pinned NES, GB/GBC, GBA, SNES, and DS routes use schema-3 persistence, an ordered retained session owner, recovery UI, and application-owned sync. See [cartridge scope and live platform evidence](../docs/cartridge-progress.md). Real iOS/Android exchange and offline iOS process restart pass. See [qualification evidence and limits](../docs/ios-progress-player.md); complete progress backup/import and recovery are now available in Settings. See [backup/recovery behavior](../docs/ios-progress-backup.md). Broader formats and physical lifecycle qualification remain separate.
+
 This directory contains the native iOS foundation and app shell for Rommio.
 
 The code is package-first so the shared contract, networking, storage, sync, player policy, and SwiftUI shell can be validated independently. A generated Xcode app target now sits on top of those modules for Simulator and device builds.
+
+Legacy cloud-save reconciliation and publication are paused in this development version. Local saves, recovery files, and pending intent remain available; the replacement protocol is still being implemented. See the [remediation status](../docs/remediation-status.md).
 
 For product behavior and player semantics, use the narrative iOS specs in:
 
 - [`../docs/ios-product-spec.md`](../docs/ios-product-spec.md)
 - [`../docs/ios-player-spec.md`](../docs/ios-player-spec.md)
+- [Shared save, sync, and session architecture](../docs/save-sync-spec.md) — target behavior and implementation/release gates
+- [App remediation plan](../docs/remediation-plan.md) — audit coverage, implementation order, and acceptance criteria
 
 Keep the core and runtime packaging rules in:
 
 - [`../docs/core-matrix-ios.md`](../docs/core-matrix-ios.md)
 - [`../docs/runtime-matrix.json`](../docs/runtime-matrix.json)
+
+## Sign-in
+
+Onboarding follows Marquee's two-screen pattern: server address → Connect →
+RomM sign-in → library. Connect runs discovery and native access verification;
+optional gateway settings are in the Access profile sheet. Returning from browser
+access automatically rechecks the server. Usernames support password autofill,
+errors stay beside the form, and successful sign-in has no extra confirmation page.
+Both mobile clients request player permissions rather than administrator-only user
+management permissions, so normal RomM viewer accounts can sign in.
 
 ## Modules
 
@@ -25,9 +41,29 @@ Keep the core and runtime packaging rules in:
 
 ## Local validation
 
+The app targets iOS 18 and later. iPhone Duo support (vertical bars, fold-aware
+layouts, `ArrangementView`) needs Xcode 27.1 or later; see the
+[iPhone Duo plan](../docs/iphone-duo-plan.md). Host tools:
+
+```bash
+brew install cmake ripgrep
+```
+
+CMake builds the pinned cores whenever the SDK changes, so a new Xcode always
+needs it even when an older build succeeded from cache. `ripgrep` is used by the
+simulator repair script.
+
+Keep `xcode-select` on the release Xcode. For iPhone Duo work, point individual
+commands at the beta instead:
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer scripts/ios/build_simulator_app.sh
+```
+
 Run package tests:
 
 ```bash
+python3 scripts/ios/build_pinned_core.py --sdk macosx --arch "$(uname -m)"
 swift test --package-path ios
 ```
 
@@ -104,6 +140,8 @@ Build the app for the iOS simulator:
 scripts/ios/build_simulator_app.sh
 ```
 
+The app build compiles pinned FCEUmm, Gambatte, mGBA, Snes9x, melonDS DS, Genesis Plus GX, PCSX ReARMed, Mupen64Plus-Next, and PPSSPP for its Apple target, signs each bundled dylib, and records its final digest in per-core provenance. The older downloaded FCEUmm resource is replaced by this build phase. Cartridge builds need Git, Make, Python 3, CMake, and network access for first-time source/dependency fetches. Set `CMAKE` to select an explicit executable. See [build inputs and persistence scope](../docs/cartridge-progress.md) and [platform expansion qualification](../docs/platform-expansion.md).
+
 That build reuses the tracked `ios/Rommio.xcodeproj` by default so routine
 simulator builds do not churn the repo. Regenerate the project only when the
 tracked project is missing or when you intentionally want to refresh it:
@@ -150,8 +188,9 @@ The supported app editor/build entrypoint is `ios/Rommio.xcodeproj`. The
 generated workspace is only a local convenience artifact and is not a canonical
 tracked project file.
 
-If Xcode 26's iOS 26 simulator reports `Data Migration Failed` during boot even
-though the device still reaches `Booted`, repair the simulator's aggregate
+If a simulator (seen on iOS 26 and the iOS 27.1 iPhone Duo runtime) reports
+`Data Migration Failed` during boot even though the device still reaches
+`Booted`, repair the simulator's aggregate
 migration state and reboot it:
 
 ```bash
@@ -164,3 +203,32 @@ Or build an individual package scheme from the package directory:
 cd ios
 xcodebuild -scheme RommioUI -destination 'generic/platform=iOS Simulator' build
 ```
+
+### One-touch server setup
+
+The server screen now offers a Marquee-style pairing flow that provisions the
+RomM URL and Cloudflare service token through browser approval. RomM account
+sign-in remains separate. The backend lives in [`../setup-service`](../setup-service/README.md).
+See [`../docs/one-touch-setup-validation.md`](../docs/one-touch-setup-validation.md)
+for deployment prerequisites and current qualification. The hosted service is
+deployed; browser approval, credential delivery, RomM login, and relaunch were
+verified on the iPhone Air simulator on 2026-09-21. Physical-device qualification
+remains outstanding.
+
+### Player UI exploration
+
+For the iPhone Air gameplay pass, standalone XCTest action runner, simulator-only
+additional cores, and separate game-save/snapshot evidence, see
+[`docs/ios-player-ui-validation.md`](../docs/ios-player-ui-validation.md).
+The QA bundle does not change the production core manifest.
+
+### Expanded player controls validation
+
+After installing the Debug simulator app, run
+`bash scripts/ios/validate_player_controls.sh SIMULATOR_UDID` from the repo root.
+The runner requires the `xcodeproj` Ruby gem (the same prerequisite as project
+generation); `RUBY`, `GEM_HOME` and `GEM_PATH` may select a local Ruby environment.
+It opens an isolated controls harness, checks every console button and analog axis,
+mirroring, rotation and Menu, then returns the app to its normal root. It does not
+connect to a server or modify game progress. Actual fixture-player validation is
+separate; see `docs/player-controls-validation.md`.

@@ -1,0 +1,123 @@
+diff --git a/frontend/libretro.c b/frontend/libretro.c
+index 4005e37..52edb68 100644
+--- a/frontend/libretro.c
++++ b/frontend/libretro.c
+@@ -2221,6 +2221,17 @@ unsigned retro_get_region(void)
+    return is_pal_mode ? RETRO_REGION_PAL : RETRO_REGION_NTSC;
+ }
+ 
++/* Exact portable bytes of both 128 KiB cards, in slot order. */
++static unsigned char rommio_cards[2 * MCD_SIZE];
++RETRO_API const char *retro_rommio_persistence_descriptor(void) {
++   return disk_count > 1 ? "" : "rommio-cart-v1:pcsx_rearmed:psx:262144:0";
++}
++RETRO_API bool retro_rommio_memory_restored(void) {
++   memcpy(Mcd1Data, rommio_cards, MCD_SIZE);
++   memcpy(Mcd2Data, rommio_cards + MCD_SIZE, MCD_SIZE);
++   return true;
++}
++
+ void *retro_get_memory_data(unsigned id)
+ {
+    switch (id)
+@@ -2228,8 +2239,9 @@ void *retro_get_memory_data(unsigned id)
+    case RETRO_MEMORY_SYSTEM_RAM:
+       return psxRegs.ptrs.psxM;
+    case RETRO_MEMORY_SAVE_RAM:
+-      if (memcard_type[0] == MEMCARDTYPE_LIBRETRO)
+-         return Mcd1Data;
++      memcpy(rommio_cards, Mcd1Data, MCD_SIZE);
++      memcpy(rommio_cards + MCD_SIZE, Mcd2Data, MCD_SIZE);
++      return rommio_cards;
+    }
+    return NULL;
+ }
+@@ -2241,8 +2253,7 @@ size_t retro_get_memory_size(unsigned id)
+    case RETRO_MEMORY_SYSTEM_RAM:
+       return 0x200000;
+    case RETRO_MEMORY_SAVE_RAM:
+-      if (memcard_type[0] == MEMCARDTYPE_LIBRETRO)
+-         return MCD_SIZE;
++      return sizeof(rommio_cards);
+    }
+    return 0;
+ }
+@@ -3756,47 +3767,11 @@ static void get_dash_serial(char *dst, size_t size)
+ 
+ static void load_memcards(void)
+ {
+-   struct retro_variable var = { NULL, };
+-   const char *dir = NULL;
+-   char buf[128];
+-   int c;
+-
+-   if (!environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &dir) || !dir)
+-      LogErr("Could not get save directory! Memory card saving might not work.");
+-   else if (strlen(dir) + strlen("XXXX-00000_1.mcd") + 2 > sizeof(Config.Mcd1)) {
+-      LogErr("Path '%s' is too long. Memory card saving might not work.", dir);
+-      dir = NULL;
+-   }
+-
+-   for (c = 1; c <= 2; c++) {
+-      char *mcdpath = (c == 1) ? Config.Mcd1 : Config.Mcd2;
+-      snprintf(buf, sizeof(buf), "pcsx_rearmed_memcard%d", c);
+-      var.key = buf;
+-      if (!environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) || !var.value) {
+-         LogErr("non memcard%d config?", c);
+-         continue;
+-      }
+-      if (!strcmp(var.value, "libretro")) {
+-         memcard_type[c - 1] = MEMCARDTYPE_LIBRETRO;
+-         mcdpath[0] = 0;
+-         SysPrintf("memcard %d is libretro-managed\n", c);
+-      }
+-      else if (!strcmp(var.value, "serial") && dir && CdromId[0]) {
+-         memcard_type[c - 1] = MEMCARDTYPE_SERIAL;
+-         get_dash_serial(buf, sizeof(buf));
+-         snprintf(mcdpath, sizeof(Config.Mcd1), "%s/%s_%d.mcd", dir, buf, c);
+-      }
+-      else if (!strcmp(var.value, "shared") && dir) {
+-         memcard_type[c - 1] = MEMCARDTYPE_SHARED;
+-         snprintf(mcdpath, sizeof(Config.Mcd1), "%s/pcsx-card%d.mcd", dir, c);
+-      }
+-      else {
+-         memcard_type[c - 1] = MEMCARDTYPE_NONE;
+-         snprintf(mcdpath, sizeof(Config.Mcd1), "none");
+-         SysPrintf("memcard %d is disabled\n", c);
+-      }
+-      LoadMcd(c, mcdpath);
+-   }
++   /* Both cards belong to this game's workspace, never shared global files. */
++   memcard_type[0] = memcard_type[1] = MEMCARDTYPE_LIBRETRO;
++   Config.Mcd1[0] = Config.Mcd2[0] = 0;
++   LoadMcd(1, Config.Mcd1);
++   LoadMcd(2, Config.Mcd2);
+ }
+ 
+ static bool get_bios_config_hle(void)
+@@ -3904,10 +3879,8 @@ void retro_init(void)
+    msg_interface_version = 0;
+    environ_cb(RETRO_ENVIRONMENT_GET_MESSAGE_INTERFACE_VERSION, &msg_interface_version);
+ 
+-#if defined(__MACH__) && !defined(TVOS)
+-   // magic sauce to make the dynarec work on iOS
+-   syscall(SYS_ptrace, 0 /*PTRACE_TRACEME*/, 0, 0, 0);
+-#endif
++/* Rommio uses the interpreter on Apple. Never mark the host process as
++    * traced: doing so breaks normal app termination and simulator relaunch. */
+ 
+ #if defined(_3DS)
+    psxMapHook = pl_3ds_mmap;
+diff --git a/include/config.h b/include/config.h
+index 340cc2f..1f51410 100644
+--- a/include/config.h
++++ b/include/config.h
+@@ -1,7 +1,7 @@
+ #ifndef __CONFIG_H__
+ #define __CONFIG_H__
+ 
+-#define MAXPATHLEN 256
++#define MAXPATHLEN 4096
+ #define PCSX_VERSION "1.9"
+ 
+ #endif /* __CONFIG_H__ */

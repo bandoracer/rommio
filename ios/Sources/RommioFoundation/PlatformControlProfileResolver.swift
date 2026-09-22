@@ -21,7 +21,7 @@ public struct PlatformControlProfileResolver: ControlProfileResolving {
         profiles
     }
 
-    public static let defaultProfiles: [PlatformControlProfile] = [
+    public static let defaultProfiles: [PlatformControlProfile] = ExpansionControls.profiles + [
         touchProfile(
             familyID: "nes",
             displayName: "NES / Famicom",
@@ -124,64 +124,13 @@ public struct PlatformControlProfileResolver: ControlProfileResolving {
                 ),
             ]
         ),
-        touchProfile(
-            familyID: "sega16",
-            displayName: "Sega 8/16-bit",
-            platformSlugs: ["genesis", "sms", "gamegear", "segacd"],
-            presets: [
-                TouchLayoutPreset(
-                    presetID: "standard",
-                    displayName: "Standard",
-                    elements: [
-                        standardDpad(),
-                        faceFour(
-                            left: ("B", LibretroJoypadID.y),
-                            bottom: ("A", LibretroJoypadID.b),
-                            right: ("C", LibretroJoypadID.a),
-                            top: ("X", LibretroJoypadID.x)
-                        ).copy(centerY: 0.69),
-                        standardStartSelect(selectLabel: "Mode", startLabel: "Start"),
-                    ]
-                ),
-            ]
-        ),
+
         controllerFirstProfile(
             familyID: "sega32x",
             displayName: "Sega 32X",
             platformSlugs: ["32x", "sega32x", "sega-32x"]
         ),
-        touchProfile(
-            familyID: "psx",
-            displayName: "PlayStation",
-            platformSlugs: ["psx", "ps1", "playstation"],
-            orientationPolicy: .landscapeOnly,
-            presets: [
-                TouchLayoutPreset(
-                    presetID: "digital",
-                    displayName: "Digital",
-                    elements: [
-                        standardDpad(),
-                        faceFour(
-                            left: ("Square", LibretroJoypadID.y),
-                            bottom: ("Cross", LibretroJoypadID.b),
-                            right: ("Circle", LibretroJoypadID.a),
-                            top: ("Triangle", LibretroJoypadID.x)
-                        ),
-                        standardShoulders(
-                            id: "shoulders_top",
-                            labels: ("L1", "R1"),
-                            keyCodes: (LibretroJoypadID.l1, LibretroJoypadID.r1)
-                        ),
-                        standardShoulders(
-                            id: "shoulders_bottom",
-                            labels: ("L2", "R2"),
-                            keyCodes: (LibretroJoypadID.l2, LibretroJoypadID.r2)
-                        ).copy(centerY: 0.25, baseScale: 0.84),
-                        standardStartSelect(),
-                    ]
-                ),
-            ]
-        ),
+
         touchProfile(
             familyID: "atari",
             displayName: "Atari / Handheld Classics",
@@ -245,16 +194,8 @@ public struct PlatformControlProfileResolver: ControlProfileResolving {
                 ),
             ]
         ),
-        controllerFirstProfile(
-            familyID: "n64",
-            displayName: "Nintendo 64",
-            platformSlugs: ["n64"]
-        ),
-        controllerFirstProfile(
-            familyID: "psp",
-            displayName: "PlayStation Portable",
-            platformSlugs: ["psp"]
-        ),
+
+
         touchProfile(
             familyID: "nds",
             displayName: "Nintendo DS / DSi-enhanced",

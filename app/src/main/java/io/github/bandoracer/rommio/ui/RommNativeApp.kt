@@ -1,6 +1,12 @@
 package io.github.bandoracer.rommio.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import io.github.bandoracer.rommio.domain.storage.StorageAccess
+import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
@@ -24,6 +30,26 @@ import io.github.bandoracer.rommio.ui.screen.player.PlayerScreen
 @Composable
 fun RommNativeApp() {
     val app = LocalContext.current.applicationContext as RommNativeApplication
+    val scope = rememberCoroutineScope()
+    val importError = app.container.migrationBundleManager.recoveryError.collectAsStateWithLifecycle().value
+    val progressError = app.container.legacyProgressRecovery.recoveryError.collectAsStateWithLifecycle().value
+    val recoveryError = importError ?: progressError
+    val maintenance = StorageAccess.busy.collectAsStateWithLifecycle().value
+    if (recoveryError != null) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Finish library recovery") },
+            text = { Text(recoveryError) },
+            confirmButton = { TextButton(enabled = !maintenance, onClick = {
+                scope.launch { app.container.recoverStorage() }
+            }) { Text(if (maintenance) "Recovering…" else "Retry recovery") } },
+        )
+        return
+    }
+    if (maintenance) {
+        AlertDialog(onDismissRequest = {}, title = { Text("Preparing library") },
+            text = { Text("Wait for the library transfer to finish.") }, confirmButton = {})
+    }
     val navController = rememberNavController()
     val activeProfile = app.container.repository.activeProfileFlow().collectAsStateWithLifecycle(initialValue = null).value
 

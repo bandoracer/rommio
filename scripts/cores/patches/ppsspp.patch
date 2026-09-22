@@ -1,0 +1,350 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 65e2b49..404c577 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -311,6 +311,8 @@ include_directories(ext/glew)
+ 
+ if(OPENXR AND NOT ARMV7_DEVICE)
+ 	set(OPENGL_LIBRARIES GLESv3 EGL)
++elseif(IOS AND LIBRETRO)
++	set(OPENGL_LIBRARIES "-framework OpenGLES")
+ elseif(NOT OPENGL_LIBRARIES AND USING_GLES2)
+ 	set(OPENGL_LIBRARIES GLESv2 EGL)
+ endif()
+@@ -508,7 +510,7 @@ if(NOT MSVC)
+ 	endif()
+ 
+ 	if(IOS)
+-		set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0")
++		set(CMAKE_OSX_DEPLOYMENT_TARGET "17.0")
+ 	elseif(APPLE AND NOT CMAKE_CROSSCOMPILING)
+ 		if(LIBRETRO AND ARM64)
+ 			set(CMAKE_OSX_DEPLOYMENT_TARGET "10.14")
+diff --git a/Common/ExceptionHandlerSetup.cpp b/Common/ExceptionHandlerSetup.cpp
+index 2cdb36a..c4d3864 100644
+--- a/Common/ExceptionHandlerSetup.cpp
++++ b/Common/ExceptionHandlerSetup.cpp
+@@ -385,6 +385,11 @@ void InstallExceptionHandler(BadAccessHandler badAccessHandler, bool logStackTra
+ 		return;
+ 	}
+ 	
++	g_badAccessHandler = badAccessHandler;
++	// The libretro host owns per-thread signal stacks. CPU init and teardown
++	// can run on different threads; restoring the init stack on the UI thread
++	// corrupts Android ART signal handling after the core closes.
++#if !defined(__LIBRETRO__)
+ 	size_t altStackSize = SIGSTKSZ;
+ 
+ 	// Add some extra room.
+@@ -408,6 +413,7 @@ void InstallExceptionHandler(BadAccessHandler badAccessHandler, bool logStackTra
+ 	if (sigaltstack(&signal_stack, nullptr)) {
+ 		_assert_msg_(false, "sigaltstack failed");
+ 	}
++	#endif
+ 	struct sigaction sa{};
+ 	sa.sa_handler = nullptr;
+ 	sa.sa_sigaction = &sigsegv_handler;
+@@ -423,6 +429,7 @@ void UninstallExceptionHandler() {
+ 	if (!g_badAccessHandler) {
+ 		return;
+ 	}
++#if !defined(__LIBRETRO__)
+ 	if (old_signal_stack_valid) {
+ 		if (0 != sigaltstack(&old_signal_stack, nullptr)) {
+ 			ERROR_LOG(Log::System, "Could not restore previous signal altstack");
+@@ -433,6 +440,7 @@ void UninstallExceptionHandler() {
+ 		free(altStack);
+ 		altStack = nullptr;
+ 	}
++#endif
+ 	sigaction(SIGSEGV, &old_sa_segv, nullptr);
+ #ifdef __APPLE__
+ 	sigaction(SIGBUS, &old_sa_bus, nullptr);
+diff --git a/Core/FileSystems/DirectoryFileSystem.cpp b/Core/FileSystems/DirectoryFileSystem.cpp
+index 2a8a0c2..2811803 100644
+--- a/Core/FileSystems/DirectoryFileSystem.cpp
++++ b/Core/FileSystems/DirectoryFileSystem.cpp
+@@ -62,7 +62,27 @@
+ #include <fcntl.h>
+ #endif
+ 
++static std::vector<DirectoryFileSystem*> rommio_directories;
++bool DirectoryFileSystem::RommioFlushAll() {
++    for (auto *fs : rommio_directories) for (auto &item : fs->entries) {
++        auto &file = item.second.hFile;
++#ifdef HAVE_LIBRETRO_VFS
++        if (!file.hFile) return false;
++        if (file.needsTrunc_ >= 0) {
++            if (filestream_truncate(file.hFile, file.needsTrunc_) != 0) return false;
++            file.needsTrunc_ = -1;
++        }
++        if (fflush(file.hFile) != 0) return false;
++#else
++        return false;
++#endif
++    }
++    return true;
++}
++void DirectoryFileSystem::RommioCloseAll() { for (auto *fs : rommio_directories) fs->CloseAll(); }
++
+ DirectoryFileSystem::DirectoryFileSystem(IHandleAllocator *_hAlloc, const Path & _basePath, FileSystemFlags _flags) : basePath(_basePath), flags(_flags) {
++    rommio_directories.push_back(this);
+ 	File::CreateFullPath(basePath);
+ 
+ 	static const std::string_view mixedCase = "wJpCzSBNnZfxSgoS";
+@@ -90,6 +110,7 @@ DirectoryFileSystem::DirectoryFileSystem(IHandleAllocator *_hAlloc, const Path &
+ }
+ 
+ DirectoryFileSystem::~DirectoryFileSystem() {
++    rommio_directories.erase(std::remove(rommio_directories.begin(), rommio_directories.end(), this), rommio_directories.end());
+ 	CloseAll();
+ }
+ 
+diff --git a/Core/FileSystems/DirectoryFileSystem.h b/Core/FileSystems/DirectoryFileSystem.h
+index 70d0411..2529609 100644
+--- a/Core/FileSystems/DirectoryFileSystem.h
++++ b/Core/FileSystems/DirectoryFileSystem.h
+@@ -61,6 +61,8 @@ struct DirectoryFileHandle {
+ 
+ class DirectoryFileSystem : public IFileSystem {
+ public:
++    static bool RommioFlushAll();
++    static void RommioCloseAll();
+ 	DirectoryFileSystem(IHandleAllocator *_hAlloc, const Path &_basePath, FileSystemFlags _flags = FileSystemFlags::NONE);
+ 	~DirectoryFileSystem();
+ 
+diff --git a/Core/HLE/sceIo.cpp b/Core/HLE/sceIo.cpp
+index b25069b..0982c41 100644
+--- a/Core/HLE/sceIo.cpp
++++ b/Core/HLE/sceIo.cpp
+@@ -645,6 +645,8 @@ void __IoVblank() {
+ 	lastMemStickFatState = newFatState;
+ }
+ 
++void __IoRommioSync() { ioManager.SyncThread(true); }
++
+ void __IoInit() {
+ 	asyncNotifyEvent = CoreTiming::RegisterEvent("IoAsyncNotify", __IoAsyncNotify);
+ 	syncNotifyEvent = CoreTiming::RegisterEvent("IoSyncNotify", __IoSyncNotify);
+diff --git a/libretro/CMakeLists.txt b/libretro/CMakeLists.txt
+index 8f972d0..d398ff5 100644
+--- a/libretro/CMakeLists.txt
++++ b/libretro/CMakeLists.txt
+@@ -1,5 +1,6 @@
+ 
+ set(LIBRETRO_SRCS
++	rommio_file_bundle.cpp
+ 	libretro.cpp
+ 	LibretroGraphicsContext.cpp
+ 	LibretroGLContext.cpp
+diff --git a/libretro/libretro.cpp b/libretro/libretro.cpp
+index a217af8..ef64591 100644
+--- a/libretro/libretro.cpp
++++ b/libretro/libretro.cpp
+@@ -1,3 +1,8 @@
++#include "rommio_file_bundle.h"
++#include <zstd.h>
++#include <stdexcept>
++#include "Core/FileSystems/DirectoryFileSystem.h"
++void __IoRommioSync();
+ #include "ppsspp_config.h"
+ #include <cstring>
+ #include <cassert>
+@@ -1481,6 +1486,7 @@ bool retro_load_game(const struct retro_game_info *game) {
+    }
+ 
+    retro_check_backend();
++   backend = RETRO_HW_CONTEXT_NONE; // Pinned software frontend on both mobile platforms.
+ 
+    ctx       = LibretroGraphicsContext::CreateGraphicsContext();
+ 
+@@ -1537,7 +1543,7 @@ bool retro_load_game(const struct retro_game_info *game) {
+    // PSP_InitUpdate until done.
+ 
+    // Launch the init process.
+-   if (!PSP_InitStart(coreParam)) {
++   if (PSP_Init(coreParam, &g_bootErrorString) != BootState::Complete) {
+       g_bootErrorString = coreParam.errorString;
+       // Can't really fail, the errors normally happen later during InitUpdate
+       ERROR_LOG(Log::Boot, "%s", g_bootErrorString.c_str());
+@@ -1545,6 +1551,8 @@ bool retro_load_game(const struct retro_game_info *game) {
+       return false;
+    }
+ 
++   coreState = CORE_RUNNING_CPU;
++   g_pendingBoot = false;
+    return true;
+ }
+ 
+@@ -1756,71 +1764,90 @@ namespace SaveState
+    };
+ } // namespace SaveState
+ 
++static std::vector<uint8_t> rommio_files_buffer;
++static bool rommio_files_importing = false;
++static bool rommio_flush_files() {
++   if (useEmuThread) return false;
++   __IoRommioSync();
++   return DirectoryFileSystem::RommioFlushAll();
++}
++extern "C" RETRO_API const char *retro_rommio_persistence_descriptor() {
++   return "rommio-files-v1:ppsspp:psp";
++}
++extern "C" RETRO_API bool retro_rommio_prepare_restore(size_t size) {
++   if (size < 12 || size > rommio_files::max_bytes || !rommio_flush_files()) return false;
++   try { rommio_files_buffer.assign(size, 0);rommio_files_importing = true;return true; }
++   catch (...) { return false; }
++}
++extern "C" RETRO_API bool retro_rommio_memory_restored() {
++   if (!rommio_files_importing) return false;
++   bool result = rommio_files::restore(g_Config.memStickDirectory.ToString(), rommio_files_buffer, &DirectoryFileSystem::RommioCloseAll);
++   rommio_files_importing = false;return result;
++}
++
++// Snapshot compression stays in native memory: PSP states otherwise allocate
++// 72+ MiB Java arrays, often several at once during checkpoint/restore.
++static std::vector<uint8_t> rommio_snapshot;
++static constexpr size_t rommio_max_snapshot = 128u * 1024u * 1024u;
++static const uint8_t rommio_snapshot_magic[] = {'R','M','S','Z','0','0','0','1'};
+ size_t retro_serialize_size(void)
+ {
+-   if (!gpu) // The HW renderer isn't ready on first pass.
+-      return 134217728; // 128MB ought to be enough for anybody.
+-
+-   SaveState::SaveStart state;
+-   // TODO: Libretro API extension to use the savestate queue
+-   if (useEmuThread)
+-      EmuThreadPause();
+-
+-   return (CChunkFileReader::MeasurePtr(state) + 0x800000) & ~0x7FFFFF;
+-   // We don't unpause intentionally
++   rommio_snapshot.clear();
++   if (!gpu) return 0;
++   if (useEmuThread) EmuThreadPause();
++   try {
++      if (!rommio_flush_files()) throw std::runtime_error("File flush failed");
++      SaveState::SaveStart state;
++      const size_t measured = CChunkFileReader::MeasurePtr(state);
++      if (!measured || measured > rommio_max_snapshot) throw std::runtime_error("Snapshot too large");
++      std::vector<u8> raw;
++      if (CChunkFileReader::MeasureAndSavePtr(state, &raw) != CChunkFileReader::ERROR_NONE || raw.size() > rommio_max_snapshot)
++         throw std::runtime_error("Snapshot capture failed");
++      rommio_snapshot.resize(8 + ZSTD_compressBound(raw.size()));
++      memcpy(rommio_snapshot.data(), rommio_snapshot_magic, 8);
++      size_t compressed = ZSTD_compress(rommio_snapshot.data()+8, rommio_snapshot.size()-8, raw.data(), raw.size(), 1);
++      if (ZSTD_isError(compressed)) throw std::runtime_error("Snapshot compression failed");
++      rommio_snapshot.resize(8+compressed);
++      return rommio_snapshot.size(); // Keep paused until serialize copies this capture.
++   } catch (...) {
++      rommio_snapshot.clear();
++      if (useEmuThread) EmuThreadStart();
++      return 0;
++   }
+ }
+ 
+ bool retro_serialize(void *data, size_t size) {
+-   if (!gpu) // The HW renderer isn't ready on first pass.
+-      return false;
+-
+-   // TODO: Libretro API extension to use the savestate queue
+-   if (useEmuThread) {
+-      EmuThreadPause(); // Does nothing if already paused
+-   }
+-
+-   size_t measuredSize;
+-   SaveState::SaveStart state;
+-   auto err = CChunkFileReader::MeasureAndSavePtr(state, (u8 **)&data, &measuredSize);
+-   bool retVal = err == CChunkFileReader::ERROR_NONE;
+-
+-   if (useEmuThread) {
+-      EmuThreadStart();
+-      sleep_ms(4, "libretro-serialize");
+-   }
+-
+-   return retVal;
++   const bool ok = data && !rommio_snapshot.empty() && size == rommio_snapshot.size();
++   if (ok) memcpy(data, rommio_snapshot.data(), size);
++   rommio_snapshot.clear();
++   if (useEmuThread) EmuThreadStart();
++   return ok;
+ }
+ 
+ bool retro_unserialize(const void *data, size_t size) {
+-   // The HW renderer isn't ready on first pass.
+-   // So we save the data until we are ready to use it.
+-   if (!gpu) {
+-      unserialize_data = malloc(size);
+-      memcpy(unserialize_data, data, size);
+-      unserialize_size = size;
+-      return true;
+-   }
+-
+-   // TODO: Libretro API extension to use the savestate queue
+-   if (useEmuThread)
+-      EmuThreadPause(); // Does nothing if already paused
+-
+-   std::string errorString;
+-   SaveState::SaveStart state;
+-   bool retVal = CChunkFileReader::LoadPtr((u8 *)data, size, state, &errorString)
+-      == CChunkFileReader::ERROR_NONE;
+-
+-   if (useEmuThread) {
+-      EmuThreadStart();
+-      sleep_ms(4, "libretro-unserialize");
+-   }
+-
+-   return retVal;
++   if (!gpu || !data || size <= 8 || size > ZSTD_compressBound(rommio_max_snapshot)+8 ||
++       memcmp(data, rommio_snapshot_magic, 8)) return false;
++   const auto *compressed = static_cast<const uint8_t *>(data)+8;
++   const auto rawSize = ZSTD_getFrameContentSize(compressed, size-8);
++   if (!rawSize || rawSize > rommio_max_snapshot || ZSTD_findFrameCompressedSize(compressed, size-8) != size-8) return false;
++   if (useEmuThread) EmuThreadPause();
++   bool ok = false;
++   try {
++      std::vector<uint8_t> raw(static_cast<size_t>(rawSize));
++      if (ZSTD_decompress(raw.data(), raw.size(), compressed, size-8) == raw.size()) {
++         std::string errorString;
++         SaveState::SaveStart state;
++         ok = CChunkFileReader::LoadPtr(raw.data(), raw.size(), state, &errorString) == CChunkFileReader::ERROR_NONE;
++      }
++   } catch (...) { ok = false; }
++   rommio_snapshot.clear();
++   if (useEmuThread) EmuThreadStart();
++   return ok;
+ }
+ 
+ void *retro_get_memory_data(unsigned id)
+ {
++   if (id == RETRO_MEMORY_SAVE_RAM) return rommio_files_buffer.empty() ? nullptr : rommio_files_buffer.data();
+    if ( id == RETRO_MEMORY_SYSTEM_RAM )
+       return Memory::GetPointerWriteUnchecked(PSP_GetKernelMemoryBase()) ;
+    return NULL;
+@@ -1828,6 +1855,15 @@ void *retro_get_memory_data(unsigned id)
+ 
+ size_t retro_get_memory_size(unsigned id)
+ {
++   if (id == RETRO_MEMORY_SAVE_RAM) {
++      if (!rommio_files_importing) {
++         try {
++            if (!rommio_flush_files()) return SIZE_MAX;
++            rommio_files_buffer = rommio_files::capture(g_Config.memStickDirectory.ToString());
++         } catch (...) { return SIZE_MAX; }
++      }
++      return rommio_files_buffer.size();
++   }
+ 	if ( id == RETRO_MEMORY_SYSTEM_RAM )
+ 		return Memory::g_MemorySize ;
+ 	return 0;
+diff --git a/libretro/libretro.osx.def b/libretro/libretro.osx.def
+index 53a556a..9572e2d 100644
+--- a/libretro/libretro.osx.def
++++ b/libretro/libretro.osx.def
+@@ -25,3 +25,7 @@ _retro_unload_game
+ _retro_get_region
+ _retro_get_memory_data
+ _retro_get_memory_size
++
++_retro_rommio_persistence_descriptor
++_retro_rommio_memory_restored
++_retro_rommio_prepare_restore

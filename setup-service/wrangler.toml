@@ -1,0 +1,22 @@
+name = "rommio-setup"
+account_id = "fa92ae9a6766dab0dde37a83c9d2c006"
+main = "src/worker.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+routes = [{ pattern = "rommio-setup.borchetta.xyz", custom_domain = true }]
+
+[[durable_objects.bindings]]
+name = "CODE_STORE"
+class_name = "CodeStore"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["CodeStore"]
+
+[vars]
+PUBLIC_ORIGIN = "https://rommio-setup.ryan-personal-fa9.workers.dev"
+APPROVAL_ORIGIN = "https://rommio-setup.borchetta.xyz"
+ACCESS_TEAM_DOMAIN = "borchetta.cloudflareaccess.com"
+ACCESS_AUDIENCE = "82b3fe498e67f484709a690d0f21445e7a06e7daf06c5aaa865f20b8be5cbc16"
+ROMM_URL = "https://romm.borchetta.xyz"
+# CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET are Worker secrets.

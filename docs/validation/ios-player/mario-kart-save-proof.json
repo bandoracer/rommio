@@ -1,0 +1,18 @@
+{
+  "game": "Mario Kart DS",
+  "romID": 95,
+  "fileID": 143,
+  "game_save_bytes": 262144,
+  "game_save_sha256": "411caac2a180262456b95101ed81118f866a45ae7b2d5fbcebcdaaed5f5c3fd3",
+  "withheld_resume_sha256": "a5e628443c2b08021ed346e08212657ed7232bc46b3a9c9824906449017cba08",
+  "method": "Canonical resume snapshot temporarily renamed after clean exit; game-save file unchanged for next launch.",
+  "cold_boot_result": "Passed: game returned directly to the main menu without repeating nickname/emblem setup; no canonical resume snapshot was present at launch.",
+  "snapshot_result": "Passed separately: loaded manual slot 0 from the cold-boot main menu, returned to Figure-8 Circuit, and accelerated into lap 1.",
+  "process_restart_check": {
+    "game_save_bytes": 262144,
+    "game_save_sha256": "411caac2a180262456b95101ed81118f866a45ae7b2d5fbcebcdaaed5f5c3fd3",
+    "withheld_resume_sha256": "5ae61adc16fdb41ef19fecbfc8a1e4aa500b6ef7276f1b50ac121dd48d7c75f9",
+    "method": "Terminated the app after clean player exit; withheld canonical DS resume snapshot before restarting the app.",
+    "result": "Passed: restarted app process, booted the game without an emulator snapshot, and reached the main menu without repeating saved setup."
+  }
+}

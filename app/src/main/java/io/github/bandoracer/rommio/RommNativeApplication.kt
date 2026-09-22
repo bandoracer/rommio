@@ -9,5 +9,6 @@ class RommNativeApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(applicationContext)
+        io.github.bandoracer.rommio.data.work.ProgressSyncWorker.start(this)
     }
 }

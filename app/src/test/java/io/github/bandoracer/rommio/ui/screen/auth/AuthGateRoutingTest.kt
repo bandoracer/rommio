@@ -58,6 +58,17 @@ class AuthGateRoutingTest {
         )
     }
 
+    @Test
+    fun partialCacheStillOpensOfflineWithoutClaimingCompleteCoverage() {
+        val cached = OfflineState(connectivity = io.github.bandoracer.rommio.model.ConnectivityState.OFFLINE,
+            catalogReady = false, cachedContentAvailable = true)
+        assertEquals(false, cached.isOfflineReady)
+        assertEquals(NavRoutes.APP, authRouteForProfile(profile(ServerAccessStatus.READY,
+            AuthStatus.REAUTH_REQUIRED_ORIGIN, SessionState(hasOriginSession = true)), cached))
+        assertEquals(NavRoutes.ONBOARDING_LOGIN, authRouteForProfile(profile(ServerAccessStatus.READY,
+            AuthStatus.REAUTH_REQUIRED_ORIGIN), cached))
+    }
+
     private fun profile(
         access: ServerAccessStatus,
         auth: AuthStatus,

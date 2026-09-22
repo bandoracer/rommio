@@ -78,6 +78,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -97,7 +98,11 @@ import io.github.bandoracer.rommio.domain.input.PlayerControlsState
 import io.github.bandoracer.rommio.domain.input.TouchLayoutProfile
 import io.github.bandoracer.rommio.domain.input.TouchSupportMode
 import io.github.bandoracer.rommio.domain.player.PlayerControllerDescriptor
+import io.github.bandoracer.rommio.domain.progress.*
 import io.github.bandoracer.rommio.domain.player.PlayerEngine
+import io.github.bandoracer.rommio.domain.player.PlayerSession
+import io.github.bandoracer.rommio.domain.player.startPreparedPlayer
+import io.github.bandoracer.rommio.model.PlayerLaunchTarget
 import io.github.bandoracer.rommio.domain.player.PlayerInputConfiguration
 import io.github.bandoracer.rommio.model.GameSyncStatusKind
 import io.github.bandoracer.rommio.model.BrowsableGameState
@@ -127,6 +132,7 @@ fun PlayerScreen(
                 PlayerViewModel(
                     repository = container.repository,
                     controlsRepository = container.playerControlsRepository,
+                    progressSessions = container.progressSessions,
                     romId = romId,
                     fileId = fileId,
                 )
@@ -140,6 +146,7 @@ fun PlayerScreen(
     val density = LocalDensity.current
     val rootView = LocalView.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val lifecycleState by lifecycleOwner.lifecycle.currentStateFlow.collectAsStateWithLifecycleCompat()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var slot by rememberSaveable { mutableIntStateOf(1) }
@@ -147,8 +154,17 @@ fun PlayerScreen(
     var showStateBrowserSheet by rememberSaveable { mutableStateOf(false) }
     var showControlsSheet by rememberSaveable { mutableStateOf(false) }
     var playerAttached by remember { mutableStateOf(false) }
+    var nativeFailure by remember { mutableStateOf<String?>(null) }
     var runtimeControllers by remember { mutableStateOf<List<PlayerControllerDescriptor>>(emptyList()) }
-    val engine = remember { container.createPlayerEngine() }
+    val legacyEngine = remember { container.createPlayerEngine() }
+    val cloudMessages by container.progressSync.messages.collectAsStateWithLifecycleCompat()
+    val owner = state.progressSession
+    val engine = owner?.engine ?: legacyEngine
+    val ownerState by (owner?.state ?: remember { kotlinx.coroutines.flow.MutableStateFlow(ApplicationProgressState()) })
+        .collectAsStateWithLifecycleCompat()
+    LaunchedEffect(owner, ownerState.phase) {
+        if (owner != null) playerAttached = ownerState.phase == ApplicationProgressPhase.ACTIVE
+    }
     val latestUiState = rememberUpdatedState(state)
     val latestPlayerAttached = rememberUpdatedState(playerAttached)
     val primaryOverlayAlpha by animateFloatAsState(
@@ -173,21 +189,47 @@ fun PlayerScreen(
     ImmersivePlayerMode(enabled = true)
     PlayerOrientationMode(policy = state.controls?.platformProfile?.playerOrientationPolicy)
 
-    DisposableEffect(engine) {
-        onDispose { engine.detach() }
+    DisposableEffect(legacyEngine) {
+        onDispose { legacyEngine.detach() }
+    }
+    LaunchedEffect(engine) {
+        engine.failureSignals().collect { message ->
+            playerAttached = false
+            nativeFailure = message
+            if (owner == null) engine.detach()
+        }
     }
 
-    suspend fun captureContinuity(sessionActive: Boolean, onFinished: ((String) -> Unit)? = null) {
+    suspend fun captureContinuity(sessionActive: Boolean, onFinished: ((String) -> Unit)? = null): Boolean {
         val currentState = latestUiState.value
         if (!latestPlayerAttached.value || currentState.isLoading || currentState.resumeConflict != null) {
-            return
+            return true
         }
         if (currentState.installation == null || currentState.rom == null) {
-            return
+            return true
         }
-        runCatching { engine.persistSaveRam() }
-        runCatching { engine.saveState(0) }
-        viewModel.flushContinuity(sessionActive = sessionActive, onFinished = onFinished)
+        try {
+            if (owner != null) {
+                val result = if (sessionActive) owner.checkpoint("manual").await() else owner.finishExit().await()
+                if (result.stateRejected) snackbarHostState.showSnackbar(result.stateError ?: "Game save saved. Resume snapshot failed; the previous snapshot is preserved.")
+                return true
+            }
+            engine.persistSaveRam()
+            engine.saveResumeState(container.libraryStore.continuityResumeStateFile(currentState.installation))
+            viewModel.flushContinuity(sessionActive = sessionActive, onFinished = onFinished)
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            snackbarHostState.showSnackbar("Local save failed: ${error.message ?: "please retry before leaving"}")
+            return false
+        }
+        return true
+    }
+
+    suspend fun playerAction(action: suspend () -> Unit) {
+        try { action() }
+        catch (error: kotlinx.coroutines.CancellationException) { throw error }
+        catch (error: Exception) { snackbarHostState.showSnackbar(error.message ?: "Player action failed.") }
     }
 
     LaunchedEffect(state.errorMessage) {
@@ -206,9 +248,15 @@ fun PlayerScreen(
 
     LaunchedEffect(playerAttached, state.controls?.hardwareBinding?.controllerTypeId, showControlsSheet) {
         if (playerAttached) {
-            runtimeControllers = engine.availableControllerTypes()
-            state.controls?.hardwareBinding?.controllerTypeId?.let { controllerTypeId ->
-                engine.setControllerType(port = 0, controllerTypeId = controllerTypeId)
+            playerAction {
+                runtimeControllers = engine.availableControllerTypes()
+                (state.controls?.hardwareBinding?.controllerTypeId ?: when (state.controls?.platformProfile?.familyId) {
+                    "sega16" -> 513
+                    "psx" -> 517
+                    else -> null
+                })?.let { controllerTypeId ->
+                    engine.setControllerType(port = 0, controllerTypeId = controllerTypeId)
+                }
             }
         }
     }
@@ -233,9 +281,14 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(playerAttached, showPauseSheet, showStateBrowserSheet) {
+    LaunchedEffect(playerAttached, showPauseSheet, showStateBrowserSheet, showControlsSheet, ownerState.progress?.phase, lifecycleState) {
         if (playerAttached) {
-            engine.setPaused(showPauseSheet || showStateBrowserSheet)
+            playerAction {
+                val paused = showPauseSheet || showStateBrowserSheet || showControlsSheet
+                if (owner == null) engine.setPaused(paused)
+                else if (paused && owner.state.value.progress?.phase == ProgressSessionPhase.RUNNING) owner.checkpoint("pause").await()
+                else if (!paused && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && owner.state.value.progress?.phase == ProgressSessionPhase.PAUSED) owner.resume().await()
+            }
         }
     }
 
@@ -245,27 +298,17 @@ fun PlayerScreen(
         )
     }
 
-    LaunchedEffect(playerAttached, state.pendingLaunchTarget, state.resumeConflict) {
-        if (!playerAttached || state.resumeConflict != null) return@LaunchedEffect
-        val launchTarget = state.pendingLaunchTarget ?: return@LaunchedEffect
-        val loaded = runCatching { engine.loadState(java.io.File(launchTarget.localStatePath)) }.getOrDefault(false)
-        viewModel.consumePendingLaunchTarget()
-        if (!loaded) {
-            snackbarHostState.showSnackbar("Unable to apply ${launchTarget.label ?: "selected"} state.")
-        }
-    }
-
     LaunchedEffect(playerAttached, state.resumeConflict, state.isLoading) {
-        if (!playerAttached || state.resumeConflict != null || state.isLoading) return@LaunchedEffect
+        if (owner != null || !playerAttached || state.resumeConflict != null || state.isLoading) return@LaunchedEffect
         while (true) {
             delay(120_000)
             captureContinuity(sessionActive = true)
         }
     }
 
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(lifecycleOwner, owner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) {
+            if (owner == null && event == Lifecycle.Event.ON_STOP) {
                 scope.launch {
                     captureContinuity(sessionActive = false)
                 }
@@ -291,6 +334,9 @@ fun PlayerScreen(
 
     BackHandler(enabled = !state.isLoading) {
         when {
+            nativeFailure != null || state.errorMessage != null -> scope.launch { playerAction {
+                if (owner != null) owner.exitWithoutLatestProgress().await() else onBack()
+            } }
             showControlsSheet -> showControlsSheet = false
             showStateBrowserSheet -> {
                 showStateBrowserSheet = false
@@ -316,12 +362,14 @@ fun PlayerScreen(
                     CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                 }
 
-                state.errorMessage != null -> {
-                    Text(
-                        text = state.errorMessage ?: "Unable to prepare player.",
-                        modifier = Modifier.align(Alignment.Center),
-                        color = MaterialTheme.colorScheme.error,
-                    )
+                state.errorMessage != null || nativeFailure != null -> {
+                    Column(modifier = Modifier.align(Alignment.Center).padding(24.dp)) {
+                        Text(text = nativeFailure ?: state.errorMessage ?: "Unable to prepare player.",
+                            color = MaterialTheme.colorScheme.error)
+                        Button(onClick = { scope.launch { playerAction {
+                            if (owner != null) owner.exitWithoutLatestProgress().await() else onBack()
+                        } } }) { Text("Back to library") }
+                    }
                 }
 
                 else -> {
@@ -340,24 +388,42 @@ fun PlayerScreen(
                         )
                     }
                     val bottomInset = systemBars.calculateBottomPadding()
+                    val consoleDeckControls = controls?.let { io.github.bandoracer.rommio.domain.input.ExpansionControls.controls(it.platformProfile.familyId) }.orEmpty()
+                    val sideInset = with(density) {
+                        val cutout = ViewCompat.getRootWindowInsets(rootView)?.displayCutout
+                        maxOf(cutout?.safeInsetLeft ?: 0, cutout?.safeInsetRight ?: 0).toDp()
+                    }
+                    val deck = PlayerControlDeckLayout(availableWidth.value, availableHeight.value,
+                        portraitTopInset.value, bottomInset.value, sideInset.value,
+                        io.github.bandoracer.rommio.domain.input.ExpansionControls.deckHeight(consoleDeckControls),
+                        controls?.touchLayout?.globalScale ?: 1f,
+                        controls?.showTouchControls == true && consoleDeckControls.isNotEmpty(),
+                        controls?.platformProfile?.preferredViewportAspectRatio, consoleDeckControls.count { it.center } + 1)
                     val viewportFrame = calculateViewportFrame(
                         containerWidth = availableWidth,
                         containerHeight = availableHeight,
                         aspectRatio = controls?.platformProfile?.preferredViewportAspectRatio,
                         isLandscape = isLandscape,
                         portraitTopInset = portraitTopInset,
+                        deck = deck,
                     )
 
                     if (state.resumeConflict == null) {
                         PlayerViewport(
-                            viewModel = viewModel,
+                            owner = owner,
+                            session = requireNotNull(state.preparedSession),
+                            initialTarget = state.pendingLaunchTarget,
                             engine = engine,
                             modifier = Modifier
                                 .offset(x = viewportFrame.left, y = viewportFrame.top)
                                 .size(width = viewportFrame.width, height = viewportFrame.height),
-                            onAttached = { playerAttached = true },
+                            onAttached = {
+                                viewModel.consumePendingLaunchTarget()
+                                playerAttached = true
+                            },
                             onError = { message ->
-                                scope.launch { snackbarHostState.showSnackbar(message) }
+                                nativeFailure = message
+                                if (owner == null) engine.detach()
                             },
                         )
                     } else {
@@ -400,7 +466,17 @@ fun PlayerScreen(
                             }
                         }
 
-                    if (controls != null && overlayLayout != null && (controls.showTouchControls || controls.platformProfile.touchSupportMode == TouchSupportMode.CONTROLLER_FIRST)) {
+                    if (playerAttached && controls != null && overlayLayout != null && (controls.showTouchControls || controls.platformProfile.touchSupportMode == TouchSupportMode.CONTROLLER_FIRST || io.github.bandoracer.rommio.domain.input.ExpansionControls.controls(controls.platformProfile.familyId) != null)) {
+                        val consoleControls = io.github.bandoracer.rommio.domain.input.ExpansionControls.controls(controls.platformProfile.familyId)
+                        if (consoleControls != null || controls.platformProfile.touchSupportMode == TouchSupportMode.CONTROLLER_FIRST) {
+                            ExpansionControlsOverlay(controls = consoleControls.orEmpty(), leftHanded = overlayLayout.leftHanded,
+                                scale = overlayLayout.globalScale, opacity = overlayLayout.opacity,
+                                showControls = controls.showTouchControls && !showPauseSheet && !showControlsSheet,
+                                bottomInset = bottomInset, sideInset = sideInset, topInset = portraitTopInset,
+                                onDigital = { key, pressed -> scope.launch { engine.dispatchDigital(keyCode = key, pressed = pressed) } },
+                                onMotion = { source, x, y -> scope.launch { engine.dispatchMotion(source, x, y) } },
+                                onMenu = { showPauseSheet = true }, theme = visualTheme, aspectRatio = controls.platformProfile.preferredViewportAspectRatio)
+                        } else {
                         TouchControlsOverlay(
                             controlsState = controls,
                             layout = overlayLayout,
@@ -422,6 +498,7 @@ fun PlayerScreen(
                             onPrimaryInteraction = viewModel::markPrimaryOverlayInteraction,
                             onTertiaryInteraction = viewModel::markTertiaryOverlayInteraction,
                         )
+                        }
                     }
                 }
             }
@@ -436,7 +513,13 @@ fun PlayerScreen(
         }
     }
 
-    if (showPauseSheet) {
+    if (owner != null) {
+        ProgressPlayerGate(owner, ownerState, onBack, onMessage = { message ->
+            scope.launch { snackbarHostState.showSnackbar(message) }
+        })
+    }
+
+    if (showPauseSheet && (owner == null || ownerState.phase == ApplicationProgressPhase.ACTIVE) && ownerState.progress?.phase != ProgressSessionPhase.SAVE_FAILED) {
         ModalBottomSheet(
             onDismissRequest = { showPauseSheet = false },
             containerColor = sheetTheme.panelColor,
@@ -446,10 +529,11 @@ fun PlayerScreen(
                 visualTheme = sheetTheme,
                 title = state.rom?.displayName ?: "Player",
                 currentSlot = slot,
-                syncStatus = state.syncPresentation.takeUnless {
+                syncStatus = if (owner != null) (ownerState.progress?.lastCommitted?.stateError?.let { "$it " }.orEmpty() +
+                    (cloudMessages[io.github.bandoracer.rommio.domain.progress.ProgressProtocol.bindingKey(owner.workspace.identity.binding)] ?: "Game saves and resume snapshots: sync pending.")) else state.syncPresentation.takeUnless {
                     it.kind == GameSyncStatusKind.IDLE && it.lastSuccessfulSyncAtEpochMs == null
                 }?.message,
-                hasLoadableStates = viewModel.hasBrowsableStates(),
+                hasLoadableStates = owner != null || viewModel.hasBrowsableStates(),
                 onResume = { showPauseSheet = false },
                 onOpenControls = {
                     showPauseSheet = false
@@ -460,32 +544,41 @@ fun PlayerScreen(
                     showStateBrowserSheet = true
                 },
                 onQuickSave = {
-                    scope.launch {
-                        val file = engine.saveState(slot)
-                        viewModel.recordState(slot, file)
-                        snackbarHostState.showSnackbar("Saved slot $slot.")
+                    scope.launch { playerAction {
+                        if (owner != null) {
+                            val result = owner.checkpoint("manual", slotId = java.util.UUID.nameUUIDFromBytes("rommio-slot-$slot".toByteArray()).toString()).await()
+                            snackbarHostState.showSnackbar(if (result.stateRejected) result.stateError ?: "Game save saved. Snapshot failed; the previous slot is preserved." else "Saved slot $slot.")
+                        } else {
+                            val file = engine.saveState(slot)
+                            viewModel.recordState(slot, file)
+                            snackbarHostState.showSnackbar("Saved slot $slot.")
+                        }
                         slot = if (slot >= 4) 1 else slot + 1
-                    }
+                    } }
                 },
                 onReset = {
-                    scope.launch {
-                        engine.reset()
+                    scope.launch { playerAction {
+                        if (owner != null) owner.reset().await() else engine.reset()
                         snackbarHostState.showSnackbar("Core reset.")
-                    }
+                    } }
                 },
                 onSync = {
                     scope.launch {
-                        captureContinuity(sessionActive = true)
-                        viewModel.syncNow { message ->
+                        if (!captureContinuity(sessionActive = true)) return@launch
+                        if (owner != null) {
+                            container.progressSync.sync(owner.workspace.identity.binding)
+                            snackbarHostState.showSnackbar(container.progressSync.messages.value[io.github.bandoracer.rommio.domain.progress.ProgressProtocol.bindingKey(owner.workspace.identity.binding)] ?: "Sync pending.")
+                        }
+                        else viewModel.syncNow { message ->
                             scope.launch { snackbarHostState.showSnackbar(message) }
                         }
                     }
                 },
                 onLeaveGame = {
                     scope.launch {
-                        captureContinuity(sessionActive = false)
+                        if (!captureContinuity(sessionActive = false)) return@launch
                         showPauseSheet = false
-                        onBack()
+                        if (owner == null) onBack()
                     }
                 },
             )
@@ -498,28 +591,32 @@ fun PlayerScreen(
             containerColor = sheetTheme.panelColor,
             scrimColor = Color.Black.copy(alpha = 0.72f),
         ) {
-            StateBrowserContent(
+            if (owner != null) ProgressHistoryContent(owner, onLoaded = {
+                showStateBrowserSheet = false
+                showPauseSheet = true
+            }, onMessage = { message -> scope.launch { snackbarHostState.showSnackbar(message) } })
+            else StateBrowserContent(
                 resume = state.stateRecovery.resume,
                 saveSlots = state.stateRecovery.saveSlots,
                 snapshots = state.stateRecovery.snapshots,
                 onUseResume = state.stateRecovery.resume?.localPath?.let { resumePath ->
                     {
-                        scope.launch {
+                        scope.launch { playerAction {
                             val ok = engine.loadState(java.io.File(resumePath))
                             snackbarHostState.showSnackbar(
                                 if (ok) "Loaded resume." else "Unable to load resume.",
                             )
-                        }
+                        } }
                         showStateBrowserSheet = false
                     }
                 },
                 onLoadState = { entry ->
-                    scope.launch {
+                    scope.launch { playerAction {
                         val ok = engine.loadState(java.io.File(entry.localPath))
                         snackbarHostState.showSnackbar(
                             if (ok) "Loaded ${entry.label}." else "Unable to load ${entry.label}.",
                         )
-                    }
+                    } }
                     showStateBrowserSheet = false
                 },
                 onDeleteState = state.installation?.let {
@@ -727,7 +824,7 @@ private fun ControlsSheet(
                         ),
                     )
                 },
-                valueRange = 0.6f..1.4f,
+                valueRange = 0.92f..1.3f,
             )
             Button(onClick = onResetLayout, modifier = Modifier.fillMaxWidth()) {
                 Text("Reset layout")
@@ -786,49 +883,22 @@ private fun PlayerOrientationMode(
 }
 
 private fun calculateViewportFrame(
-    containerWidth: androidx.compose.ui.unit.Dp,
-    containerHeight: androidx.compose.ui.unit.Dp,
+    containerWidth: Dp,
+    containerHeight: Dp,
     aspectRatio: Float?,
     isLandscape: Boolean,
-    portraitTopInset: androidx.compose.ui.unit.Dp,
+    portraitTopInset: Dp,
+    deck: PlayerControlDeckLayout,
 ): PlayerViewportFrame {
-    if (aspectRatio == null) {
-        return PlayerViewportFrame(
-            left = 0.dp,
-            top = 0.dp,
-            width = containerWidth,
-            height = containerHeight,
-        )
-    }
-
-    return if (isLandscape) {
-        var height = containerHeight
-        var width = height * aspectRatio
-        if (width > containerWidth) {
-            width = containerWidth
-            height = width / aspectRatio
-        }
-        PlayerViewportFrame(
-            left = (containerWidth - width) / 2f,
-            top = (containerHeight - height) / 2f,
-            width = width,
-            height = height,
-        )
-    } else {
-        val maxHeight = containerHeight - portraitTopInset
-        var width = containerWidth
-        var height = width / aspectRatio
-        if (height > maxHeight) {
-            height = maxHeight
-            width = height * aspectRatio
-        }
-        PlayerViewportFrame(
-            left = (containerWidth - width) / 2f,
-            top = portraitTopInset,
-            width = width,
-            height = height,
-        )
-    }
+    val aspect = (aspectRatio ?: (containerWidth / containerHeight)).coerceAtLeast(.1f)
+    val areaWidth = (deck.gameRight - deck.gameLeft).coerceAtLeast(1f)
+    val areaHeight = (deck.gameBottom - deck.gameTop).coerceAtLeast(1f)
+    val width = minOf(areaWidth, areaHeight * aspect)
+    val height = width / aspect
+    return PlayerViewportFrame(
+        left = (deck.gameLeft + (areaWidth - width) / 2).dp,
+        top = (deck.gameTop + if (isLandscape) (areaHeight - height) / 2 else 0f).dp,
+        width = width.dp, height = height.dp)
 }
 
 @Composable
@@ -946,7 +1016,7 @@ private fun PauseSheet(
                     onClick = onOpenControls,
                 )
                 PauseActionButton(
-                    title = "Quick save",
+                    title = "Save snapshot",
                     subtitle = "Write the current state to slot $currentSlot.",
                     icon = Icons.Outlined.Save,
                     width = actionWidth,
@@ -954,7 +1024,7 @@ private fun PauseSheet(
                     onClick = onQuickSave,
                 )
                 PauseActionButton(
-                    title = "Browse states",
+                    title = "Snapshots & game saves",
                     subtitle = if (hasLoadableStates) {
                         "Review resume, save slots, and snapshots."
                     } else {
@@ -967,8 +1037,8 @@ private fun PauseSheet(
                     onClick = onOpenStateBrowser,
                 )
                 PauseActionButton(
-                    title = "Advanced sync",
-                    subtitle = "Force reconcile cloud continuity and manual save slots.",
+                    title = "Sync progress",
+                    subtitle = "Sync game saves, resume snapshots, and manual slots.",
                     icon = Icons.Outlined.Sync,
                     width = actionWidth,
                     visualTheme = visualTheme,
@@ -1113,27 +1183,47 @@ private fun PauseActionButton(
 
 @Composable
 private fun PlayerViewport(
-    viewModel: PlayerViewModel,
+    owner: ApplicationProgressSession?,
+    session: PlayerSession,
+    initialTarget: PlayerLaunchTarget?,
     engine: PlayerEngine,
     modifier: Modifier = Modifier,
     onAttached: () -> Unit,
     onError: (String) -> Unit,
 ) {
-    val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-
+    var attached by remember(engine) { mutableStateOf(false) }
+    val target = remember(session) { initialTarget }
     AndroidView(
         modifier = modifier,
-        factory = {
-            val session = runCatching { kotlinx.coroutines.runBlocking { viewModel.buildSession() } }.getOrElse {
-                onError(it.message ?: "Unable to create player session.")
-                return@AndroidView View(context)
+        factory = { context ->
+            try {
+                (owner?.attach(context, lifecycleOwner) ?: engine.createOrAttachView(context, lifecycleOwner, session)).also { attached = true }
+            } catch (error: Exception) {
+                onError(error.message ?: "Unable to attach player.")
+                View(context)
             }
-            onAttached()
-            engine.createOrAttachView(context, lifecycleOwner, session)
         },
-        update = { onAttached() },
     )
+    LaunchedEffect(engine, attached) {
+        if (!attached) return@LaunchedEffect
+        try {
+            if (owner != null) {
+                if (owner.state.value.phase == ApplicationProgressPhase.WAITING_FOR_VIEW) owner.select().await()
+                return@LaunchedEffect
+            }
+            startPreparedPlayer(
+                awaitReady = engine::awaitReady,
+                restore = target?.let { { engine.loadState(java.io.File(it.localStatePath)) } },
+                start = { onAttached() },
+            )
+            // The parent's pause policy releases gameplay after this readiness notification.
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            onError(error.message ?: "Unable to start player.")
+        }
+    }
 }
 
 private fun ActiveInputMode.label(): String {

@@ -11,10 +11,13 @@ public final class NetworkMonitor {
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "io.github.mattsays.rommio.network")
 
-    public init() {
+    public init(onReconnect: @escaping @MainActor @Sendable () -> Void = {}) {
         monitor.pathUpdateHandler = { [weak self] path in
             Task { @MainActor in
-                self?.connectivity = path.status == .satisfied ? .online : .offline
+                guard let self else { return }
+                let previous = self.connectivity
+                self.connectivity = path.status == .satisfied ? .online : .offline
+                if previous == .offline && self.connectivity == .online { onReconnect() }
             }
         }
         monitor.start(queue: queue)
@@ -37,6 +40,7 @@ public struct RommioServices: Sendable {
     public let networkMonitor: NetworkMonitor
     public let controllerMonitor: any ControllerMonitoring
     public let playerControlsRepository: PlayerControlsRepository
+    public let progress: ApplicationProgress
     public let syncBridge: ProfileSyncBridge
 
     public init(
@@ -51,9 +55,11 @@ public struct RommioServices: Sendable {
         networkMonitor: NetworkMonitor,
         controllerMonitor: (any ControllerMonitoring)? = nil,
         playerControlsRepository: PlayerControlsRepository? = nil,
-        syncBridge: ProfileSyncBridge? = nil
+        syncBridge: ProfileSyncBridge? = nil,
+        progress: ApplicationProgress? = nil
     ) {
         let resolvedControllerMonitor = controllerMonitor ?? GameControllerMonitor()
+        self.progress = progress ?? ApplicationProgress(database: database, root: libraryStore.rootDirectory.deletingLastPathComponent().appending(path: "Progress"), profiles: profileStore, auth: authController)
         self.database = database
         self.secretStore = secretStore
         self.profileStore = profileStore
@@ -102,7 +108,7 @@ public struct RommioServices: Sendable {
         let downloadQueue = ManagedDownloadQueue(
             database: database,
             profileStore: profileStore,
-            secretStore: secretStore,
+            authController: authController,
             libraryStore: libraryStore
         )
         let syncBridge = ProfileSyncBridge(
@@ -111,6 +117,7 @@ public struct RommioServices: Sendable {
             database: database
         )
 
+        let progress = ApplicationProgress(database: database, root: supportRoot.appending(path: "Progress"), profiles: profileStore, auth: authController)
         return RommioServices(
             database: database,
             secretStore: secretStore,
@@ -120,15 +127,21 @@ public struct RommioServices: Sendable {
             libraryRepository: libraryRepository,
             downloadQueue: downloadQueue,
             libraryStore: libraryStore,
-            networkMonitor: NetworkMonitor(),
+            networkMonitor: NetworkMonitor(onReconnect: { Task { try? await downloadQueue.resumePending(); await progress.wake() } }),
             controllerMonitor: controllerMonitor,
             playerControlsRepository: playerControlsRepository,
-            syncBridge: syncBridge
+            syncBridge: syncBridge,
+            progress: progress
         )
     }
 
     private static func liveSecretStore(rootDirectory: URL) throws -> any SecretStore {
         let environment = ProcessInfo.processInfo.environment
+        #if DEBUG
+        if Bundle.main.bundleIdentifier?.hasSuffix(".paritytest") == true && environment["ROMMIO_PROGRESS_LOCAL_PHASE"] != nil {
+            return try FileSecretStore(rootDirectory: rootDirectory.appending(path: "Secrets"))
+        }
+        #endif
         #if targetEnvironment(simulator)
         return try FileSecretStore(rootDirectory: rootDirectory.appending(path: "Secrets"))
         #else
@@ -140,6 +153,13 @@ public struct RommioServices: Sendable {
     }
 
     private static func applicationSupportRoot() throws -> URL {
+        #if DEBUG
+        if Bundle.main.bundleIdentifier?.hasSuffix(".paritytest") == true && ProcessInfo.processInfo.environment["ROMMIO_PROGRESS_LOCAL_PHASE"] != nil {
+            let root = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appending(path: "rommio-progress-fixture")
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            return root
+        }
+        #endif
         if let override = ProcessInfo.processInfo.environment["ROMMIO_APP_ROOT"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !override.isEmpty {

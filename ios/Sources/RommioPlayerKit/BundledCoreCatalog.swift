@@ -47,7 +47,7 @@ public struct BundledCoreCatalog: CoreCatalog, Sendable {
         let runtime = family.runtimeOptions.first {
             $0.platformSlugs.contains(rom.platformSlug.lowercased()) &&
                 ($0.supportedExtensions.isEmpty || $0.supportedExtensions.contains(fileExtension))
-        } ?? family.runtimeOptions.first(where: { $0.runtimeID == family.defaultRuntimeID })
+        }
 
         guard let runtime else {
             return CoreResolution(
@@ -107,9 +107,12 @@ public struct BundledCoreCatalog: CoreCatalog, Sendable {
             )
         }
 
-        let missingBIOS = runtime.requiredBIOSFiles.filter { biosName in
+        let missingBIOS = ProgressFirmware.required(runtime: runtime, platform: rom.platformSlug).filter { biosName in
             let biosURL = libraryStore.biosDirectory().appending(path: biosName)
             let systemURL = libraryStore.systemDirectory().appending(path: biosName)
+            if ProgressFirmware.knownMD5[biosName] != nil {
+                return !ProgressFirmware.valid(biosURL, name: biosName) && !ProgressFirmware.valid(systemURL, name: biosName)
+            }
             return !FileManager.default.fileExists(atPath: biosURL.path) &&
                 !FileManager.default.fileExists(atPath: systemURL.path)
         }
@@ -203,6 +206,7 @@ public enum IOSRuntimeMatrix {
                 displayName: "Genesis Plus GX",
                 platformSlugs: ["genesis", "sms", "gamegear", "segacd"],
                 bundleRelativePath: "Cores/genesis_plus_gx.dylib",
+                supportedExtensions: ["md", "gen", "bin", "smd", "sms", "gg", "chd", "iso"],
                 shader: .crt
             )
         ),
@@ -233,11 +237,13 @@ public enum IOSRuntimeMatrix {
                 defaultVariables: [
                     "mupen64plus-43screensize": "320x240",
                     "mupen64plus-FrameDuping": "True",
+                    "mupen64plus-rdp-plugin": "angrylion",
+                    "mupen64plus-rsp-plugin": "cxd4",
+                    "mupen64plus-cpucore": "cached_interpreter",
+                    "mupen64plus-ThreadedRenderer": "False",
                 ],
-                renderBackend: .hardwareRender,
-                interactionProfile: .controller,
-                validationState: .blockedByValidation,
-                validationBlockReason: "The iOS hardware-render host is not implemented for Nintendo 64 yet."
+                supportedExtensions: ["z64", "n64", "v64", "bin"],
+                interactionProfile: .touch
             )
         ),
         family(
@@ -250,7 +256,7 @@ public enum IOSRuntimeMatrix {
                 platformSlugs: ["psx", "ps1", "playstation"],
                 bundleRelativePath: "Cores/pcsx_rearmed.dylib",
                 defaultVariables: ["pcsx_rearmed_drc": "disabled"],
-                supportedExtensions: ["cue", "bin", "img", "iso", "pbp"],
+                supportedExtensions: ["chd", "bin", "img", "iso", "pbp", "exe"],
                 requiredBIOSFiles: ["scph5501.bin"],
                 shader: .crt
             )
@@ -264,12 +270,10 @@ public enum IOSRuntimeMatrix {
                 displayName: "PPSSPP",
                 platformSlugs: ["psp"],
                 bundleRelativePath: "Cores/ppsspp.dylib",
-                defaultVariables: ["ppsspp_frame_duplication": "enabled"],
+                defaultVariables: ["ppsspp_frame_duplication": "enabled", "ppsspp_cpu_core": "IR JIT"],
+                supportedExtensions: ["iso", "cso", "pbp", "elf", "prx"],
                 shader: .lcd,
-                renderBackend: .hardwareRender,
-                interactionProfile: .controller,
-                validationState: .blockedByValidation,
-                validationBlockReason: "The iOS hardware-render host is not implemented for PSP yet."
+                interactionProfile: .touch
             )
         ),
         family(

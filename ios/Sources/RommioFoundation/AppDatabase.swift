@@ -37,6 +37,14 @@ public struct DownloadRecord: Codable, Hashable, Sendable, Identifiable {
     public var completedAtEpochMS: Int64?
     public var updatedAtEpochMS: Int64
 
+    // Optional only for decoding legacy records. New work always freezes these fields.
+    public var owner: VerifiedAccount?
+    public var attemptID: String?
+    public var destinationRelativePath: String?
+    public var contentSHA256: String?
+    public var retryAfterEpochMS: Int64?
+    public var parkedForAuthentication: Bool?
+
     public var id: String {
         "\(profileID):\(romID):\(fileID)"
     }
@@ -225,7 +233,7 @@ public final class AppDatabase: @unchecked Sendable {
                     oled_black_mode_enabled,
                     console_colors_enabled,
                     updated_at_epoch_ms
-                ) VALUES (1, 1, 1, 1, 0, 0, ?)
+                ) VALUES (1, 1, 1, 1, 0, 1, ?)
                 """,
                 arguments: [now]
             )
@@ -265,6 +273,23 @@ public final class AppDatabase: @unchecked Sendable {
                 """)
         }
 
+        migrator.registerMigration("v4_progress_store") { db in
+            try db.execute(sql: "CREATE TABLE IF NOT EXISTS progress_v2_namespaces (namespaceId TEXT NOT NULL PRIMARY KEY, serverKey TEXT NOT NULL, accountId TEXT NOT NULL)")
+            try db.execute(sql: "CREATE UNIQUE INDEX IF NOT EXISTS index_progress_v2_namespaces_serverKey_accountId ON progress_v2_namespaces(serverKey, accountId)")
+            try db.execute(sql: "CREATE TABLE IF NOT EXISTS progress_v2_contents (contentId TEXT NOT NULL PRIMARY KEY, namespaceId TEXT NOT NULL, bindingKey TEXT NOT NULL)")
+            try db.execute(sql: "CREATE UNIQUE INDEX IF NOT EXISTS index_progress_v2_contents_namespaceId_bindingKey ON progress_v2_contents(namespaceId, bindingKey)")
+            try db.execute(sql: "CREATE TABLE IF NOT EXISTS progress_v2_operations (namespaceId TEXT NOT NULL, contentId TEXT NOT NULL, operationId TEXT NOT NULL, payload BLOB NOT NULL, payloadHash TEXT NOT NULL, PRIMARY KEY(namespaceId, contentId, operationId))")
+            try db.execute(sql: "CREATE TABLE IF NOT EXISTS progress_v2_heads (namespaceId TEXT NOT NULL, contentId TEXT NOT NULL, reference TEXT NOT NULL, operationId TEXT NOT NULL, PRIMARY KEY(namespaceId, contentId, reference, operationId))")
+            try db.execute(sql: "CREATE TABLE IF NOT EXISTS progress_v2_outbox (namespaceId TEXT NOT NULL, contentId TEXT NOT NULL, operationId TEXT NOT NULL, payloadHash TEXT NOT NULL, status TEXT NOT NULL, attempts INTEGER NOT NULL, leaseId TEXT, leaseUntil INTEGER, nextAttempt INTEGER NOT NULL, lastError TEXT, PRIMARY KEY(namespaceId, contentId, operationId))")
+            try db.execute(sql: "CREATE TABLE IF NOT EXISTS progress_v2_quarantine (namespaceId TEXT NOT NULL, contentId TEXT NOT NULL, payloadHash TEXT NOT NULL, payload BLOB NOT NULL, reason TEXT NOT NULL, PRIMARY KEY(namespaceId, contentId, payloadHash))")
+        }
+
+        migrator.registerMigration("v5_progress_recovery") { db in
+            try db.execute(sql: "CREATE TABLE progress_pins (namespaceId TEXT NOT NULL, contentId TEXT NOT NULL, checkpointId TEXT NOT NULL, PRIMARY KEY(namespaceId, contentId, checkpointId))")
+        }
+        migrator.registerMigration("v6_progress_import") { db in
+            try db.execute(sql: "CREATE TABLE progress_import_generation (singleton INTEGER PRIMARY KEY CHECK(singleton = 1), generation TEXT NOT NULL)")
+        }
         return migrator
     }
 }

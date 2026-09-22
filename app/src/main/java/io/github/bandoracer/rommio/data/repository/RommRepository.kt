@@ -1,5 +1,14 @@
 package io.github.bandoracer.rommio.data.repository
 
+import androidx.room.withTransaction
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+import io.github.bandoracer.rommio.domain.storage.StorageAccess
+
+import io.github.bandoracer.rommio.model.InstallIdentity
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -8,6 +17,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.await
 import io.github.bandoracer.rommio.data.auth.AuthManager
 import io.github.bandoracer.rommio.data.cache.ThumbnailCacheStore
 import io.github.bandoracer.rommio.data.migration.MigrationBundleManager
@@ -127,10 +137,12 @@ data class CachedHomeSnapshot(
 @OptIn(ExperimentalCoroutinesApi::class)
 class RommRepository(
     private val context: Context,
+    private val database: io.github.bandoracer.rommio.data.local.AppDatabase,
     private val authManager: AuthManager,
     private val serviceFactory: RommServiceFactory,
     private val downloadedRomDao: DownloadedRomDao,
     private val downloadRecordDao: DownloadRecordDao,
+    private val ownedDownloads: OwnedDownloadQueue,
     private val saveStateDao: SaveStateDao,
     private val cachedPlatformDao: CachedPlatformDao,
     private val cachedRomDao: CachedRomDao,
@@ -149,15 +161,21 @@ class RommRepository(
     private val connectivityMonitor: ConnectivityMonitor,
     private val thumbnailCacheStore: ThumbnailCacheStore,
     private val migrationBundleManager: MigrationBundleManager,
+    private val firmwareStore: io.github.bandoracer.rommio.domain.player.FirmwareStore = io.github.bandoracer.rommio.domain.player.FirmwareStore(libraryStore),
 ) {
+    private val catalogCache = CatalogCache(database, thumbnailCacheStore::resolveCachedUri)
+    private val catalogLanes = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
     private val workManager = WorkManager.getInstance(context)
     private val cacheCodec = OfflineCacheJsonCodec()
+    private val pendingActionCodec = PendingActionJsonCodec()
     private val refreshMutex = Mutex()
     private val inFlightRefreshes = mutableMapOf<String, CompletableDeferred<Result<Unit>>>()
     private val pendingPlayerLaunchTargets = mutableMapOf<String, PlayerLaunchTarget>()
     private val playerLaunchTargetMutex = Mutex()
 
     fun activeProfileFlow(): Flow<ServerProfile?> = authManager.activeProfileFlow()
+
+    fun observeRuntimeAssets(): Flow<Long> = firmwareStore.changes
 
     fun observeOfflineState(): Flow<OfflineState> {
         val activeProfileFlow = activeProfileFlow()
@@ -185,6 +203,9 @@ class RommRepository(
             )
         }.mapLatest { state ->
             state.copy(
+                cachedContentAvailable = state.activeProfileId?.let { profileId ->
+                    cachedRomDao.listAll(profileId).isNotEmpty() || downloadedRomDao.listAll().any { it.ownerProfileId == profileId || it.ownerProfileId == null }
+                } == true,
                 cacheBytes = state.activeProfileId?.let { profileId ->
                     thumbnailCacheStore.totalBytes(profileId)
                 } ?: 0L,
@@ -309,19 +330,20 @@ class RommRepository(
         }
     }
 
-    suspend fun initializeAuth() {
+    suspend fun initializeAuth() = StorageAccess.normal {
+        kickDownloadQueue()
         if (connectivityMonitor.currentState() == ConnectivityState.ONLINE) {
             authManager.initializeForAppLaunch()
         }
         scheduleOfflineSync(force = false)
     }
 
-    suspend fun currentProfile(): ServerProfile? = authManager.getActiveProfile()
+    suspend fun currentProfile(): ServerProfile? = StorageAccess.normal { authManager.getActiveProfile() }
 
     fun currentConnectivityState(): ConnectivityState = connectivityMonitor.currentState()
 
-    suspend fun discoverServer(baseUrl: String): AuthDiscoveryResult {
-        return authManager.discoverServer(baseUrl)
+    suspend fun discoverServer(baseUrl: String): AuthDiscoveryResult = StorageAccess.normal {
+        authManager.discoverServer(baseUrl)
     }
 
     suspend fun configureServerProfile(
@@ -331,7 +353,7 @@ class RommRepository(
         originAuthMode: OriginAuthMode? = null,
         discoveryResult: AuthDiscoveryResult? = null,
         makeActive: Boolean = true,
-    ): ServerProfile {
+    ): ServerProfile = StorageAccess.normal {
         val profile = authManager.configureServerProfile(
             baseUrl = baseUrl,
             label = label,
@@ -341,10 +363,10 @@ class RommRepository(
             makeActive = makeActive,
         )
         ensureProfileCacheState(profile.id)
-        return profile
+        return@normal profile
     }
 
-    suspend fun setCloudflareServiceCredentials(profileId: String, credentials: CloudflareServiceCredentials) {
+    suspend fun setCloudflareServiceCredentials(profileId: String, credentials: CloudflareServiceCredentials) = StorageAccess.normal {
         authManager.setCloudflareServiceCredentials(profileId, credentials)
     }
 
@@ -352,299 +374,331 @@ class RommRepository(
         return authManager.hasCloudflareServiceCredentials(profileId)
     }
 
-    suspend fun beginEdgeAccess(profileId: String) {
+    suspend fun beginEdgeAccess(profileId: String) = StorageAccess.normal {
         authManager.beginEdgeAccess(profileId)
     }
 
-    suspend fun completeEdgeAccessAttempt(profileId: String) = authManager.completeEdgeAccessAttempt(profileId)
+    suspend fun completeEdgeAccessAttempt(profileId: String) = StorageAccess.normal { authManager.completeEdgeAccessAttempt(profileId) }
 
     suspend fun getInteractiveSessionConfig(
         profileId: String,
         provider: InteractiveSessionProvider,
-    ): InteractiveSessionConfig {
-        return authManager.getInteractiveSessionConfig(profileId, provider)
+    ): InteractiveSessionConfig = StorageAccess.normal {
+        authManager.getInteractiveSessionConfig(profileId, provider)
     }
 
     suspend fun completeInteractiveLogin(
         profileId: String,
         provider: InteractiveSessionProvider,
-    ): AuthStatus {
+    ): AuthStatus = StorageAccess.normal {
         val status = authManager.completeInteractiveLogin(profileId, provider)
         if (status == AuthStatus.CONNECTED) {
+            kickDownloadQueue()
             scheduleOfflineSync(force = true)
         }
-        return status
+        return@normal status
     }
 
-    suspend fun testServerAccess(profileId: String? = null): ServerAccessResult {
-        return authManager.testServerAccess(profileId)
+    suspend fun testServerAccess(profileId: String? = null): ServerAccessResult = StorageAccess.normal {
+        return@normal authManager.testServerAccess(profileId)
     }
 
-    suspend fun loginWithDirectCredentials(profileId: String, credentials: DirectLoginCredentials) {
+    suspend fun loginWithDirectCredentials(profileId: String, credentials: DirectLoginCredentials) = StorageAccess.normal {
         authManager.loginWithDirectCredentials(profileId, credentials)
+        kickDownloadQueue()
         scheduleOfflineSync(force = true)
     }
 
-    suspend fun validateProfile(profileId: String? = null): AuthStatus {
+    suspend fun validateProfile(profileId: String? = null): AuthStatus = StorageAccess.normal {
         val status = authManager.validateProfile(profileId)
         if (status == AuthStatus.CONNECTED) {
+            kickDownloadQueue()
             scheduleOfflineSync(force = true)
         }
-        return status
+        return@normal status
     }
 
-    suspend fun logout(clearServerAccess: Boolean = false) {
-        authManager.getActiveProfile()?.let { profile ->
-            pendingRemoteActionDao.deleteByProfile(profile.id)
-            workManager.cancelUniqueWork(DownloadRomWorker.QUEUE_WORK_NAME)
+    suspend fun logout(clearServerAccess: Boolean = false) = StorageAccess.normal {
+        authManager.getActiveProfile()?.let {
+            workManager.cancelUniqueWork(DownloadRomWorker.QUEUE_WORK_NAME).await()
             workManager.cancelUniqueWork(OfflineSyncWorker.WORK_NAME)
         }
         authManager.logout(clearServerAccess = clearServerAccess)
+        kickDownloadQueue()
     }
 
-    suspend fun clearServerAccess(profileId: String) {
+    suspend fun clearServerAccess(profileId: String) = StorageAccess.normal {
         authManager.clearServerAccess(profileId)
     }
 
-    suspend fun listProfiles(): List<ServerProfile> {
-        return authManager.listProfiles().sortedByDescending { it.updatedAt }
+    suspend fun listProfiles(): List<ServerProfile> = StorageAccess.normal {
+        return@normal authManager.listProfiles().sortedByDescending { it.updatedAt }
     }
 
-    suspend fun activateProfile(profileId: String): ServerProfile {
+    suspend fun activateProfile(profileId: String): ServerProfile = StorageAccess.normal {
         val profile = authManager.setActiveProfile(profileId)
         ensureProfileCacheState(profile.id)
         scheduleOfflineSync(force = true)
-        return profile
+        return@normal profile
     }
 
-    suspend fun deleteProfile(profileId: String): ServerProfile? {
-        val wasActive = authManager.getActiveProfile()?.id == profileId
-        pendingRemoteActionDao.deleteByProfile(profileId)
-        cachedHomeEntryDao.deleteByProfile(profileId)
-        cachedCollectionRomDao.deleteByProfile(profileId)
-        cachedCollectionDao.deleteByProfile(profileId)
-        cachedRomDao.deleteByProfile(profileId)
-        cachedPlatformDao.deleteByProfile(profileId)
-        profileCacheStateDao.deleteByProfile(profileId)
-        gameSyncJournalDao.deleteByProfile(profileId)
-        saveStateSyncJournalDao.deleteByProfile(profileId)
-        thumbnailCacheStore.clearProfile(profileId)
-        val nextProfile = authManager.deleteProfile(profileId)
-        if (wasActive) {
-            workManager.cancelUniqueWork(DownloadRomWorker.QUEUE_WORK_NAME)
-            workManager.cancelUniqueWork(OfflineSyncWorker.WORK_NAME)
-            nextProfile?.let {
-                ensureProfileCacheState(it.id)
-                scheduleOfflineSync(force = true)
+    suspend fun deleteProfile(profileId: String): ServerProfile? = StorageAccess.normal {
+        catalogLanes.getOrPut(profileId) { Mutex() }.withLock {
+            val wasActive = authManager.getActiveProfile()?.id == profileId
+            pendingRemoteActionDao.deleteByProfile(profileId)
+            cachedHomeEntryDao.deleteByProfile(profileId)
+            cachedCollectionRomDao.deleteByProfile(profileId)
+            cachedCollectionDao.deleteByProfile(profileId)
+            cachedRomDao.deleteByProfile(profileId)
+            cachedPlatformDao.deleteByProfile(profileId)
+            profileCacheStateDao.deleteByProfile(profileId)
+            gameSyncJournalDao.deleteByProfile(profileId)
+            saveStateSyncJournalDao.deleteByProfile(profileId)
+            thumbnailCacheStore.clearProfile(profileId)
+            val nextProfile = authManager.deleteProfile(profileId)
+            if (wasActive) {
+                workManager.cancelUniqueWork(DownloadRomWorker.QUEUE_WORK_NAME).await()
+                workManager.cancelUniqueWork(OfflineSyncWorker.WORK_NAME)
+                nextProfile?.let {
+                    ensureProfileCacheState(it.id)
+                    scheduleOfflineSync(force = true)
+                }
             }
+            return@normal nextProfile
         }
-        return nextProfile
     }
 
-    suspend fun getCurrentUser() = if (isOnline()) {
+    suspend fun getCurrentUser() = StorageAccess.normal { if (isOnline()) {
         createService().getCurrentUser()
     } else {
         error("Offline. Cached library data is still available.")
-    }
+    } }
 
-    suspend fun refreshPlatformsInBackground() {
+    suspend fun refreshPlatformsInBackground() = StorageAccess.normal {
         val profile = requireActiveProfile()
-        if (!isOnline()) return
-        runTargetedRefresh(profile, "${profile.id}:platforms") {
-            val service = createService(profile)
-            val platforms = service.getPlatforms()
-            cachePlatforms(profile, platforms)
-            warmPlatformMedia(profile, platforms)
-            markRefreshSucceeded(profile.id, updateFullSync = true, updateMediaSync = true)
-        }
-    }
-
-    suspend fun refreshCollectionsInBackground() {
-        val profile = requireActiveProfile()
-        if (!isOnline()) return
-        runTargetedRefresh(profile, "${profile.id}:collections") {
-            val service = createService(profile)
-            val collections = fetchCollections(service)
-            cacheCollections(profile, collections)
-            cacheCollectionFeed(profile.id, collections.take(8))
-            warmCollectionMedia(profile, collections)
-            markRefreshSucceeded(profile.id, updateFullSync = true, updateMediaSync = true)
-        }
-    }
-
-    suspend fun refreshPlatformInBackground(platformId: Int) {
-        val profile = requireActiveProfile()
-        if (!isOnline()) return
-        runTargetedRefresh(profile, "${profile.id}:platform:$platformId") {
-            val service = createService(profile)
-            val roms = service.getRoms(platformIds = platformId, legacyPlatformId = platformId).items
-            cacheRoms(profile, roms)
-            warmRomMedia(profile, roms, pinnedRomIds = emptySet())
-            markRefreshSucceeded(profile.id, updateFullSync = true, updateMediaSync = true)
-        }
-    }
-
-    suspend fun refreshCollectionInBackground(kind: CollectionKind, id: String) {
-        val profile = requireActiveProfile()
-        if (!isOnline()) return
-        runTargetedRefresh(profile, "${profile.id}:collection:${kind.name}:$id") {
-            val service = createService(profile)
-            val collections = fetchCollections(service)
-            cacheCollections(profile, collections)
-            cacheCollectionFeed(profile.id, collections.take(8))
-            val collection = collections.firstOrNull { it.kind == kind && it.id == id }
-                ?: error("This collection is no longer available.")
-            val roms = when (kind) {
-                CollectionKind.REGULAR -> service.getRoms(collectionId = collection.id.toIntOrNull()).items
-                CollectionKind.SMART -> service.getRoms(smartCollectionId = collection.id.toIntOrNull()).items
-                CollectionKind.VIRTUAL -> service.getRoms(virtualCollectionId = collection.id).items
-            }
-            cacheRoms(profile, roms)
-            replaceCollectionMembership(profile.id, collection, roms.map { it.id })
-            warmCollectionMedia(profile, listOf(collection))
-            warmRomMedia(profile, roms, pinnedRomIds = roms.map { it.id }.toSet())
-            markRefreshSucceeded(profile.id, updateFullSync = true, updateMediaSync = true)
-        }
-    }
-
-    suspend fun refreshRomInBackground(romId: Int) {
-        val profile = requireActiveProfile()
-        if (!isOnline()) return
-        runTargetedRefresh(profile, "${profile.id}:rom:$romId") {
-            val service = createService(profile)
-            val rom = try {
-                fetchDetailedRom(service, romId)
-            } catch (error: HttpException) {
-                if (error.code() == 404) {
-                    cachedRomDao.deleteById(profile.id, romId)
-                }
-                throw error
-            }
-            cacheRoms(profile, listOf(rom))
-            warmRomMedia(profile, listOf(rom), pinnedRomIds = setOf(romId))
-            markRefreshSucceeded(profile.id, updateFullSync = true, updateMediaSync = true)
-        }
-    }
-
-    suspend fun getPlatforms(): List<PlatformDto> {
-        val profile = requireActiveProfile()
-        if (!isOnline()) {
-            return getCachedPlatforms(profile.id).ifEmpty {
-                error("Offline. This profile has not been hydrated yet.")
-            }
-        }
-        return runCatching {
-            createService(profile).getPlatforms().also { platforms ->
+        catalogLanes.getOrPut(profile.id) { Mutex() }.withLock {
+            if (!isOnline()) return@normal
+            runTargetedRefresh(profile, "${profile.id}:platforms") {
+                val service = createService(profile)
+                val platforms = service.getPlatforms()
                 cachePlatforms(profile, platforms)
+                warmPlatformMedia(profile, platforms)
+                catalogCache.finishTargetedRefresh(profile.id)
             }
-        }.getOrElse { error ->
-            getCachedPlatforms(profile.id).ifEmpty { throw error }
         }
     }
 
-    suspend fun getRecentlyAdded(): List<RomDto> {
+    suspend fun refreshCollectionsInBackground() = StorageAccess.normal {
         val profile = requireActiveProfile()
-        if (!isOnline()) {
-            return cachedHomeRoms(profile.id, OfflineHomeFeedType.RECENTLY_ADDED).ifEmpty {
-                error("Offline. Recently added titles are unavailable until this profile finishes syncing.")
+        catalogLanes.getOrPut(profile.id) { Mutex() }.withLock {
+            if (!isOnline()) return@normal
+            runTargetedRefresh(profile, "${profile.id}:collections") {
+                val service = createService(profile)
+                val collections = fetchCollections(service)
+                cacheCollections(profile, collections)
+                cacheCollectionFeed(profile.id, collections.take(8))
+                warmCollectionMedia(profile, collections)
+                catalogCache.finishTargetedRefresh(profile.id)
             }
-        }
-        return runCatching {
-            createService(profile).getRecentlyAdded().items.also { roms ->
-                cacheRoms(profile, roms)
-                cacheRomFeed(profile.id, OfflineHomeFeedType.RECENTLY_ADDED, roms)
-            }
-        }.getOrElse { error ->
-            cachedHomeRoms(profile.id, OfflineHomeFeedType.RECENTLY_ADDED).ifEmpty { throw error }
         }
     }
 
-    suspend fun getContinuePlaying(limit: Int = 12): List<RomDto> {
+    suspend fun refreshPlatformInBackground(platformId: Int) = StorageAccess.normal {
         val profile = requireActiveProfile()
-        if (!isOnline()) {
-            return cachedHomeRoms(profile.id, OfflineHomeFeedType.CONTINUE_PLAYING).take(limit).ifEmpty {
-                error("Offline. Continue playing is unavailable until this profile finishes syncing.")
+        catalogLanes.getOrPut(profile.id) { Mutex() }.withLock {
+            if (!isOnline()) return@normal
+            runTargetedRefresh(profile, "${profile.id}:platform:$platformId") {
+                val service = createService(profile)
+                val roms = CatalogReader(service).roms(platformId = platformId)
+                cacheRoms(profile, roms, filesIncluded = true)
+                warmRomMedia(profile, roms, pinnedRomIds = emptySet())
+                catalogCache.finishTargetedRefresh(profile.id)
             }
         }
-        return runCatching {
-            createService(profile)
-                .getRoms(
-                    lastPlayed = true,
-                    limit = limit,
-                    orderBy = "last_played",
-                    orderDir = "desc",
-                )
-                .items
-                .also { roms ->
-                    cacheRoms(profile, roms)
-                    cacheRomFeed(profile.id, OfflineHomeFeedType.CONTINUE_PLAYING, roms)
+    }
+
+    suspend fun refreshCollectionInBackground(kind: CollectionKind, id: String) = StorageAccess.normal {
+        val profile = requireActiveProfile()
+        catalogLanes.getOrPut(profile.id) { Mutex() }.withLock {
+            if (!isOnline()) return@normal
+            runTargetedRefresh(profile, "${profile.id}:collection:${kind.name}:$id") {
+                val service = createService(profile)
+                val collections = fetchCollections(service)
+                val collection = collections.firstOrNull { it.kind == kind && it.id == id }
+                    ?: error("This collection is no longer available.")
+                val roms = CatalogReader(service).roms(collection = collection)
+                check(roms.map { it.id }.toSet() == collection.romIds) { "Collection changed during refresh; retry." }
+                database.withTransaction {
+                    cacheCollections(profile, collections)
+                    cacheCollectionFeed(profile.id, collections.take(8))
+                    cacheRoms(profile, roms, filesIncluded = true)
+                    replaceCollectionMembership(profile.id, collection, roms.map { it.id })
                 }
-        }.getOrElse { error ->
-            cachedHomeRoms(profile.id, OfflineHomeFeedType.CONTINUE_PLAYING).take(limit).ifEmpty { throw error }
+                warmCollectionMedia(profile, listOf(collection))
+                warmRomMedia(profile, roms, pinnedRomIds = roms.map { it.id }.toSet())
+                catalogCache.finishTargetedRefresh(profile.id)
+            }
         }
     }
 
-    suspend fun getRomsByPlatform(platformId: Int): List<RomDto> {
+    suspend fun refreshRomInBackground(romId: Int) = StorageAccess.normal {
         val profile = requireActiveProfile()
-        if (!isOnline()) {
-            return cachedRomDao.listByPlatform(profile.id, platformId).map { it.toDomain(cacheCodec) }.ifEmpty {
-                error("Offline. This platform has not been hydrated yet.")
+        catalogLanes.getOrPut(profile.id) { Mutex() }.withLock {
+            if (!isOnline()) return@normal
+            runTargetedRefresh(profile, "${profile.id}:rom:$romId") {
+                val service = createService(profile)
+                val rom = fetchDetailedRom(service, romId)
+                cacheRoms(profile, listOf(rom), detailed = true)
+                warmRomMedia(profile, listOf(rom), pinnedRomIds = setOf(romId))
+                catalogCache.finishTargetedRefresh(profile.id)
             }
-        }
-        return runCatching {
-            createService(profile)
-                .getRoms(platformIds = platformId, legacyPlatformId = platformId)
-                .items
-                .also { cacheRoms(profile, it) }
-        }.getOrElse { error ->
-            cachedRomDao.listByPlatform(profile.id, platformId).map { it.toDomain(cacheCodec) }.ifEmpty { throw error }
         }
     }
 
-    suspend fun getRomById(romId: Int): RomDto {
+    suspend fun getPlatforms(): List<PlatformDto> = StorageAccess.normal {
         val profile = requireActiveProfile()
-        if (!isOnline()) {
-            return cachedRomDao.getById(profile.id, romId)?.toDomain(cacheCodec)
-                ?: error("Offline. This title is unavailable until the active profile is synced.")
-        }
-
-        return runCatching {
-            val service = createService(profile)
-            fetchDetailedRom(service, romId).also { detailedRom ->
-                cacheRoms(profile, listOf(detailedRom))
+        catalogLanes.getOrPut(profile.id) { Mutex() }.withLock {
+            if (!isOnline()) {
+                return@normal getCachedPlatforms(profile.id).ifEmpty {
+                    if (profileCacheStateDao.getByProfile(profile.id)?.catalogReady == true) return@normal emptyList()
+                    error("Offline. This profile has not been hydrated yet.")
+                }
             }
-        }.getOrElse { error ->
-            cachedRomDao.getById(profile.id, romId)?.toDomain(cacheCodec) ?: throw error
+            return@normal runCatching {
+                createService(profile).getPlatforms().also { platforms ->
+                    cachePlatforms(profile, platforms)
+                }
+            }.getOrElse { error ->
+                if (error is CancellationException) throw error
+                getCachedPlatforms(profile.id).ifEmpty { throw error }
+            }
         }
     }
 
-    suspend fun getCollections(): List<RommCollectionDto> {
+    suspend fun getRecentlyAdded(): List<RomDto> = StorageAccess.normal {
         val profile = requireActiveProfile()
-        if (!isOnline()) {
-            return cachedCollectionDao.listAll(profile.id).map { it.toDomain(cacheCodec) }.ifEmpty {
-                error("Offline. Collections are unavailable until this profile finishes syncing.")
+        catalogLanes.getOrPut(profile.id) { Mutex() }.withLock {
+            if (!isOnline()) {
+                return@normal cachedHomeRoms(profile.id, OfflineHomeFeedType.RECENTLY_ADDED).ifEmpty {
+                    if (profileCacheStateDao.getByProfile(profile.id)?.catalogReady == true) return@normal emptyList()
+                    error("Offline. Recently added titles are unavailable until this profile finishes syncing.")
+                }
+            }
+            return@normal runCatching {
+                createService(profile).getRecentlyAdded().items.also { roms ->
+                    cacheRoms(profile, roms)
+                    cacheRomFeed(profile.id, OfflineHomeFeedType.RECENTLY_ADDED, roms)
+                }
+            }.getOrElse { error ->
+                if (error is CancellationException) throw error
+                cachedHomeRoms(profile.id, OfflineHomeFeedType.RECENTLY_ADDED).ifEmpty { throw error }
             }
         }
-        return runCatching {
-            val service = createService(profile)
-            val collections = fetchCollections(service)
-            cacheCollections(profile, collections)
-            collections
-        }.getOrElse { error ->
-            cachedCollectionDao.listAll(profile.id).map { it.toDomain(cacheCodec) }.ifEmpty { throw error }
+    }
+
+    suspend fun getContinuePlaying(limit: Int = 12): List<RomDto> = StorageAccess.normal {
+        val profile = requireActiveProfile()
+        catalogLanes.getOrPut(profile.id) { Mutex() }.withLock {
+            if (!isOnline()) {
+                return@normal cachedHomeRoms(profile.id, OfflineHomeFeedType.CONTINUE_PLAYING).take(limit).ifEmpty {
+                    if (profileCacheStateDao.getByProfile(profile.id)?.catalogReady == true) return@normal emptyList()
+                    error("Offline. Continue playing is unavailable until this profile finishes syncing.")
+                }
+            }
+            return@normal runCatching {
+                createService(profile)
+                    .getRoms(
+                        lastPlayed = true,
+                        limit = limit,
+                        orderBy = "last_played",
+                        orderDir = "desc",
+                    )
+                    .items
+                    .also { roms ->
+                        cacheRoms(profile, roms)
+                        cacheRomFeed(profile.id, OfflineHomeFeedType.CONTINUE_PLAYING, roms)
+                    }
+            }.getOrElse { error ->
+                if (error is CancellationException) throw error
+                cachedHomeRoms(profile.id, OfflineHomeFeedType.CONTINUE_PLAYING).take(limit).ifEmpty { throw error }
+            }
+        }
+    }
+
+    suspend fun getRomsByPlatform(platformId: Int): List<RomDto> = StorageAccess.normal {
+        val profile = requireActiveProfile()
+        catalogLanes.getOrPut(profile.id) { Mutex() }.withLock {
+            if (!isOnline()) {
+                return@normal cachedRomDao.listByPlatform(profile.id, platformId).map { it.toDomain(cacheCodec) }.ifEmpty {
+                    if (profileCacheStateDao.getByProfile(profile.id)?.catalogReady == true) return@normal emptyList()
+                    error("Offline. This platform has not been hydrated yet.")
+                }
+            }
+            return@normal runCatching {
+                CatalogReader(createService(profile)).roms(platformId = platformId)
+                    .also { cacheRoms(profile, it, filesIncluded = true) }
+            }.getOrElse { error ->
+                if (error is CancellationException) throw error
+                cachedRomDao.listByPlatform(profile.id, platformId).map { it.toDomain(cacheCodec) }.ifEmpty { throw error }
+            }
+        }
+    }
+
+    suspend fun getRomById(romId: Int): RomDto = StorageAccess.normal {
+        val profile = requireActiveProfile()
+        catalogLanes.getOrPut(profile.id) { Mutex() }.withLock {
+            if (!isOnline()) {
+                return@normal cachedRomDao.getById(profile.id, romId)?.toDomain(cacheCodec)
+                    ?: error("Offline. This title is unavailable until the active profile is synced.")
+            }
+
+            return@normal runCatching {
+                val service = createService(profile)
+                fetchDetailedRom(service, romId).also { detailedRom ->
+                    cacheRoms(profile, listOf(detailedRom), detailed = true)
+                }
+            }.getOrElse { error ->
+                if (error is CancellationException) throw error
+                cachedRomDao.getById(profile.id, romId)?.toDomain(cacheCodec) ?: throw error
+            }
+        }
+    }
+
+    suspend fun getCollections(): List<RommCollectionDto> = StorageAccess.normal {
+        val profile = requireActiveProfile()
+        catalogLanes.getOrPut(profile.id) { Mutex() }.withLock {
+            if (!isOnline()) {
+                return@normal cachedCollectionDao.listAll(profile.id).map { it.toDomain(cacheCodec) }.ifEmpty {
+                    if (profileCacheStateDao.getByProfile(profile.id)?.catalogReady == true) return@normal emptyList()
+                    error("Offline. Collections are unavailable until this profile finishes syncing.")
+                }
+            }
+            return@normal runCatching {
+                val service = createService(profile)
+                val collections = fetchCollections(service)
+                cacheCollections(profile, collections)
+                collections
+            }.getOrElse { error ->
+                if (error is CancellationException) throw error
+                cachedCollectionDao.listAll(profile.id).map { it.toDomain(cacheCodec) }.ifEmpty { throw error }
+            }
         }
     }
 
     fun observeInstalledFiles(romId: Int): Flow<List<DownloadedRomEntity>> {
-        return downloadedRomDao.observeByRomId(romId)
+        return activeProfileFlow().flatMapLatest { profile ->
+            downloadedRomDao.observeByRomId(romId).map { rows -> visibleInstalls(rows, profile?.id) }
+        }
     }
 
     fun observeInstalledLibrary(): Flow<List<DownloadedRomEntity>> {
-        return downloadedRomDao.observeAll()
+        return activeProfileFlow().flatMapLatest { profile ->
+            downloadedRomDao.observeAll().map { rows -> visibleInstalls(rows, profile?.id) }
+        }
     }
 
     fun observeInstalledPlatformSummaries(): Flow<List<InstalledPlatformSummary>> {
-        return downloadedRomDao.observeAll().map(::summarizeInstalledPlatforms)
+        return observeInstalledLibrary().map(::summarizeInstalledPlatforms)
     }
 
     fun observeRecentInstalledRoms(limit: Int = 8): Flow<List<RomDto>> {
@@ -658,6 +712,7 @@ class RommRepository(
                 ) { installed, cachedRoms ->
                     val romMap = cachedRoms.associateBy { it.romId }
                     installed
+                        .filter { it.ownerProfileId == null || it.ownerProfileId == profile.id }
                         .map { install ->
                             romMap[install.romId]?.toDomain(cacheCodec) ?: install.toFallbackRom()
                         }
@@ -739,33 +794,29 @@ class RommRepository(
 
 
     fun observeLibraryStorageSummary(): Flow<LibraryStorageSummary> {
-        return downloadedRomDao.observeAll().map(::summarizeInstalledLibrary)
+        return observeInstalledLibrary().map(::summarizeInstalledLibrary)
     }
 
-    fun observeDownloadHistory(): Flow<List<DownloadRecord>> {
-        return combine(
-            downloadRecordDao.observeAll(),
-            downloadedRomDao.observeAll(),
-        ) { records, installed ->
-            records
-                .map { entity ->
-                    val installedMatch = installed.firstOrNull { it.romId == entity.romId && it.fileId == entity.fileId }
-                    entity.copy(localPath = installedMatch?.localPath ?: entity.localPath).toModel()
-                }
-                .sortedWith(downloadComparator)
+    fun observeDownloadHistory(): Flow<List<DownloadRecord>> =
+        activeProfileFlow().flatMapLatest { profile ->
+            combine(downloadRecordDao.observeAll(), downloadedRomDao.observeAll()) { records, installed ->
+                records.filter { it.ownerProfileId == null || it.ownerProfileId == profile?.id }
+                    .map { entity ->
+                        val installedMatch = installed.firstOrNull {
+                            it.romId == entity.romId && it.fileId == entity.fileId && it.namespaceKey == entity.namespaceKey
+                        }
+                        entity.copy(localPath = installedMatch?.localPath ?: entity.localPath).toModel()
+                    }.sortedWith(downloadComparator)
+            }
         }
-    }
 
-    fun observeDownloadRecord(romId: Int, fileId: Int): Flow<DownloadRecord?> {
-        return combine(
-            downloadRecordDao.observeByIds(romId, fileId),
-            downloadedRomDao.observeByRomId(romId),
-        ) { record, installed ->
-            record?.copy(
-                localPath = installed.firstOrNull { it.fileId == fileId }?.localPath ?: record.localPath,
-            )?.toModel()
+    fun observeDownloadRecord(romId: Int, fileId: Int): Flow<DownloadRecord?> =
+        activeProfileFlow().flatMapLatest { profile ->
+            downloadRecordDao.observeAll().map { rows ->
+                rows.filter { it.romId == romId && it.fileId == fileId && (it.ownerProfileId == null || it.ownerProfileId == profile?.id) }
+                    .minByOrNull { it.namespaceKey == InstallIdentity.LEGACY }?.toModel()
+            }
         }
-    }
 
     fun observeDownloadAttentionCount(): Flow<Int> {
         return observeDownloadHistory().map { records ->
@@ -773,72 +824,48 @@ class RommRepository(
         }
     }
 
-    fun observeSaveStates(romId: Int): Flow<List<SaveStateEntity>> {
-        return saveStateDao.observeByRomId(romId)
-    }
+    fun observeSaveStates(romId: Int, fileId: Int): Flow<List<SaveStateEntity>> =
+        observeInstalledFiles(romId).flatMapLatest { installed ->
+            val scope = installed.firstOrNull { it.fileId == fileId }?.progressScope ?: InstallIdentity.LEGACY
+            saveStateDao.observeByRomId(romId, scope)
+        }
 
-    fun observeGameStateRecovery(romId: Int, fileId: Int): Flow<GameStateRecovery> {
-        return activeProfileFlow().flatMapLatest { profile ->
-            if (profile == null) {
+    fun observeGameStateRecovery(romId: Int, fileId: Int): Flow<GameStateRecovery> =
+        activeProfileFlow().flatMapLatest { profile ->
+            observeInstalledFiles(romId).flatMapLatest { installed ->
+                val installation = installed.firstOrNull { it.fileId == fileId }
+                val scope = installation?.progressScope ?: InstallIdentity.LEGACY
                 combine(
-                    downloadedRomDao.observeByRomId(romId),
-                    saveStateDao.observeByRomId(romId),
-                    recoveryStateDao.observeByGame(romId, fileId),
+                    saveStateDao.observeByRomId(romId, scope),
+                    recoveryStateDao.observeByGame(romId, fileId, scope),
+                    profile?.let { saveStateSyncJournalDao.observeByGame(it.id, romId, fileId, scope) } ?: flowOf(emptyList()),
+                    profile?.let { gameSyncJournalDao.observeByKey(it.id, romId, fileId, scope) } ?: flowOf(null),
                     connectivityMonitor.observe(),
-                ) { installed, manualStates, recoveryStates, connectivity ->
+                ) { manual, recovery, journals, journal, connectivity ->
                     buildGameStateRecovery(
-                        resumeFile = installed.firstOrNull { it.fileId == fileId }?.let(libraryStore::continuityResumeStateFile),
-                        manualStates = manualStates,
-                        manualStateJournals = emptyList(),
-                        recoveryStates = recoveryStates,
-                        journal = null,
-                        connectivity = connectivity,
-                    )
-                }
-            } else {
-                combine(
-                    combine(
-                        downloadedRomDao.observeByRomId(romId),
-                        saveStateDao.observeByRomId(romId),
-                    ) { installed, manualStates ->
-                        installed to manualStates
-                    },
-                    combine(
-                        recoveryStateDao.observeByGame(romId, fileId),
-                        saveStateSyncJournalDao.observeByGame(profile.id, romId, fileId),
-                    ) { recoveryStates, manualJournals ->
-                        recoveryStates to manualJournals
-                    },
-                    gameSyncJournalDao.observeByKey(profile.id, romId, fileId),
-                    connectivityMonitor.observe(),
-                ) { localPair, recoveryPair, journal, connectivity ->
-                    buildGameStateRecovery(
-                        resumeFile = localPair.first.firstOrNull { it.fileId == fileId }?.let(libraryStore::continuityResumeStateFile),
-                        manualStates = localPair.second,
-                        manualStateJournals = recoveryPair.second,
-                        recoveryStates = recoveryPair.first,
-                        journal = journal,
-                        connectivity = connectivity,
+                        resumeFile = installation?.let(libraryStore::continuityResumeStateFile),
+                        manualStates = manual, manualStateJournals = journals, recoveryStates = recovery,
+                        journal = journal, connectivity = connectivity,
                     )
                 }
             }
         }
-    }
 
-    fun observeGameSyncPresentation(romId: Int, fileId: Int): Flow<GameSyncPresentation> {
-        return activeProfileFlow().flatMapLatest { profile ->
-            if (profile == null) {
-                flowOf(GameSyncPresentation())
-            } else {
-                combine(
-                    gameSyncJournalDao.observeByKey(profile.id, romId, fileId),
-                    connectivityMonitor.observe(),
-                ) { journal, connectivity ->
+    fun observeGameSyncPresentation(romId: Int, fileId: Int): Flow<GameSyncPresentation> =
+        activeProfileFlow().flatMapLatest { profile ->
+            observeInstalledFiles(romId).flatMapLatest { installed ->
+                val scope = installed.firstOrNull { it.fileId == fileId }?.progressScope ?: InstallIdentity.LEGACY
+                if (profile == null) flowOf(GameSyncPresentation())
+                else combine(gameSyncJournalDao.observeByKey(profile.id, romId, fileId, scope), connectivityMonitor.observe()) { journal, connectivity ->
                     journal.toPresentation(connectivity)
                 }
             }
         }
-    }
+
+    private fun visibleInstalls(rows: List<DownloadedRomEntity>, profileId: String?) = rows
+        .filter { it.ownerProfileId == null || it.ownerProfileId == profileId }
+        .sortedBy { it.namespaceKey == InstallIdentity.LEGACY }
+        .distinctBy { it.romId to it.fileId }
 
     suspend fun exportMigrationBundle(destinationUri: Uri): MigrationBundleManifest {
         return migrationBundleManager.exportMigrationBundle(destinationUri)
@@ -885,53 +912,53 @@ class RommRepository(
     suspend fun getCollectionPreviewCoverUrls(
         collection: RommCollectionDto,
         limit: Int = 3,
-    ): List<String> {
+    ): List<String> = StorageAccess.normal {
         val profile = requireActiveProfile()
-        return previewCoverUrlsFromCache(profile.id, collection, limit = limit)
+        return@normal previewCoverUrlsFromCache(profile.id, collection, limit = limit)
     }
 
-    suspend fun installRecommendedCore(rom: RomDto, file: RomFileDto?): CoreResolution {
+    suspend fun installRecommendedCore(rom: RomDto, file: RomFileDto?): CoreResolution = StorageAccess.normal {
         val resolution = resolveCoreSupport(rom, file)
         val profile = recommendedRuntimeProfile(resolution)
         coreInstaller.installCore(profile)
-        return resolveCoreSupport(rom, file)
+        return@normal resolveCoreSupport(rom, file)
     }
 
-    suspend fun enqueuePendingSync(installation: DownloadedRomEntity, rom: RomDto) {
-        val profile = requireActiveProfile()
+    suspend fun enqueuePendingSync(installation: DownloadedRomEntity, rom: RomDto) = StorageAccess.normal {
+        val profile = requireInstallProfile(installation)
         cacheRoms(profile, listOf(rom))
-        val payload = moshiContinuityPayload(PendingContinuitySyncPayload(installation.romId, installation.fileId))
+        val payload = moshiContinuityPayload(PendingContinuitySyncPayload(installation.romId, installation.fileId, installation.progressScope))
         enqueuePendingAction(
             profileId = profile.id,
             actionType = PendingRemoteActionType.CONTINUITY_UPLOAD,
-            dedupeKey = "${installation.romId}:${installation.fileId}",
+            dedupeKey = "${installation.progressScope}:${installation.romId}:${installation.fileId}",
             payloadJson = payload,
         )
     }
 
-    suspend fun enqueuePendingManualSlotUpload(installation: DownloadedRomEntity, slot: Int) {
-        val profile = requireActiveProfile()
-        val payload = moshiManualSlotPayload(PendingManualSlotPayload(installation.romId, installation.fileId, slot))
+    suspend fun enqueuePendingManualSlotUpload(installation: DownloadedRomEntity, slot: Int) = StorageAccess.normal {
+        val profile = requireInstallProfile(installation)
+        val payload = moshiManualSlotPayload(PendingManualSlotPayload(installation.romId, installation.fileId, slot, installation.progressScope))
         enqueuePendingAction(
             profileId = profile.id,
             actionType = PendingRemoteActionType.MANUAL_SLOT_UPLOAD,
-            dedupeKey = "${installation.romId}:${installation.fileId}:$slot",
+            dedupeKey = "${installation.progressScope}:${installation.romId}:${installation.fileId}:$slot",
             payloadJson = payload,
         )
     }
 
-    suspend fun enqueuePendingManualSlotDelete(installation: DownloadedRomEntity, slot: Int) {
-        val profile = requireActiveProfile()
-        val payload = moshiManualSlotPayload(PendingManualSlotPayload(installation.romId, installation.fileId, slot))
+    suspend fun enqueuePendingManualSlotDelete(installation: DownloadedRomEntity, slot: Int) = StorageAccess.normal {
+        val profile = requireInstallProfile(installation)
+        val payload = moshiManualSlotPayload(PendingManualSlotPayload(installation.romId, installation.fileId, slot, installation.progressScope))
         enqueuePendingAction(
             profileId = profile.id,
             actionType = PendingRemoteActionType.MANUAL_SLOT_DELETE,
-            dedupeKey = "${installation.romId}:${installation.fileId}:$slot",
+            dedupeKey = "${installation.progressScope}:${installation.romId}:${installation.fileId}:$slot",
             payloadJson = payload,
         )
     }
 
-    suspend fun enqueuePendingCoreDownload(runtimeProfile: RuntimeProfile) {
+    suspend fun enqueuePendingCoreDownload(runtimeProfile: RuntimeProfile) = StorageAccess.normal {
         val profile = requireActiveProfile()
         val payload = moshiCorePayload(PendingCoreDownloadPayload(runtimeProfile.runtimeId))
         enqueuePendingAction(
@@ -942,10 +969,18 @@ class RommRepository(
         )
     }
 
-    suspend fun drainPendingRemoteActions() {
-        if (!isOnline()) return
-        val profile = authManager.getActiveProfile() ?: return
+    suspend fun drainPendingRemoteActions() = StorageAccess.normal {
+        if (!isOnline()) return@normal
+        val profile = authManager.getActiveProfile() ?: return@normal
         pendingRemoteActionDao.listPendingByProfile(profile.id).forEach { action ->
+            if (action.actionType != PendingRemoteActionType.CORE_DOWNLOAD.name) {
+                pendingRemoteActionDao.upsert(action.copy(
+                    status = PendingRemoteActionStatus.FAILED.name,
+                    lastError = io.github.bandoracer.rommio.domain.sync.LEGACY_SYNC_PAUSED_MESSAGE,
+                    updatedAtEpochMs = System.currentTimeMillis(),
+                ))
+                return@forEach
+            }
             val running = action.copy(
                 status = PendingRemoteActionStatus.RUNNING.name,
                 updatedAtEpochMs = System.currentTimeMillis(),
@@ -953,13 +988,7 @@ class RommRepository(
             )
             pendingRemoteActionDao.upsert(running)
             runCatching {
-                when (PendingRemoteActionType.valueOf(action.actionType)) {
-                    PendingRemoteActionType.GAME_SYNC,
-                    PendingRemoteActionType.CONTINUITY_UPLOAD -> drainContinuitySyncAction(profile, running)
-                    PendingRemoteActionType.MANUAL_SLOT_UPLOAD,
-                    PendingRemoteActionType.MANUAL_SLOT_DELETE -> drainManualSlotAction(profile, running)
-                    PendingRemoteActionType.CORE_DOWNLOAD -> drainCoreDownloadAction(running)
-                }
+                drainCoreDownloadAction(running)
                 pendingRemoteActionDao.deleteByKey(profile.id, action.actionType, action.dedupeKey)
             }.onFailure { error ->
                 pendingRemoteActionDao.upsert(
@@ -973,128 +1002,134 @@ class RommRepository(
         }
     }
 
-    suspend fun refreshActiveProfileCache(force: Boolean = false) {
-        val profile = authManager.getActiveProfile() ?: return
-        ensureProfileCacheState(profile.id)
-        if (!isOnline()) return
-        runScopedRefresh(scopeKey = "${profile.id}:full") {
-            val existingState = profileCacheStateDao.getByProfile(profile.id)
-            profileCacheStateDao.upsert(
-                (existingState ?: ProfileCacheStateEntity(profileId = profile.id)).copy(
-                    isRefreshing = true,
-                    lastError = null,
-                ),
-            )
-
-            runCatching {
-                val service = createService(profile)
-                val platforms = service.getPlatforms()
-                val recent = service.getRecentlyAdded().items
-                val continuePlaying = service.getRoms(
-                    lastPlayed = true,
-                    limit = 12,
-                    orderBy = "last_played",
-                    orderDir = "desc",
-                ).items
-                val collections = fetchCollections(service)
-                val allRoms = fetchAllRoms(service)
-
-                cachePlatforms(profile, platforms)
-                cacheRoms(profile, allRoms)
-                cacheCollections(profile, collections)
-                cacheRomFeed(profile.id, OfflineHomeFeedType.CONTINUE_PLAYING, continuePlaying)
-                cacheRomFeed(profile.id, OfflineHomeFeedType.RECENTLY_ADDED, recent)
-                cacheCollectionFeed(profile.id, collections.take(8))
-
-                val catalogSyncedAt = System.currentTimeMillis()
+    suspend fun refreshActiveProfileCache(force: Boolean = false) = StorageAccess.normal {
+        val profile = authManager.getActiveProfile() ?: return@normal
+        catalogLanes.getOrPut(profile.id) { Mutex() }.withLock {
+            ensureProfileCacheState(profile.id)
+            if (!isOnline()) return@normal
+            runScopedRefresh(scopeKey = "${profile.id}:full") {
+                val existingState = profileCacheStateDao.getByProfile(profile.id)
                 profileCacheStateDao.upsert(
-                    ProfileCacheStateEntity(
-                        profileId = profile.id,
-                        lastFullSyncAtEpochMs = catalogSyncedAt,
-                        lastMediaSyncAtEpochMs = existingState?.lastMediaSyncAtEpochMs,
-                        catalogReady = true,
-                        mediaReady = false,
+                    (existingState ?: ProfileCacheStateEntity(profileId = profile.id)).copy(
                         isRefreshing = true,
                         lastError = null,
                     ),
                 )
 
-                val mediaReady = warmMedia(profile, platforms, allRoms, collections, continuePlaying, recent)
-                cachePlatforms(profile, platforms)
-                cacheRoms(profile, allRoms)
-                cacheCollections(profile, collections)
+                runCatching {
+                    val service = createService(profile)
+                    val platforms = service.getPlatforms()
+                    val recent = service.getRecentlyAdded().items
+                    val continuePlaying = service.getRoms(
+                        lastPlayed = true,
+                        limit = 12,
+                        orderBy = "last_played",
+                        orderDir = "desc",
+                    ).items
+                    val collections = fetchCollections(service)
+                    val allRoms = fetchAllRoms(service)
 
-                val finishedAt = System.currentTimeMillis()
-                profileCacheStateDao.upsert(
-                    ProfileCacheStateEntity(
-                        profileId = profile.id,
-                        lastFullSyncAtEpochMs = catalogSyncedAt,
-                        lastMediaSyncAtEpochMs = if (mediaReady) finishedAt else existingState?.lastMediaSyncAtEpochMs,
-                        catalogReady = true,
-                        mediaReady = mediaReady,
-                        isRefreshing = false,
-                        lastError = null,
-                    ),
-                )
-            }.onFailure { error ->
-                val previous = profileCacheStateDao.getByProfile(profile.id)
-                profileCacheStateDao.upsert(
-                    ProfileCacheStateEntity(
-                        profileId = profile.id,
-                        lastFullSyncAtEpochMs = previous?.lastFullSyncAtEpochMs,
-                        lastMediaSyncAtEpochMs = previous?.lastMediaSyncAtEpochMs,
-                        catalogReady = previous?.catalogReady == true,
-                        mediaReady = previous?.mediaReady == true,
-                        isRefreshing = false,
-                        lastError = error.message ?: "Profile cache refresh failed.",
-                    ),
-                )
-                throw error
+                    val catalogSyncedAt = System.currentTimeMillis()
+                    catalogCache.commitFull(profile, CatalogSnapshot(platforms, allRoms, collections, continuePlaying, recent), catalogSyncedAt)
+
+                    val mediaReady = warmMedia(profile, platforms, allRoms, collections, continuePlaying, recent)
+                    cachePlatforms(profile, platforms)
+                    cacheRoms(profile, allRoms, filesIncluded = true)
+                    cacheCollections(profile, collections)
+
+                    val finishedAt = System.currentTimeMillis()
+                    profileCacheStateDao.upsert(
+                        ProfileCacheStateEntity(
+                            profileId = profile.id,
+                            lastFullSyncAtEpochMs = catalogSyncedAt,
+                            lastMediaSyncAtEpochMs = if (mediaReady) finishedAt else existingState?.lastMediaSyncAtEpochMs,
+                            catalogReady = true,
+                            mediaReady = mediaReady,
+                            isRefreshing = false,
+                            lastError = null,
+                        ),
+                    )
+                }.onFailure { error ->
+                    markRefreshFailed(profile.id, error)
+                    throw error
+                }
             }
         }
     }
 
-    suspend fun canOpenOffline(profile: ServerProfile?): Boolean {
-        if (profile == null) return false
-        if (profile.serverAccess.status != ServerAccessStatus.READY) return false
-        if (profile.status != AuthStatus.CONNECTED && !profile.sessionState.hasOriginSession) return false
+    suspend fun canOpenOffline(profile: ServerProfile?): Boolean = StorageAccess.normal {
+        if (profile == null) return@normal false
+        if (profile.serverAccess.status != ServerAccessStatus.READY) return@normal false
+        if (profile.status != AuthStatus.CONNECTED && !profile.sessionState.hasOriginSession) return@normal false
         val cacheState = profileCacheStateDao.getByProfile(profile.id)
-        return cacheState?.catalogReady == true
+        return@normal cacheState?.catalogReady == true || cachedRomDao.listAll(profile.id).isNotEmpty() ||
+            downloadedRomDao.listAll().any { it.ownerProfileId == profile.id || it.ownerProfileId == null }
     }
 
-    suspend fun buildPlayerSession(installation: DownloadedRomEntity, rom: RomDto): PlayerSession {
+    /** Cold inputs for the workspace owner. Legacy progress must be inventoried/migrated explicitly. */
+    suspend fun buildProgressPlayerSession(installation: DownloadedRomEntity, rom: RomDto): PlayerSession =
+        buildPlayerSession(installation, rom, seedLegacySave = false)
+
+    suspend fun buildPlayerSession(installation: DownloadedRomEntity, rom: RomDto, seedLegacySave: Boolean = true): PlayerSession = StorageAccess.normal { withContext(Dispatchers.IO) {
+        if (seedLegacySave) requireLegacyPlayerProgress(database.progressDao(), installation)
+        ownedDownloads.verifyInstall(installation)
         val resolution = resolveCoreSupport(
             rom = rom,
             file = rom.files.firstOrNull { it.id == installation.fileId } ?: rom.files.firstOrNull(),
         )
         val profile = resolution.runtimeProfile ?: error(resolution.message ?: "Unsupported platform.")
-        val coreLibrary = resolution.coreLibrary ?: error(resolution.message ?: "Missing core.")
+        check(resolution.capability == PlayerCapability.READY) { resolution.message ?: "Core is not ready." }
+        val frozenCore = coreResolver.prepareCore(
+            profile, requireNotNull(resolution.coreIdentity) { "Core identity is missing." },
+        )
+        val coreLibrary = frozenCore.file
         val saveRamFile = libraryStore.saveRamFile(installation)
+        val firmware = firmwareStore.prepare(installation, profile)
+        check(saveRamFile.parentFile!!.isDirectory || saveRamFile.parentFile!!.mkdirs()) { "Cannot create the game's save directory." }
+        val statesDirectory = libraryStore.saveStatesDirectory(installation)
+        check(statesDirectory.isDirectory || statesDirectory.mkdirs()) { "Cannot create the game's state directory." }
 
-        return PlayerSession(
+        PlayerSession(
             romId = installation.romId,
             romTitle = installation.romName,
             romPath = File(installation.localPath),
             coreLibrary = coreLibrary,
             runtimeProfile = profile,
-            systemDirectory = libraryStore.systemDirectory(),
+            systemDirectory = firmware.systemDirectory,
             savesDirectory = saveRamFile.parentFile ?: libraryStore.systemDirectory(),
             saveRamFile = saveRamFile,
-            saveStatesDirectory = libraryStore.saveStatesDirectory(installation),
+            saveStatesDirectory = statesDirectory,
+            firmwareSha256 = firmware.sha256,
+            coreIdentity = frozenCore.identity,
+            progressBinding = if (installation.progressScope == InstallIdentity.LEGACY) null else
+                io.github.bandoracer.rommio.domain.progress.ProgressBinding(
+                    requireNotNull(installation.ownerBaseUrl), requireNotNull(installation.ownerAccountId).toString(),
+                    installation.romId.toLong(), listOf(io.github.bandoracer.rommio.domain.progress.ProgressContentFile(
+                        installation.fileId.toLong(), 0, requireNotNull(installation.contentSha256), null, null)))
+                    .also {
+                        io.github.bandoracer.rommio.domain.progress.ProgressProtocol.validateBinding(it)
+                        check(io.github.bandoracer.rommio.domain.progress.ProgressProtocol.bindingKey(it) == installation.progressScope) {
+                            "Installed content does not match its progress identity."
+                        }
+                    },
             variables = profile.defaultVariables,
-            initialSaveRam = saveRamFile.takeIf { it.exists() }?.readBytes(),
+            initialSaveRam = if (seedLegacySave) saveRamFile.takeIf { it.exists() }?.readBytes() else null,
         )
+    } }
+
+    suspend fun installedFileOrNull(romId: Int, fileId: Int): DownloadedRomEntity? = StorageAccess.normal {
+        val profile = authManager.getActiveProfile()
+        val account = profile?.let { authManager.verifiedAccount(it.id) }
+        val namespace = account?.let { InstallIdentity.namespace(it.baseUrl, it.userId) } ?: InstallIdentity.LEGACY
+        return@normal downloadedRomDao.getByIds(romId, fileId, namespace)
+            ?: downloadedRomDao.getByIds(romId, fileId, InstallIdentity.LEGACY)
     }
 
-    suspend fun installedFileOrNull(romId: Int, fileId: Int): DownloadedRomEntity? {
-        return downloadedRomDao.getByIds(romId, fileId)
+    suspend fun latestInstalledFile(romId: Int): DownloadedRomEntity? = StorageAccess.normal {
+        return@normal observeInstalledFiles(romId).first().firstOrNull()
     }
 
-    suspend fun latestInstalledFile(romId: Int): DownloadedRomEntity? {
-        return downloadedRomDao.observeByRomId(romId).first().firstOrNull()
-    }
-
-    suspend fun refreshGameStateRecovery(installation: DownloadedRomEntity, rom: RomDto) {
+    suspend fun refreshGameStateRecovery(installation: DownloadedRomEntity, rom: RomDto) = StorageAccess.normal {
         val resolution = resolveCoreSupport(
             rom = rom,
             file = rom.files.firstOrNull { it.id == installation.fileId } ?: rom.files.firstOrNull(),
@@ -1106,12 +1141,13 @@ class RommRepository(
     suspend fun setPendingPlayerLaunchTarget(
         installation: DownloadedRomEntity,
         state: BrowsableGameState,
-    ) {
+    ) = StorageAccess.normal {
+        require(File(state.localPath).canonicalPath.startsWith(libraryStore.saveStatesDirectory(installation).canonicalPath + File.separator)) { "This state belongs to another installed content generation." }
         if (!File(state.localPath).exists()) {
             error("${state.label} is not available on this device yet.")
         }
         playerLaunchTargetMutex.withLock {
-            pendingPlayerLaunchTargets[playerLaunchKey(installation.romId, installation.fileId)] = PlayerLaunchTarget(
+            pendingPlayerLaunchTargets[playerLaunchKey(installation.romId, installation.fileId, installation.progressScope)] = PlayerLaunchTarget(
                 kind = state.kind.toLaunchTargetKind(),
                 localStatePath = state.localPath,
                 stateId = state.id,
@@ -1125,7 +1161,7 @@ class RommRepository(
         file: RomFileDto,
         replaceExisting: Boolean = false,
         prioritize: Boolean = false,
-    ) {
+    ) = StorageAccess.normal {
         queueDownload(
             romId = rom.id,
             fileId = file.id,
@@ -1142,7 +1178,7 @@ class RommRepository(
         rom: RomDto,
         file: RomFileDto,
         replaceExisting: Boolean = false,
-    ) {
+    ) = StorageAccess.normal {
         enqueueDownload(
             rom = rom,
             file = file,
@@ -1151,199 +1187,49 @@ class RommRepository(
         )
     }
 
-    suspend fun consumePendingPlayerLaunchTarget(romId: Int, fileId: Int): PlayerLaunchTarget? {
-        return takePendingPlayerLaunchTarget(romId, fileId)
+    suspend fun consumePendingPlayerLaunchTarget(romId: Int, fileId: Int): PlayerLaunchTarget? = StorageAccess.normal {
+        return@normal takePendingPlayerLaunchTarget(romId, fileId)
     }
 
     private suspend fun takePendingPlayerLaunchTarget(romId: Int, fileId: Int): PlayerLaunchTarget? {
+        val scope = installedFileOrNull(romId, fileId)?.progressScope ?: InstallIdentity.LEGACY
         return playerLaunchTargetMutex.withLock {
-            pendingPlayerLaunchTargets.remove(playerLaunchKey(romId, fileId))
+            pendingPlayerLaunchTargets.remove(playerLaunchKey(romId, fileId, scope))
         }
     }
 
-    private suspend fun currentGameSyncPresentation(romId: Int, fileId: Int): GameSyncPresentation {
-        val profile = authManager.getActiveProfile() ?: return GameSyncPresentation()
-        return gameSyncJournalDao.getByKey(profile.id, romId, fileId).toPresentation(currentConnectivityState())
+    private suspend fun currentGameSyncPresentation(installation: DownloadedRomEntity): GameSyncPresentation {
+        val profile = requireInstallProfile(installation)
+        return gameSyncJournalDao.getByKey(profile.id, installation.romId, installation.fileId, installation.progressScope).toPresentation(currentConnectivityState())
     }
 
-    suspend fun cancelDownload(record: DownloadRecord) {
-        if (record.status == DownloadStatus.RUNNING) {
-            workManager.cancelUniqueWork(DownloadRomWorker.QUEUE_WORK_NAME)
-        }
-        val now = System.currentTimeMillis()
-        downloadRecordDao.upsert(
-            DownloadRecordEntity(
-                romId = record.romId,
-                fileId = record.fileId,
-                romName = record.romName,
-                platformSlug = record.platformSlug,
-                fileName = record.fileName,
-                fileSizeBytes = record.fileSizeBytes,
-                workId = null,
-                status = DownloadStatus.CANCELED.name,
-                progressPercent = record.progressPercent,
-                bytesDownloaded = record.bytesDownloaded,
-                totalBytes = record.totalBytes,
-                localPath = record.localPath,
-                lastError = null,
-                enqueuedAtEpochMs = record.enqueuedAtEpochMs,
-                startedAtEpochMs = record.startedAtEpochMs,
-                completedAtEpochMs = record.completedAtEpochMs,
-                updatedAtEpochMs = now,
-            ),
-        )
+    private suspend fun requireInstallProfile(installation: DownloadedRomEntity): ServerProfile =
+        if (installation.ownerProfileId == null) requireActiveProfile()
+        else authManager.getProfile(installation.ownerProfileId) ?: error("The original account is unavailable. Local progress is retained.")
+
+    suspend fun cancelDownload(record: DownloadRecord) = StorageAccess.normal {
+        ownedDownloads.cancel(record)
+        if (record.status == DownloadStatus.RUNNING) workManager.cancelUniqueWork(DownloadRomWorker.QUEUE_WORK_NAME).await()
+        kickDownloadQueue()
     }
 
-    suspend fun retryDownload(record: DownloadRecord) {
-        queueDownload(
-            romId = record.romId,
-            fileId = record.fileId,
-            romName = record.romName,
-            platformSlug = record.platformSlug,
-            fileName = record.fileName,
-            fileSizeBytes = record.fileSizeBytes,
-            replaceExisting = true,
-            prioritize = false,
-        )
+    suspend fun retryDownload(record: DownloadRecord) = StorageAccess.normal {
+        ownedDownloads.retry(record)
+        kickDownloadQueue()
     }
 
     private suspend fun queueDownload(
-        romId: Int,
-        fileId: Int,
-        romName: String,
-        platformSlug: String,
-        fileName: String,
-        fileSizeBytes: Long,
-        replaceExisting: Boolean,
-        prioritize: Boolean,
+        romId: Int, fileId: Int, romName: String, platformSlug: String, fileName: String,
+        fileSizeBytes: Long, replaceExisting: Boolean, prioritize: Boolean,
     ) {
-        val now = System.currentTimeMillis()
-        val existing = downloadRecordDao.getByIds(romId, fileId)
-        val installed = downloadedRomDao.getByIds(romId, fileId)
-
-        if (!replaceExisting) {
-            when (existing?.toModel()?.status) {
-                DownloadStatus.RUNNING -> return
-                DownloadStatus.QUEUED -> {
-                    if (!prioritize) return
-                    val allRecords = downloadRecordDao.listAll().filterNot { it.romId == romId && it.fileId == fileId }
-                    downloadRecordDao.upsert(
-                        existing.copy(
-                            workId = null,
-                            status = DownloadStatus.QUEUED.name,
-                            progressPercent = 0,
-                            bytesDownloaded = 0,
-                            totalBytes = fileSizeBytes,
-                            localPath = installed?.localPath ?: existing.localPath,
-                            lastError = null,
-                            enqueuedAtEpochMs = nextPriorityEnqueuedAt(allRecords, now),
-                            startedAtEpochMs = null,
-                            completedAtEpochMs = null,
-                            updatedAtEpochMs = now,
-                        ),
-                    )
-                    kickDownloadQueue()
-                    return
-                }
-
-                else -> Unit
-            }
-        }
-
-        val otherRecords = downloadRecordDao.listAll().filterNot { it.romId == romId && it.fileId == fileId }
-        downloadRecordDao.upsert(
-            DownloadRecordEntity(
-                romId = romId,
-                fileId = fileId,
-                romName = romName,
-                platformSlug = platformSlug,
-                fileName = fileName,
-                fileSizeBytes = fileSizeBytes,
-                workId = null,
-                status = DownloadStatus.QUEUED.name,
-                progressPercent = 0,
-                bytesDownloaded = 0,
-                totalBytes = fileSizeBytes,
-                localPath = installed?.localPath ?: existing?.localPath,
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-                lastError = if (isOnline()) null else "Waiting for a connection before downloading.",
-                enqueuedAtEpochMs = if (prioritize) nextPriorityEnqueuedAt(otherRecords, now) else now,
-                startedAtEpochMs = null,
-                completedAtEpochMs = null,
-                updatedAtEpochMs = now,
-            ),
-        )
+        ownedDownloads.enqueue(romId, fileId, romName, platformSlug, fileName, fileSizeBytes, replaceExisting, prioritize)
         kickDownloadQueue()
-        scheduleOfflineSync(force = false)
     }
 
     private fun kickDownloadQueue() {
         workManager.enqueueUniqueWork(
             DownloadRomWorker.QUEUE_WORK_NAME,
-            ExistingWorkPolicy.KEEP,
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
             OneTimeWorkRequestBuilder<DownloadRomWorker>()
                 .setConstraints(
                     Constraints.Builder()
@@ -1355,90 +1241,46 @@ class RommRepository(
         )
     }
 
-    suspend fun downloadNow(record: DownloadRecord) {
-        preemptActiveDownloadFor(record.romId, record.fileId)
-        queueDownload(
-            romId = record.romId,
-            fileId = record.fileId,
-            romName = record.romName,
-            platformSlug = record.platformSlug,
-            fileName = record.fileName,
-            fileSizeBytes = record.fileSizeBytes,
-            replaceExisting = true,
-            prioritize = true,
-        )
+    suspend fun downloadNow(record: DownloadRecord) = StorageAccess.normal {
+        ownedDownloads.retry(record, prioritize = true)
+        // Cancel after invalidating the selected attempt. Other interrupted jobs recover under fresh attempts.
+        workManager.cancelUniqueWork(DownloadRomWorker.QUEUE_WORK_NAME).await()
+        kickDownloadQueue()
     }
 
-    private suspend fun preemptActiveDownloadFor(targetRomId: Int, targetFileId: Int) {
-        val now = System.currentTimeMillis()
-        val activeRecord = downloadRecordDao.listAll().firstOrNull { record ->
-            record.status == DownloadStatus.RUNNING.name &&
-                !(record.romId == targetRomId && record.fileId == targetFileId)
-        } ?: return
-
-        downloadRecordDao.upsert(
-            activeRecord.copy(
-                workId = null,
-                status = DownloadStatus.QUEUED.name,
-                progressPercent = 0,
-                bytesDownloaded = 0,
-                totalBytes = activeRecord.fileSizeBytes,
-                lastError = null,
-                startedAtEpochMs = null,
-                completedAtEpochMs = null,
-                updatedAtEpochMs = now,
-            ),
-        )
-        workManager.cancelUniqueWork(DownloadRomWorker.QUEUE_WORK_NAME)
+    suspend fun deleteLocalDownload(record: DownloadRecord) = StorageAccess.normal {
+        ownedDownloads.removeInstall(record.romId, record.fileId, record.localPath, record.namespaceKey)
     }
 
-    suspend fun deleteLocalDownload(record: DownloadRecord) {
-        clearLocalInstall(record.romId, record.fileId, record.localPath)
-        val existing = downloadRecordDao.getByIds(record.romId, record.fileId) ?: return
-        downloadRecordDao.upsert(
-            existing.copy(
-                localPath = null,
-                updatedAtEpochMs = System.currentTimeMillis(),
-            ),
-        )
+    suspend fun deleteInstalledFile(installation: DownloadedRomEntity) = StorageAccess.normal {
+        ownedDownloads.removeInstall(installation.romId, installation.fileId, installation.localPath, installation.namespaceKey)
     }
 
-    suspend fun deleteInstalledFile(installation: DownloadedRomEntity) {
-        clearLocalInstall(installation.romId, installation.fileId, installation.localPath)
-        downloadRecordDao.getByIds(installation.romId, installation.fileId)?.let { existing ->
-            downloadRecordDao.upsert(
-                existing.copy(
-                    localPath = null,
-                    updatedAtEpochMs = System.currentTimeMillis(),
-                ),
-            )
-        }
-    }
-
-    suspend fun recordSaveState(installation: DownloadedRomEntity, slot: Int, file: File) {
+    suspend fun recordSaveState(installation: DownloadedRomEntity, slot: Int, file: File) = StorageAccess.normal {
         syncBridge.recordManualState(installation, slot, file)
         if (!isOnline()) {
             runCatching { enqueuePendingManualSlotUpload(installation, slot) }
         }
     }
 
-    suspend fun deleteSaveState(installation: DownloadedRomEntity, slot: Int) {
+    suspend fun deleteSaveState(installation: DownloadedRomEntity, slot: Int) = StorageAccess.normal {
         syncBridge.markManualStateDeleted(installation, slot)
         if (!isOnline()) {
             runCatching { enqueuePendingManualSlotDelete(installation, slot) }
         }
     }
 
-    suspend fun syncGame(installation: DownloadedRomEntity, rom: RomDto): SyncSummary {
+    suspend fun syncGame(installation: DownloadedRomEntity, rom: RomDto): SyncSummary = StorageAccess.normal {
         val resolution = resolveCoreSupport(
             rom = rom,
             file = rom.files.firstOrNull { it.id == installation.fileId } ?: rom.files.firstOrNull(),
         )
         val profile = resolution.runtimeProfile ?: error(resolution.message ?: "Unsupported platform.")
-        return syncBridge.syncGame(installation, rom, profile)
+        return@normal syncBridge.syncGame(installation, rom, profile)
     }
 
-    suspend fun deleteBrowsableState(installation: DownloadedRomEntity, state: BrowsableGameState) {
+    suspend fun deleteBrowsableState(installation: DownloadedRomEntity, state: BrowsableGameState) = StorageAccess.normal {
+        require(File(state.localPath).canonicalPath.startsWith(libraryStore.saveStatesDirectory(installation).canonicalPath + File.separator)) { "This state belongs to another installed content generation." }
         when (state.deletePolicy) {
             GameStateDeletePolicy.NONE -> error("${state.label} cannot be deleted.")
             GameStateDeletePolicy.LOCAL_AND_REMOTE -> {
@@ -1447,17 +1289,18 @@ class RommRepository(
             }
             GameStateDeletePolicy.LOCAL_ONLY -> {
                 runCatching { File(state.localPath).delete() }
-                recoveryStateDao.deleteByKey(installation.romId, installation.fileId, state.id)
+                recoveryStateDao.deleteByKey(installation.romId, installation.fileId, state.id, installation.progressScope)
             }
         }
     }
 
-    suspend fun preparePlayerLaunch(installation: DownloadedRomEntity, rom: RomDto): PlayerLaunchPreparation {
+    suspend fun preparePlayerLaunch(installation: DownloadedRomEntity, rom: RomDto): PlayerLaunchPreparation = StorageAccess.normal {
+        requireLegacyPlayerProgress(database.progressDao(), installation)
         val pendingTarget = takePendingPlayerLaunchTarget(installation.romId, installation.fileId)
         if (pendingTarget != null) {
-            return PlayerLaunchPreparation(
+            return@normal PlayerLaunchPreparation(
                 launchTarget = pendingTarget,
-                syncPresentation = currentGameSyncPresentation(installation.romId, installation.fileId),
+                syncPresentation = currentGameSyncPresentation(installation),
             )
         }
         val resolution = resolveCoreSupport(
@@ -1465,42 +1308,35 @@ class RommRepository(
             file = rom.files.firstOrNull { it.id == installation.fileId } ?: rom.files.firstOrNull(),
         )
         val profile = resolution.runtimeProfile ?: error(resolution.message ?: "Unsupported platform.")
-        return syncBridge.preparePlayerEntry(installation, rom, profile)
+        return@normal syncBridge.preparePlayerEntry(installation, rom, profile)
     }
 
-    suspend fun adoptRemoteContinuity(installation: DownloadedRomEntity, rom: RomDto): PlayerLaunchPreparation {
+    suspend fun adoptRemoteContinuity(installation: DownloadedRomEntity, rom: RomDto): PlayerLaunchPreparation = StorageAccess.normal {
         val resolution = resolveCoreSupport(
             rom = rom,
             file = rom.files.firstOrNull { it.id == installation.fileId } ?: rom.files.firstOrNull(),
         )
         val profile = resolution.runtimeProfile ?: error(resolution.message ?: "Unsupported platform.")
-        return syncBridge.adoptRemoteContinuity(installation, rom, profile)
+        return@normal syncBridge.adoptRemoteContinuity(installation, rom, profile)
     }
 
-    suspend fun flushContinuity(installation: DownloadedRomEntity, rom: RomDto, sessionActive: Boolean): SyncSummary {
+    suspend fun flushContinuity(installation: DownloadedRomEntity, rom: RomDto, sessionActive: Boolean): SyncSummary = StorageAccess.normal {
         val resolution = resolveCoreSupport(
             rom = rom,
             file = rom.files.firstOrNull { it.id == installation.fileId } ?: rom.files.firstOrNull(),
         )
         val profile = resolution.runtimeProfile ?: error(resolution.message ?: "Unsupported platform.")
-        return syncBridge.flushContinuity(installation, rom, profile, sessionActive = sessionActive)
+        return@normal syncBridge.flushContinuity(installation, rom, profile, sessionActive = sessionActive)
     }
 
-    suspend fun findCachedRom(romId: Int): RomDto? {
-        val profile = authManager.getActiveProfile() ?: return null
-        return cachedRomDao.getById(profile.id, romId)?.toDomain(cacheCodec)
+    suspend fun findCachedRom(romId: Int): RomDto? = StorageAccess.normal {
+        val profile = authManager.getActiveProfile() ?: return@normal null
+        return@normal cachedRomDao.getById(profile.id, romId)?.toDomain(cacheCodec)
     }
 
     private suspend fun requireActiveProfile(): ServerProfile {
         return authManager.getActiveProfile()
             ?: error("Configure server access before using the RomM library.")
-    }
-
-    private suspend fun clearLocalInstall(romId: Int, fileId: Int, localPath: String?) {
-        localPath?.let { path ->
-            runCatching { File(path).delete() }
-        }
-        downloadedRomDao.delete(romId, fileId)
     }
 
     private suspend fun isOnline(): Boolean = connectivityMonitor.currentState() == ConnectivityState.ONLINE
@@ -1592,173 +1428,20 @@ class RommRepository(
             .take(limit)
     }
 
-    private suspend fun cachePlatforms(profile: ServerProfile, platforms: List<PlatformDto>) {
-        val now = System.currentTimeMillis()
-        cachedPlatformDao.deleteByProfile(profile.id)
-        cachedPlatformDao.upsertAll(
-            platforms.map { platform ->
-                val absoluteLogo = platform.platformLogoSource(profile.baseUrl)
-                CachedPlatformEntity(
-                    profileId = profile.id,
-                    platformId = platform.id,
-                    slug = platform.slug,
-                    name = platform.name,
-                    fsSlug = platform.fsSlug,
-                    urlLogo = platform.urlLogo,
-                    romCount = platform.romCount,
-                    logoCachedUri = absoluteLogo?.let { thumbnailCacheStore.resolveCachedUri(profile.id, it) },
-                    updatedAtEpochMs = now,
-                )
-            },
-        )
-    }
+    private suspend fun cachePlatforms(profile: ServerProfile, platforms: List<PlatformDto>) = catalogCache.cachePlatforms(profile, platforms)
+    private suspend fun cacheRoms(profile: ServerProfile, roms: List<RomDto>, detailed: Boolean = false, filesIncluded: Boolean = false) = catalogCache.cacheRoms(profile, roms, detailed, filesIncluded)
+    private suspend fun cacheCollections(profile: ServerProfile, collections: List<RommCollectionDto>) = catalogCache.cacheCollections(profile, collections)
+    private suspend fun replaceCollectionMembership(profileId: String, collection: RommCollectionDto, romIds: List<Int>) = catalogCache.replaceCollectionMembership(profileId, collection, romIds)
+    private suspend fun cacheRomFeed(profileId: String, feedType: OfflineHomeFeedType, roms: List<RomDto>) = catalogCache.cacheRomFeed(profileId, feedType, roms)
+    private suspend fun cacheCollectionFeed(profileId: String, collections: List<RommCollectionDto>) = catalogCache.cacheCollectionFeed(profileId, collections)
 
-    private suspend fun cacheRoms(profile: ServerProfile, roms: List<RomDto>) {
-        if (roms.isEmpty()) return
-        val now = System.currentTimeMillis()
-        cachedRomDao.upsertAll(
-            roms.distinctBy { it.id }.map { rom ->
-                val absoluteCover = rom.coverSource(profile.baseUrl)
-                CachedRomEntity(
-                    profileId = profile.id,
-                    romId = rom.id,
-                    name = rom.name,
-                    summary = rom.summary,
-                    platformId = rom.platformId,
-                    platformName = rom.platformName,
-                    platformSlug = rom.platformSlug,
-                    fsName = rom.fsName,
-                    filesJson = cacheCodec.encodeFiles(rom.files),
-                    siblingsJson = cacheCodec.encodeSiblings(rom.siblings.orEmpty()),
-                    urlCover = rom.urlCover,
-                    coverCachedUri = absoluteCover?.let { thumbnailCacheStore.resolveCachedUri(profile.id, it) },
-                    updatedAtEpochMs = now,
-                )
-            },
-        )
-    }
-
-    private suspend fun cacheCollections(profile: ServerProfile, collections: List<RommCollectionDto>) {
-        val now = System.currentTimeMillis()
-        cachedCollectionDao.deleteByProfile(profile.id)
-        cachedCollectionRomDao.deleteByProfile(profile.id)
-        cachedCollectionDao.upsertAll(
-            collections.map { collection ->
-                val absoluteCover = collection.collectionCoverSource(profile.baseUrl)
-                CachedCollectionEntity(
-                    profileId = profile.id,
-                    kind = collection.kind.name,
-                    collectionId = collection.id,
-                    name = collection.name,
-                    description = collection.description,
-                    romCount = collection.romCount,
-                    pathCoverSmall = collection.pathCoverSmall,
-                    pathCoverLarge = collection.pathCoverLarge,
-                    pathCoversSmallJson = cacheCodec.encodeStringList(collection.pathCoversSmall),
-                    pathCoversLargeJson = cacheCodec.encodeStringList(collection.pathCoversLarge),
-                    coverCachedUri = absoluteCover?.let { thumbnailCacheStore.resolveCachedUri(profile.id, it) },
-                    isPublic = collection.isPublic,
-                    isFavorite = collection.isFavorite,
-                    isVirtual = collection.isVirtual,
-                    isSmart = collection.isSmart,
-                    ownerUsername = collection.ownerUsername,
-                    updatedAtEpochMs = now,
-                )
-            },
-        )
-        collections.forEach { collection ->
-            replaceCollectionMembership(
-                profileId = profile.id,
-                collection = collection,
-                romIds = collection.romIds.toList(),
-            )
-        }
-    }
-
-    private suspend fun replaceCollectionMembership(
-        profileId: String,
-        collection: RommCollectionDto,
-        romIds: List<Int>,
-    ) {
-        cachedCollectionRomDao.deleteByCollection(profileId, collection.kind.name, collection.id)
-        if (romIds.isNotEmpty()) {
-            cachedCollectionRomDao.upsertAll(
-                romIds.distinct().mapIndexed { index, romId ->
-                    CachedCollectionRomEntity(
-                        profileId = profileId,
-                        kind = collection.kind.name,
-                        collectionId = collection.id,
-                        romId = romId,
-                        position = index,
-                    )
-                },
-            )
-        }
-    }
-
-    private suspend fun cacheRomFeed(profileId: String, feedType: OfflineHomeFeedType, roms: List<RomDto>) {
-        cachedHomeEntryDao.deleteByFeed(profileId, feedType.name)
-        if (roms.isEmpty()) return
-        cachedHomeEntryDao.upsertAll(
-            roms.distinctBy { it.id }.mapIndexed { index, rom ->
-                CachedHomeEntryEntity(
-                    profileId = profileId,
-                    feedType = feedType.name,
-                    position = index,
-                    romId = rom.id,
-                )
-            },
-        )
-    }
-
-    private suspend fun cacheCollectionFeed(profileId: String, collections: List<RommCollectionDto>) {
-        cachedHomeEntryDao.deleteByFeed(profileId, OfflineHomeFeedType.FEATURED_COLLECTION.name)
-        if (collections.isEmpty()) return
-        cachedHomeEntryDao.upsertAll(
-            collections.mapIndexed { index, collection ->
-                CachedHomeEntryEntity(
-                    profileId = profileId,
-                    feedType = OfflineHomeFeedType.FEATURED_COLLECTION.name,
-                    position = index,
-                    collectionKind = collection.kind.name,
-                    collectionId = collection.id,
-                )
-            },
-        )
-    }
-
-    private suspend fun fetchAllRoms(service: RommService): List<RomDto> {
-        val pageSize = 100
-        val roms = mutableListOf<RomDto>()
-        var offset = 0
-        var total = Int.MAX_VALUE
-        while (offset < total) {
-            val response = service.getRoms(limit = pageSize, offset = offset)
-            if (response.items.isEmpty()) break
-            roms += response.items
-            total = response.total ?: (offset + response.items.size)
-            offset += response.items.size
-            if (response.items.size < pageSize) break
-        }
-        return roms.distinctBy { it.id }
-    }
-
-    private suspend fun fetchCollections(service: RommService): List<RommCollectionDto> {
-        val regular = service.getCollections().map { it.toDomain() }
-        val smart = service.getSmartCollections().map { it.toDomain() }
-        val virtual = service.getVirtualCollections(type = "all", limit = 24).map { it.toDomain() }
-        return (regular + smart + virtual)
-            .sortedWith(
-                compareByDescending<RommCollectionDto> { it.isFavorite }
-                    .thenByDescending { it.romCount }
-                    .thenBy { it.name.lowercase() },
-            )
-    }
+    private suspend fun fetchAllRoms(service: RommService): List<RomDto> = CatalogReader(service).roms()
+    private suspend fun fetchCollections(service: RommService): List<RommCollectionDto> = CatalogReader(service).collections()
 
     private suspend fun fetchDetailedRom(service: RommService, romId: Int): RomDto {
         val rom = service.getRomById(romId)
         val siblingFiles = rom.siblings.orEmpty().mapNotNull { sibling ->
-            runCatching { service.getRomById(sibling.id).files.firstOrNull() }.getOrNull()
+            service.getRomById(sibling.id).files.firstOrNull()
         }
         return rom.copy(files = rom.files + siblingFiles)
     }
@@ -1771,7 +1454,7 @@ class RommRepository(
         continuePlaying: List<RomDto>,
         recent: List<RomDto>,
     ): Boolean {
-        val installedRomIds = downloadedRomDao.observeAll().first().map { it.romId }.toSet()
+        val installedRomIds = downloadedRomDao.observeAll().first().filter { it.ownerProfileId == null || it.ownerProfileId == profile.id }.map { it.romId }.toSet()
         val pinnedRomIds = installedRomIds + continuePlaying.map { it.id } + recent.map { it.id }
         val pinnedCollections = collections.take(8).map { it.cacheKey }.toSet()
         var success = true
@@ -1871,25 +1554,6 @@ class RommRepository(
         }
     }
 
-    private suspend fun markRefreshSucceeded(
-        profileId: String,
-        updateFullSync: Boolean,
-        updateMediaSync: Boolean = false,
-    ) {
-        val current = profileCacheStateDao.getByProfile(profileId) ?: ProfileCacheStateEntity(profileId = profileId)
-        val now = System.currentTimeMillis()
-        profileCacheStateDao.upsert(
-            current.copy(
-                lastFullSyncAtEpochMs = if (updateFullSync) now else current.lastFullSyncAtEpochMs,
-                lastMediaSyncAtEpochMs = if (updateMediaSync) now else current.lastMediaSyncAtEpochMs,
-                catalogReady = current.catalogReady || updateFullSync,
-                mediaReady = current.mediaReady || updateMediaSync,
-                isRefreshing = false,
-                lastError = null,
-            ),
-        )
-    }
-
     private suspend fun runTargetedRefresh(
         profile: ServerProfile,
         scopeKey: String,
@@ -1905,16 +1569,16 @@ class RommRepository(
         )
         runScopedRefresh(scopeKey) {
             runCatching { block() }.onFailure { error ->
-                val latest = profileCacheStateDao.getByProfile(profile.id) ?: current
-                profileCacheStateDao.upsert(
-                    latest.copy(
-                        isRefreshing = false,
-                        lastError = error.message ?: "Refresh failed.",
-                    ),
-                )
+                markRefreshFailed(profile.id, error)
                 throw error
             }
         }
+    }
+
+    private suspend fun markRefreshFailed(profileId: String, error: Throwable) = withContext(NonCancellable) {
+        val current = profileCacheStateDao.getByProfile(profileId) ?: return@withContext
+        profileCacheStateDao.upsert(current.copy(isRefreshing = false,
+            lastError = if (error is CancellationException) "Refresh interrupted; cached content retained." else error.message ?: "Refresh failed."))
     }
 
     private suspend fun runScopedRefresh(
@@ -1944,8 +1608,8 @@ class RommRepository(
 
         val result = runCatching { block() }
         gate.complete(result)
-        refreshMutex.withLock {
-            inFlightRefreshes.remove(scopeKey)
+        withContext(NonCancellable) {
+            refreshMutex.withLock { inFlightRefreshes.remove(scopeKey) }
         }
         result.getOrThrow()
     }
@@ -1972,33 +1636,8 @@ class RommRepository(
         scheduleOfflineSync(force = false)
     }
 
-    private suspend fun drainContinuitySyncAction(profile: ServerProfile, action: PendingRemoteActionEntity) {
-        val payload = runCatching { moshiContinuityPayload(action.payloadJson) }
-            .getOrElse { moshiLegacyGameSyncPayload(action.payloadJson) }
-        val installation = downloadedRomDao.getByIds(payload.romId, payload.fileId)
-            ?: error("Installed file missing for queued sync.")
-        val rom = getRomById(payload.romId)
-        cacheRoms(profile, listOf(rom))
-        syncGame(installation, rom)
-    }
 
-    private suspend fun drainManualSlotAction(profile: ServerProfile, action: PendingRemoteActionEntity) {
-        val payload = moshiManualSlotPayload(action.payloadJson)
-        val installation = downloadedRomDao.getByIds(payload.romId, payload.fileId)
-            ?: error("Installed file missing for queued save slot action.")
-        val rom = getRomById(payload.romId)
-        cacheRoms(profile, listOf(rom))
-        when (PendingRemoteActionType.valueOf(action.actionType)) {
-            PendingRemoteActionType.MANUAL_SLOT_DELETE -> deleteSaveState(installation, payload.slot)
-            PendingRemoteActionType.MANUAL_SLOT_UPLOAD -> {
-                val stateFile = libraryStore.saveStateFile(installation, payload.slot)
-                if (!stateFile.exists()) error("Save slot ${payload.slot} is missing locally.")
-                recordSaveState(installation, payload.slot, stateFile)
-            }
-            else -> error("Unsupported save slot pending action ${action.actionType}.")
-        }
-        syncGame(installation, rom)
-    }
+
 
 
 
@@ -2453,31 +2092,14 @@ class RommRepository(
         )
     }
 
-    private fun moshiContinuityPayload(payload: PendingContinuitySyncPayload): String {
-        return com.squareup.moshi.Moshi.Builder().build()
-            .adapter(PendingContinuitySyncPayload::class.java)
-            .toJson(payload)
-    }
+    private fun moshiContinuityPayload(payload: PendingContinuitySyncPayload): String =
+        pendingActionCodec.encode(payload)
 
-    private fun moshiContinuityPayload(raw: String): PendingContinuitySyncPayload {
-        return com.squareup.moshi.Moshi.Builder().build()
-            .adapter(PendingContinuitySyncPayload::class.java)
-            .fromJson(raw)
-            ?: error("Invalid queued sync payload.")
-    }
+    private fun moshiContinuityPayload(raw: String): PendingContinuitySyncPayload =
+        pendingActionCodec.decodeContinuity(raw)
 
-    private fun moshiLegacyGameSyncPayload(raw: String): PendingContinuitySyncPayload {
-        return com.squareup.moshi.Moshi.Builder().build()
-            .adapter(PendingContinuitySyncPayload::class.java)
-            .fromJson(raw)
-            ?: run {
-                val legacy = com.squareup.moshi.Moshi.Builder().build()
-                    .adapter(LegacyGameSyncPayload::class.java)
-                    .fromJson(raw)
-                    ?: error("Invalid queued sync payload.")
-                PendingContinuitySyncPayload(legacy.romId, legacy.fileId)
-            }
-    }
+    private fun moshiLegacyGameSyncPayload(raw: String): PendingContinuitySyncPayload =
+        pendingActionCodec.decodeContinuity(raw)
 
     
 
@@ -2612,33 +2234,19 @@ fun summarizeInstalledPlatforms(installed: List<DownloadedRomEntity>): List<Inst
     return installed
 */
 
-    private fun moshiManualSlotPayload(payload: PendingManualSlotPayload): String {
-        return com.squareup.moshi.Moshi.Builder().build()
-            .adapter(PendingManualSlotPayload::class.java)
-            .toJson(payload)
-    }
+    private fun moshiManualSlotPayload(payload: PendingManualSlotPayload): String =
+        pendingActionCodec.encode(payload)
 
-    private fun moshiManualSlotPayload(raw: String): PendingManualSlotPayload {
-        return com.squareup.moshi.Moshi.Builder().build()
-            .adapter(PendingManualSlotPayload::class.java)
-            .fromJson(raw)
-            ?: error("Invalid queued save slot payload.")
-    }
+    private fun moshiManualSlotPayload(raw: String): PendingManualSlotPayload =
+        pendingActionCodec.decodeManualSlot(raw)
 
-    private fun moshiCorePayload(payload: PendingCoreDownloadPayload): String {
-        return com.squareup.moshi.Moshi.Builder().build()
-            .adapter(PendingCoreDownloadPayload::class.java)
-            .toJson(payload)
-    }
+    private fun moshiCorePayload(payload: PendingCoreDownloadPayload): String =
+        pendingActionCodec.encode(payload)
 
-    private fun moshiCorePayload(raw: String): PendingCoreDownloadPayload {
-        return com.squareup.moshi.Moshi.Builder().build()
-            .adapter(PendingCoreDownloadPayload::class.java)
-            .fromJson(raw)
-            ?: error("Invalid queued core payload.")
-    }
+    private fun moshiCorePayload(raw: String): PendingCoreDownloadPayload =
+        pendingActionCodec.decodeCore(raw)
 
-    private fun playerLaunchKey(romId: Int, fileId: Int): String = "$romId:$fileId"
+    private fun playerLaunchKey(romId: Int, fileId: Int, scope: String): String = "$scope:$romId:$fileId"
 }
 
 private val downloadComparator = Comparator<DownloadRecord> { left, right ->
@@ -2669,40 +2277,8 @@ private data class LegacyGameSyncPayload(
     val fileId: Int,
 )
 
-private fun GameSyncJournalEntity?.toPresentation(connectivity: ConnectivityState): GameSyncPresentation {
-    if (this == null) {
-        return GameSyncPresentation()
-    }
-    val kind = when {
-        lastError != null -> GameSyncStatusKind.ERROR
-        remoteContinuityAvailable && pendingContinuityUpload -> GameSyncStatusKind.CONFLICT
-        remoteContinuityAvailable -> GameSyncStatusKind.CLOUD_PROGRESS_AVAILABLE
-        pendingContinuityUpload && connectivity == ConnectivityState.OFFLINE -> GameSyncStatusKind.OFFLINE_PENDING
-        pendingContinuityUpload -> GameSyncStatusKind.OFFLINE_PENDING
-        lastSuccessfulSyncAtEpochMs != null -> GameSyncStatusKind.SYNCED
-        else -> GameSyncStatusKind.IDLE
-    }
-    val message = when (kind) {
-        GameSyncStatusKind.ERROR -> lastError ?: "Sync failed."
-        GameSyncStatusKind.CLOUD_PROGRESS_AVAILABLE -> remoteDeviceName?.let { "Cloud progress available from $it." }
-            ?: "Cloud progress available."
-        GameSyncStatusKind.CONFLICT -> "Choose which resume to keep."
-        GameSyncStatusKind.OFFLINE_PENDING -> if (connectivity == ConnectivityState.OFFLINE) {
-            "Offline changes pending."
-        } else {
-            "Changes queued for upload."
-        }
-        GameSyncStatusKind.SYNCED -> "Synced just now."
-        GameSyncStatusKind.LOCAL_ONLY -> "Local-only install."
-        GameSyncStatusKind.IDLE -> lastSyncNote ?: "Ready to sync."
-    }
-    return GameSyncPresentation(
-        kind = kind,
-        message = message,
-        lastSuccessfulSyncAtEpochMs = lastSuccessfulSyncAtEpochMs,
-        remoteDeviceName = remoteDeviceName,
-    )
-}
+private fun GameSyncJournalEntity?.toPresentation(connectivity: ConnectivityState): GameSyncPresentation =
+    io.github.bandoracer.rommio.domain.sync.legacyLocalPresentation(this?.lastSuccessfulSyncAtEpochMs)
 
 internal fun nextPriorityEnqueuedAt(records: List<DownloadRecordEntity>, now: Long): Long {
     val firstQueuedAt = records
@@ -2752,6 +2328,7 @@ internal fun buildGameStateRecovery(
             .map { it.toBrowsableGameState() }
             .sortedByDescending { it.updatedAtEpochMs },
         saveSlots = manualStates
+            .filter { journalBySlot[it.slot]?.let { row -> !row.deleted && !row.pendingDelete } ?: true }
             .sortedBy { it.slot }
             .map { state ->
                 BrowsableGameState(
@@ -2781,58 +2358,14 @@ private fun GameSyncJournalEntity?.toResumeStateSummary(
     resumeFile: File?,
     connectivity: ConnectivityState,
 ): ResumeStateSummary {
-    val available = resumeFile?.exists() == true
-    if (this == null) {
-        return ResumeStateSummary(
-            available = available,
-            localPath = resumeFile?.takeIf { it.exists() }?.absolutePath,
-            updatedAtEpochMs = resumeFile?.takeIf { it.exists() }?.lastModified(),
-            statusKind = if (available) ResumeStateStatusKind.PENDING_UPLOAD else ResumeStateStatusKind.UNAVAILABLE,
-            primaryStatusMessage = if (available) "Resume ready on this device." else "No resume state yet.",
-        )
-    }
-
-    val statusKind = when {
-        lastError != null -> ResumeStateStatusKind.ERROR
-        remoteContinuityAvailable && pendingContinuityUpload -> ResumeStateStatusKind.CONFLICT
-        remoteContinuityAvailable -> ResumeStateStatusKind.CLOUD_AVAILABLE
-        pendingContinuityUpload -> ResumeStateStatusKind.PENDING_UPLOAD
-        lastSuccessfulSyncAtEpochMs != null && remoteDeviceName != null &&
-            (lastSyncNote?.startsWith("Resumed cloud session from") == true ||
-                lastSyncNote?.startsWith("Cloud progress ready from") == true) -> ResumeStateStatusKind.SYNCED_REMOTE_SOURCE
-        lastSuccessfulSyncAtEpochMs != null -> ResumeStateStatusKind.SYNCED
-        available -> ResumeStateStatusKind.PENDING_UPLOAD
-        else -> ResumeStateStatusKind.UNAVAILABLE
-    }
-    val primaryStatusMessage = when (statusKind) {
-        ResumeStateStatusKind.SYNCED,
-        ResumeStateStatusKind.SYNCED_REMOTE_SOURCE -> "Synced to server."
-        ResumeStateStatusKind.PENDING_UPLOAD -> if (connectivity == ConnectivityState.OFFLINE) {
-            "Waiting to sync."
-        } else {
-            "Changes queued for sync."
-        }
-        ResumeStateStatusKind.CLOUD_AVAILABLE -> remoteDeviceName?.let { "Newer resume available from $it." }
-            ?: "Newer cloud resume available."
-        ResumeStateStatusKind.CONFLICT -> "Resume conflict needs a choice."
-        ResumeStateStatusKind.ERROR -> lastError ?: "Resume sync failed."
-        ResumeStateStatusKind.LOCAL_ONLY -> "Local-only install."
-        ResumeStateStatusKind.UNAVAILABLE -> "No resume state yet."
-    }
+    val available = resumeFile?.isFile == true
     return ResumeStateSummary(
         available = available,
-        localPath = resumeFile?.takeIf { it.exists() }?.absolutePath,
-        updatedAtEpochMs = resumeFile?.takeIf { it.exists() }?.lastModified() ?: remoteContinuityUpdatedAtEpochMs,
-        statusKind = statusKind,
-        lastSuccessfulSyncAtEpochMs = lastSuccessfulSyncAtEpochMs,
-        sourceDeviceId = remoteDeviceId,
-        sourceDeviceName = remoteDeviceName,
-        sourceOrigin = if (statusKind == ResumeStateStatusKind.SYNCED_REMOTE_SOURCE) {
-            ResumeStateSourceOrigin.REMOTE_DEVICE
-        } else {
-            ResumeStateSourceOrigin.THIS_DEVICE
-        },
-        primaryStatusMessage = primaryStatusMessage,
+        localPath = resumeFile?.takeIf { available }?.absolutePath,
+        updatedAtEpochMs = resumeFile?.takeIf { available }?.lastModified(),
+        statusKind = if (available) ResumeStateStatusKind.LOCAL_ONLY else ResumeStateStatusKind.UNAVAILABLE,
+        primaryStatusMessage = if (available) io.github.bandoracer.rommio.domain.sync.LEGACY_SYNC_PAUSED_MESSAGE else "No resume state yet.",
+        lastSuccessfulSyncAtEpochMs = this?.lastSuccessfulSyncAtEpochMs,
     )
 }
 
@@ -2869,7 +2402,7 @@ private fun DownloadedRomEntity.toFallbackRom(): RomDto {
     )
 }
 
-private fun PlatformDto.platformLogoSource(baseUrl: String): String? {
+internal fun PlatformDto.platformLogoSource(baseUrl: String): String? {
     return listOf(slug, fsSlug)
         .map { it.trim() }
         .filter { it.isNotBlank() }
@@ -2878,11 +2411,11 @@ private fun PlatformDto.platformLogoSource(baseUrl: String): String? {
         ?: resolveRemoteAssetUrl(baseUrl, urlLogo)
 }
 
-private fun RomDto.coverSource(baseUrl: String): String? {
+internal fun RomDto.coverSource(baseUrl: String): String? {
     return resolveRemoteAssetUrl(baseUrl, urlCover)
 }
 
-private fun RommCollectionDto.collectionCoverSource(baseUrl: String): String? {
+internal fun RommCollectionDto.collectionCoverSource(baseUrl: String): String? {
     return listOfNotNull(
         pathCoverLarge,
         pathCoversLarge.firstOrNull(),

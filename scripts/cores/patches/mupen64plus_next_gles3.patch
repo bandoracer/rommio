@@ -1,0 +1,235 @@
+diff --git a/Makefile b/Makefile
+index 2443f80..2c5e5fb 100644
+--- a/Makefile
++++ b/Makefile
+@@ -699,7 +699,7 @@ $(TARGET): $(OBJECTS)
+ ifeq ($(STATIC_LINKING), 1)
+ 	$(AR) rcs $@ $(OBJECTS)
+ else
+-	$(CXX) -o $@ $(OBJECTS) $(LDFLAGS) $(GL_LIB)
++	$(CXX) -o $@ $(OBJECTS) $(LDFLAGS) $(GL_LIB) $(if $(filter 1,$(ANDROID)),-static-libstdc++)
+ endif
+ 
+ # Script hackery fll or generating ASM include files for the new dynarec assembly code
+diff --git a/custom/dependencies/libpng/pngpriv.h b/custom/dependencies/libpng/pngpriv.h
+index 7216050..def50a5 100644
+--- a/custom/dependencies/libpng/pngpriv.h
++++ b/custom/dependencies/libpng/pngpriv.h
+@@ -509,7 +509,7 @@
+ #  include <float.h>
+ 
+ #  if (defined(__MWERKS__) && defined(macintosh)) || defined(applec) || \
+-    defined(THINK_C) || defined(__SC__) || defined(TARGET_OS_MAC)
++    defined(THINK_C) || defined(__SC__) || (defined(TARGET_OS_MAC) && !defined(__APPLE__))
+    /* We need to check that <math.h> hasn't already been included earlier
+     * as it seems it doesn't agree with <fp.h>, yet we should really use
+     * <fp.h> if possible.
+diff --git a/custom/dependencies/libzlib/zutil.h b/custom/dependencies/libzlib/zutil.h
+index 24ab06b..01a821e 100644
+--- a/custom/dependencies/libzlib/zutil.h
++++ b/custom/dependencies/libzlib/zutil.h
+@@ -125,7 +125,9 @@ extern z_const char * const z_errmsg[10]; /* indexed by 2-zlib_error */
+ #      include <unix.h> /* for fdopen */
+ #    else
+ #      ifndef fdopen
+-#        define fdopen(fd,mode) NULL /* No fdopen() */
++#        if !defined(__APPLE__)
++#          define fdopen(fd,mode) NULL /* No fdopen() */
++#        endif
+ #      endif
+ #    endif
+ #  endif
+diff --git a/libretro/libretro.c b/libretro/libretro.c
+index 7665666..b17d7b9 100644
+--- a/libretro/libretro.c
++++ b/libretro/libretro.c
+@@ -113,6 +113,8 @@ retro_environment_t environ_clear_thread_waits_cb = NULL;
+ struct retro_rumble_interface rumble;
+ 
+ save_memory_data saved_memory;
++static uint8_t rommio_clock[24];
++static bool rommio_clock_ready = false, rommio_clock_pending = false;
+ 
+ static cothread_t game_thread;
+ cothread_t retro_thread;
+@@ -690,19 +692,6 @@ void copy_file(char * ininame, char * fileName)
+ 
+ void retro_init(void)
+ {
+-    char* sys_pathname;
+-    wchar_t w_pathname[PATH_SIZE];
+-    environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &sys_pathname);
+-    char pathname[PATH_SIZE];
+-    strncpy(pathname, sys_pathname, PATH_SIZE);
+-    if (pathname[(strlen(pathname)-1)] != '/' && pathname[(strlen(pathname)-1)] != '\\')
+-        strcat(pathname, "/");
+-    strcat(pathname, "Mupen64plus/");
+-    mbstowcs(w_pathname, pathname, PATH_SIZE);
+-    if (!osal_path_existsW(w_pathname) || !osal_is_directory(w_pathname))
+-        osal_mkdirp(w_pathname);
+-    copy_file(inifile, "mupen64plus.ini");
+-
+     struct retro_log_callback log;
+     unsigned colorMode = RETRO_PIXEL_FORMAT_XRGB8888;
+ 
+@@ -738,13 +727,20 @@ void retro_deinit(void)
+     {
+        if(!(current_rdp_type == RDP_PLUGIN_GLIDEN64 && EnableThreadedRenderer))
+        {
+-           CoreDoCommand(M64CMD_STOP, 0, NULL);
+-           co_switch(game_thread); /* Let the core thread finish */
++           /* A prepared but never-run core has no executing CPU to stop.
++            * Switching to it here would start it and leave ROM_CLOSE busy. */
++           if (!initializing) {
++               CoreDoCommand(M64CMD_STOP, 0, NULL);
++               co_switch(game_thread);
++           }
+            CoreDoCommand(M64CMD_ROM_CLOSE, 0, NULL);
+        }
+     }
+ 
+     CoreShutdown();
++    if (game_thread) { co_delete(game_thread); game_thread = NULL; }
++    load_game_successful = false;
++    initializing = false;
+     deinit_audio_libretro();
+ 
+     if (perf_cb.perf_log)
+@@ -1947,6 +1943,9 @@ bool retro_load_game(const struct retro_game_info *game)
+ 
+     glsm_ctx_params_t params = {0};
+     format_saved_memory();
++    memset(rommio_clock, 0, sizeof(rommio_clock));
++    rommio_clock[1] = 2;
++    rommio_clock_ready = rommio_clock_pending = false;
+ 
+     update_variables(true);
+ 
+@@ -2103,10 +2102,46 @@ void retro_reset (void)
+     CoreDoCommand(M64CMD_RESET, 0, (void*)0);
+ }
+ 
++/* Stable byte inventory: EEPROM, four controller paks, SRAM, flash and RTC.
++ * 64DD and Transfer Pak have additional media and are intentionally excluded. */
++
++static void rommio_put64(uint8_t *p, uint64_t v) { unsigned i; for (i=0;i<8;i++) p[i]=(uint8_t)(v>>(8*i)); }
++static uint64_t rommio_get64(const uint8_t *p) { unsigned i; uint64_t v=0; for(i=0;i<8;i++) v|=(uint64_t)p[i]<<(8*i); return v; }
++void rommio_restore_pending_clock(struct af_rtc *rtc) {
++   rommio_clock_ready = true;
++   if (rommio_clock_pending) {
++      rtc->control = rommio_clock[0] | ((uint16_t)rommio_clock[1] << 8);
++      rtc->now = (time_t)rommio_get64(rommio_clock+8);
++      rtc->last_update_rtc = (time_t)rommio_get64(rommio_clock+16);
++      rommio_clock_pending = false;
++   }
++}
++RETRO_API const char *retro_rommio_persistence_descriptor(void) {
++   if (!load_game_successful || retro_dd_path_img || retro_dd_path_rom || retro_transferpak_rom_path || retro_transferpak_ram_path) return "";
++   return "rommio-cart-v1:mupen64plus_next_gles3:n64:296960:24";
++}
++RETRO_API bool retro_rommio_memory_restored(void) {
++   unsigned i;
++   if (!retro_rommio_persistence_descriptor()[0] || sizeof(saved_memory) != 296960) return false;
++   for (i=2;i<8;i++) if (rommio_clock[i]) return false;
++   rommio_clock_pending = true;
++   if (rommio_clock_ready) rommio_restore_pending_clock(&g_dev.cart.af_rtc);
++   return true;
++}
++
+ void *retro_get_memory_data(unsigned type)
+ {
+     switch (type)
+     {
++        case RETRO_MEMORY_RTC:
++            if (rommio_clock_ready && !rommio_clock_pending) {
++               memset(rommio_clock, 0, sizeof(rommio_clock));
++               rommio_clock[0] = g_dev.cart.af_rtc.control;
++               rommio_clock[1] = g_dev.cart.af_rtc.control >> 8;
++               rommio_put64(rommio_clock+8, (uint64_t)g_dev.cart.af_rtc.now);
++               rommio_put64(rommio_clock+16, (uint64_t)g_dev.cart.af_rtc.last_update_rtc);
++            }
++            return rommio_clock;
+         case RETRO_MEMORY_SYSTEM_RAM: return g_dev.rdram.dram;
+         case RETRO_MEMORY_TRANSFERPAK:
+         case RETRO_MEMORY_DD:
+@@ -2122,6 +2157,7 @@ size_t retro_get_memory_size(unsigned type)
+         case RETRO_MEMORY_SYSTEM_RAM:  return RDRAM_MAX_SIZE;
+         case RETRO_MEMORY_TRANSFERPAK:
+         case RETRO_MEMORY_DD:
++        case RETRO_MEMORY_RTC: return sizeof(rommio_clock);
+         case RETRO_MEMORY_SAVE_RAM:    return sizeof(saved_memory);
+     }
+ 
+@@ -2135,8 +2171,12 @@ size_t retro_serialize_size (void)
+ 
+ bool retro_serialize(void *data, size_t size)
+ {
+-   if (initializing)
++   if (!data || size != retro_serialize_size() || !load_game_successful)
+       return false;
++   /* Initialize the software CPU/device graph before servicing an immediate
++    * snapshot request. This is required for resume before the first UI frame. */
++   if (initializing && current_rdp_type == RDP_PLUGIN_ANGRYLION) retro_run();
++   if (initializing) return false;
+ 
+    retro_savestate_complete = false;
+    retro_savestate_result = 0;
+@@ -2168,8 +2208,12 @@ bool retro_serialize(void *data, size_t size)
+ 
+ bool retro_unserialize(const void *data, size_t size)
+ {
+-   if (initializing)
++   if (!data || size != retro_serialize_size() || !load_game_successful)
+       return false;
++   /* Initialize the software CPU/device graph before servicing an immediate
++    * snapshot request. This is required for resume before the first UI frame. */
++   if (initializing && current_rdp_type == RDP_PLUGIN_ANGRYLION) retro_run();
++   if (initializing) return false;
+ 
+    retro_savestate_complete = false;
+    retro_savestate_result = 0;
+@@ -2196,7 +2240,7 @@ bool retro_unserialize(const void *data, size_t size)
+       glsm_ctl(GLSM_CTL_STATE_UNBIND, NULL);
+    }
+ 
+-   return true;
++   return !!retro_savestate_result;
+ }
+ 
+ //Needed to be able to detach controllers for Lylat Wars multiplayer
+diff --git a/mupen64plus-core/src/device/cart/af_rtc.c b/mupen64plus-core/src/device/cart/af_rtc.c
+index de4711c..8ab31da 100644
+--- a/mupen64plus-core/src/device/cart/af_rtc.c
++++ b/mupen64plus-core/src/device/cart/af_rtc.c
+@@ -72,6 +72,10 @@ void poweron_af_rtc(struct af_rtc* rtc)
+ 
+     rtc->now = 0;
+     rtc->last_update_rtc = 0;
++#ifdef __LIBRETRO__
++    extern void rommio_restore_pending_clock(struct af_rtc*);
++    rommio_restore_pending_clock(rtc);
++#endif
+ }
+ 
+ void af_rtc_read_block(struct af_rtc* rtc,
+diff --git a/mupen64plus-core/src/main/rom.c b/mupen64plus-core/src/main/rom.c
+index ed59d01..22e0245 100644
+--- a/mupen64plus-core/src/main/rom.c
++++ b/mupen64plus-core/src/main/rom.c
+@@ -591,8 +591,14 @@ void romdatabase_open(void)
+     if(g_romdatabase.have_database)
+         return;
+ 
+-    /* Open romdatabase. */
+-    if (pathname == NULL || (fPtr = fopen(pathname, "rb")) == NULL)
++    /* Pinned read-only ROM database: do not generate mutable session files. */
++#ifdef __LIBRETRO__
++    extern char inifile[];
++    fPtr = fmemopen(inifile, strlen(inifile), "r");
++#else
++    fPtr = pathname ? fopen(pathname, "rb") : NULL;
++#endif
++    if (fPtr == NULL)
+     {
+         DebugMessage(M64MSG_ERROR, "Unable to open rom database file '%s'.", pathname);
+         return;

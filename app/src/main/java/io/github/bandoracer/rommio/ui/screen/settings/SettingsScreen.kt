@@ -85,6 +85,12 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
+            io.github.bandoracer.rommio.ui.component.LegacyProgressRecoveryContent(container.legacyProgressRecovery)
+        }
+        item {
+            io.github.bandoracer.rommio.ui.component.FirmwareImportContent(container.firmwareStore)
+        }
+        item {
             FeaturePanel(
                 title = state.user?.username ?: "Connected server",
                 subtitle = state.activeProfile?.baseUrl ?: "No active profile",

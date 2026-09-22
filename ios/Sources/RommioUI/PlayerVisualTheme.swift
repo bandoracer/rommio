@@ -23,10 +23,10 @@ struct PlayerVisualTheme {
     }
 }
 
-func resolvePlayerVisualTheme(controls: PlayerControlsState?) -> PlayerVisualTheme {
+func resolvePlayerVisualTheme(controls: PlayerControlsState?, familyOverride: String? = nil) -> PlayerVisualTheme {
     let oledBlackMode = controls?.preferences.oledBlackModeEnabled == true
-    let consoleColorsEnabled = controls?.preferences.consoleColorsEnabled == true
-    let familyID = controls?.platformProfile.familyID
+    let consoleColorsEnabled = controls?.preferences.consoleColorsEnabled ?? true
+    let familyID = familyOverride ?? controls?.platformProfile.familyID
     let canvasColor = oledBlackMode ? Color.black : Color(red: 0.05, green: 0.06, blue: 0.08)
     let panelColor = oledBlackMode ? Color.black : Color(red: 0.10, green: 0.11, blue: 0.15)
     let panelAltColor = oledBlackMode ? Color(red: 0.03, green: 0.03, blue: 0.03) : Color(red: 0.14, green: 0.16, blue: 0.20)
@@ -56,22 +56,26 @@ private func neutralStyle(baseColor: Color, accentColor: Color) -> PlayerControl
 
 private func coloredStyle(color: Color) -> PlayerControlStyle {
     PlayerControlStyle(
-        fillColor: color.opacity(0.90),
-        pressedFillColor: color.opacity(1),
-        borderColor: color.opacity(0.96),
+        fillColor: Color(red: 0.12, green: 0.13, blue: 0.16),
+        pressedFillColor: color.opacity(0.38),
+        borderColor: color.opacity(0.55),
         pressedBorderColor: .white.opacity(0.75),
-        contentColor: color.brightness > 0.55 ? Color(red: 0.08, green: 0.08, blue: 0.08) : .white
+        contentColor: color
     )
 }
 
 private func consoleFaceColors(familyID: String?) -> [String: Color] {
     switch familyID {
-    case "snes":
+    case "snes", "nds":
         ["Y": Color(hex: 0x46B06E), "B": Color(hex: 0xF1C94B), "A": Color(hex: 0xDA5A58), "X": Color(hex: 0x5F7DDE)]
-    case "psx":
+    case "psx", "psp":
         ["SQUARE": Color(hex: 0xD06AAF), "CROSS": Color(hex: 0x4E8EEA), "CIRCLE": Color(hex: 0xE05C4B), "TRIANGLE": Color(hex: 0x55B96D)]
     case "sega16":
-        ["A": Color(hex: 0x4A78D0), "B": Color(hex: 0x4FB56B), "C": Color(hex: 0xF0C14A), "X": Color(hex: 0xD85E4B)]
+        ["A": Color(hex: 0xBBC6D8), "B": Color(hex: 0xBBC6D8), "C": Color(hex: 0xBBC6D8), "X": Color(hex: 0xBBC6D8), "Y": Color(hex: 0xBBC6D8), "Z": Color(hex: 0xBBC6D8), "START": Color(hex: 0xE17C79)]
+    case "n64":
+        ["A": Color(hex: 0x619CF4), "B": Color(hex: 0x60CF92), "C-UP": Color(hex: 0xEBC861), "C-DOWN": Color(hex: 0xEBC861), "C-LEFT": Color(hex: 0xEBC861), "C-RIGHT": Color(hex: 0xEBC861)]
+    case "sms", "gamegear":
+        ["1": Color(hex: 0x6BB9D0), "2": Color(hex: 0x6BB9D0)]
     case "arcade":
         ["1": Color(hex: 0x4A78D0), "2": Color(hex: 0x4FB56B), "3": Color(hex: 0xF0C14A), "4": Color(hex: 0xD85E4B)]
     case "nes":
@@ -91,12 +95,16 @@ private func consoleFaceColors(familyID: String?) -> [String: Color] {
 
 private func consoleNeutralAccent(familyID: String?) -> Color {
     switch familyID {
-    case "snes":
+    case "snes", "nds":
         Color(hex: 0x7F6BC4)
-    case "psx":
+    case "psx", "psp":
         Color(hex: 0x5E82D8)
     case "sega16":
         Color(hex: 0x4A78D0)
+    case "n64":
+        Color(hex: 0x60CF92)
+    case "sms", "gamegear":
+        Color(hex: 0x6BB9D0)
     case "arcade":
         Color(hex: 0xD85E4B)
     case "nes":

@@ -55,12 +55,12 @@ ui_test_sources = Dir[File.join(ios_root, 'AppUITests', '*.swift')].sort.map do 
     file
 end
 
-app_target = project.new_target(:application, 'Rommio', :ios, '17.0')
+app_target = project.new_target(:application, 'Rommio', :ios, '18.0')
 app_target.add_file_references([app_source])
 resource_files.each do |resource|
     app_target.resources_build_phase.add_file_reference(resource, true)
 end
-ui_test_target = project.new_target(:ui_test_bundle, 'RommioAppUITests', :ios, '17.0')
+ui_test_target = project.new_target(:ui_test_bundle, 'RommioAppUITests', :ios, '18.0')
 ui_test_target.add_file_references(ui_test_sources)
 ui_test_target.add_dependency(app_target)
 
@@ -89,11 +89,12 @@ app_target.build_configurations.each do |config|
     config.build_settings['PRODUCT_NAME'] = '$(TARGET_NAME)'
     config.build_settings['SWIFT_VERSION'] = '6.0'
     config.build_settings['GENERATE_INFOPLIST_FILE'] = 'YES'
+    config.build_settings['INFOPLIST_FILE'] = 'App/Info.plist'
     config.build_settings['INFOPLIST_KEY_CFBundleDisplayName'] = 'Rommio'
     config.build_settings['INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents'] = 'YES'
     config.build_settings['INFOPLIST_KEY_UILaunchScreen_Generation'] = 'YES'
     config.build_settings['INFOPLIST_KEY_LSApplicationCategoryType'] = 'public.app-category.entertainment'
-    config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '17.0'
+    config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
     config.build_settings['TARGETED_DEVICE_FAMILY'] = '1,2'
     config.build_settings['SUPPORTED_PLATFORMS'] = 'iphoneos iphonesimulator'
     config.build_settings['LD_RUNPATH_SEARCH_PATHS'] = ['$(inherited)', '@executable_path/Frameworks']
@@ -107,7 +108,7 @@ ui_test_target.build_configurations.each do |config|
     config.build_settings['PRODUCT_NAME'] = '$(TARGET_NAME)'
     config.build_settings['SWIFT_VERSION'] = '6.0'
     config.build_settings['GENERATE_INFOPLIST_FILE'] = 'YES'
-    config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '17.0'
+    config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
     config.build_settings['TARGETED_DEVICE_FAMILY'] = '1,2'
     config.build_settings['SUPPORTED_PLATFORMS'] = 'iphoneos iphonesimulator'
     config.build_settings['LD_RUNPATH_SEARCH_PATHS'] = ['$(inherited)', '@executable_path/Frameworks']
@@ -167,6 +168,10 @@ app_target.frameworks_build_phase.files << grdb_build_file
 scheme = Xcodeproj::XCScheme.new
 scheme.configure_with_targets(app_target, ui_test_target, launch_target: true)
 scheme.save_as(project_path, 'Rommio', true)
+
+phase = app_target.new_shell_script_build_phase('Build pinned persistence core')
+phase.shell_script = '"${SRCROOT}/../scripts/ios/package_pinned_core.sh"'
+phase.always_out_of_date = '1'
 
 project.save
 

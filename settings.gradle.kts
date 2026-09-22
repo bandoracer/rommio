@@ -11,9 +11,11 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven("https://jitpack.io")
     }
 }
 
 rootProject.name = "rommio"
 include(":app")
+
+include(":libretrodroid")
+project(":libretrodroid").projectDir = file("third_party/libretrodroid")

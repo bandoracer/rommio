@@ -60,6 +60,25 @@ struct GameFileActionDeck: Hashable, Sendable {
     }
 }
 
+extension CoreResolution {
+    /// Short warning for badges; nil when the file can be played. A bundled
+    /// core that only needs first-run setup provisions itself during Play, so it
+    /// is not a problem worth badging.
+    var capabilityLabel: String? {
+        switch capability {
+        case .ready:
+            return nil
+        case .missingBIOS:
+            return "Missing BIOS"
+        case .missingCore:
+            if provisioningStatus == .failedCoreInstall { return "Core setup failed" }
+            return canAutoProvision || provisioningStatus == .missingCoreInstallable ? nil : "Core unavailable"
+        case .unsupported:
+            return "Unsupported"
+        }
+    }
+}
+
 struct GameDetailFileState: Identifiable, Hashable, Sendable {
     public let rom: RomDTO
     public let file: RomFileDTO
@@ -72,19 +91,7 @@ struct GameDetailFileState: Identifiable, Hashable, Sendable {
     public var id: Int { file.id }
 
     public var playabilityLabel: String {
-        if resolution.capability != .ready {
-            switch resolution.capability {
-            case .missingBIOS:
-                return "Missing BIOS"
-            case .missingCore:
-                return "Missing core"
-            case .unsupported:
-                return "Unsupported"
-            case .ready:
-                break
-            }
-        }
-        return controlProfile.supportTier.title
+        resolution.capabilityLabel ?? controlProfile.supportTier.title
     }
 
     public var localFileName: String? {
@@ -609,6 +616,28 @@ final class GameDetailFeatureModel {
         !fileStates.isEmpty
     }
 
+    /// Observe local transfer completion without refetching remote metadata each second.
+    func monitorDownloads() async {
+        while !Task.isCancelled {
+            do {
+                let profileID = try await services.profileStore.activeProfile()?.id
+                let records = try await services.downloadQueue.records(profileID: profileID)
+                guard !Task.isCancelled else { return }
+                let updated = buildFileStates(from: records)
+                if updated != fileStates {
+                    fileStates = updated
+                    selectedFileID = preferredFileState(from: updated)?.file.id
+                }
+                try await Task.sleep(for: .seconds(1))
+            } catch is CancellationError {
+                return
+            } catch {
+                // Preserve rendered content; an explicit refresh exposes persistent failures.
+                do { try await Task.sleep(for: .seconds(2)) } catch { return }
+            }
+        }
+    }
+
     func play(fileID: Int) async {
         guard let file = rom.files.first(where: { $0.id == fileID }) else { return }
         await onPlay(rom, file)
@@ -739,8 +768,8 @@ final class GameDetailFeatureModel {
     }
 
     private func resolveLocalPath(for file: RomFileDTO, record: DownloadRecord?) -> String? {
-        if let localPath = record?.localPath, FileManager.default.fileExists(atPath: localPath) {
-            return localPath
+        if let record {
+            return record.localPath.flatMap { FileManager.default.fileExists(atPath: $0) ? $0 : nil }
         }
         let libraryURL = services.libraryStore.romURL(platformSlug: rom.platformSlug, fileName: file.fileName)
         return FileManager.default.fileExists(atPath: libraryURL.path) ? libraryURL.path : nil
@@ -847,16 +876,7 @@ final class GameDetailFeatureModel {
         if state.actionDeck.primary?.kind == .play {
             return "Ready"
         }
-        switch state.resolution.capability {
-        case .ready:
-            return state.controlProfile.supportTier.title
-        case .missingCore:
-            return "Missing core"
-        case .missingBIOS:
-            return "Missing BIOS"
-        case .unsupported:
-            return "Unsupported"
-        }
+        return state.resolution.capabilityLabel ?? state.controlProfile.supportTier.title
     }
 
     private func actionDeckNotes(for state: GameDetailFileState) -> [String] {

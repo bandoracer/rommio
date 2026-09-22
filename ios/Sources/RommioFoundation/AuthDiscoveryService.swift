@@ -137,6 +137,7 @@ public final class AuthDiscoveryService: @unchecked Sendable {
     private func probe(url: URL) async -> DiscoveryProbeResult? {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
+        request.httpShouldHandleCookies = false
         do {
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else { return nil }
@@ -158,6 +159,7 @@ public final class AuthDiscoveryService: @unchecked Sendable {
     private func postProbe(url: URL) async -> DiscoveryProbeResult? {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.httpShouldHandleCookies = false
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = "grant_type=password".data(using: .utf8)
         do {

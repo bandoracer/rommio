@@ -11,8 +11,12 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-class PlayerControlsPreferencesStore(context: Context) {
+class PlayerControlsPreferencesStore(
+    context: Context,
+    scope: kotlinx.coroutines.CoroutineScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO),
+) {
     private val dataStore = PreferenceDataStoreFactory.create(
+        scope = scope,
         produceFile = { context.preferencesDataStoreFile("player_controls.preferences_pb") },
     )
 
@@ -22,7 +26,7 @@ class PlayerControlsPreferencesStore(context: Context) {
             autoHideTouchOnController = prefs[AUTO_HIDE_TOUCH_ON_CONTROLLER] ?: true,
             rumbleToDeviceEnabled = prefs[RUMBLE_TO_DEVICE_ENABLED] ?: true,
             oledBlackModeEnabled = prefs[OLED_BLACK_MODE_ENABLED] ?: false,
-            consoleColorsEnabled = prefs[CONSOLE_COLORS_ENABLED] ?: false,
+            consoleColorsEnabled = prefs[CONSOLE_COLORS_ENABLED] ?: true,
         )
     }
 
@@ -66,7 +70,7 @@ class PlayerControlsPreferencesStore(context: Context) {
             autoHideTouchOnController = this[AUTO_HIDE_TOUCH_ON_CONTROLLER] ?: true,
             rumbleToDeviceEnabled = this[RUMBLE_TO_DEVICE_ENABLED] ?: true,
             oledBlackModeEnabled = this[OLED_BLACK_MODE_ENABLED] ?: false,
-            consoleColorsEnabled = this[CONSOLE_COLORS_ENABLED] ?: false,
+            consoleColorsEnabled = this[CONSOLE_COLORS_ENABLED] ?: true,
         )
     }
 

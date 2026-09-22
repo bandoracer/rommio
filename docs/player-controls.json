@@ -1,0 +1,1507 @@
+{
+  "sega16": {
+    "name": "Genesis / Mega Drive / Sega CD",
+    "slugs": [
+      "genesis",
+      "segacd"
+    ],
+    "aspect": 1.3333333333333333,
+    "buttons": [
+      {
+        "id": "Up",
+        "label": "Up",
+        "key": 4,
+        "x": 74,
+        "y": 74,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Left",
+        "label": "Left",
+        "key": 6,
+        "x": 26,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Right",
+        "label": "Right",
+        "key": 7,
+        "x": 122,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Down",
+        "label": "Down",
+        "key": 5,
+        "x": 74,
+        "y": 170,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "X",
+        "label": "X",
+        "key": 10,
+        "x": 26,
+        "y": 98,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Y",
+        "label": "Y",
+        "key": 9,
+        "x": 74,
+        "y": 98,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Z",
+        "label": "Z",
+        "key": 11,
+        "x": 122,
+        "y": 98,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "A",
+        "label": "A",
+        "key": 1,
+        "x": 26,
+        "y": 154,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "B",
+        "label": "B",
+        "key": 0,
+        "x": 74,
+        "y": 154,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "C",
+        "label": "C",
+        "key": 8,
+        "x": 122,
+        "y": 154,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Mode",
+        "label": "Mode",
+        "key": 2,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      },
+      {
+        "id": "Start",
+        "label": "Start",
+        "key": 3,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      }
+    ]
+  },
+  "sms": {
+    "name": "Master System",
+    "slugs": [
+      "sms"
+    ],
+    "aspect": 1.3333333333333333,
+    "buttons": [
+      {
+        "id": "Up",
+        "label": "Up",
+        "key": 4,
+        "x": 74,
+        "y": 74,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Left",
+        "label": "Left",
+        "key": 6,
+        "x": 26,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Right",
+        "label": "Right",
+        "key": 7,
+        "x": 122,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Down",
+        "label": "Down",
+        "key": 5,
+        "x": 74,
+        "y": 170,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "1",
+        "label": "1",
+        "key": 0,
+        "x": 38,
+        "y": 148,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "2",
+        "label": "2",
+        "key": 8,
+        "x": 110,
+        "y": 100,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Pause",
+        "label": "Pause",
+        "key": 3,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      }
+    ]
+  },
+  "gamegear": {
+    "name": "Game Gear",
+    "slugs": [
+      "gamegear"
+    ],
+    "aspect": 1.1111111111111112,
+    "buttons": [
+      {
+        "id": "Up",
+        "label": "Up",
+        "key": 4,
+        "x": 74,
+        "y": 74,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Left",
+        "label": "Left",
+        "key": 6,
+        "x": 26,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Right",
+        "label": "Right",
+        "key": 7,
+        "x": 122,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Down",
+        "label": "Down",
+        "key": 5,
+        "x": 74,
+        "y": 170,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "1",
+        "label": "1",
+        "key": 0,
+        "x": 38,
+        "y": 148,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "2",
+        "label": "2",
+        "key": 8,
+        "x": 110,
+        "y": 100,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Start",
+        "label": "Start",
+        "key": 3,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      }
+    ]
+  },
+  "psx": {
+    "name": "PlayStation",
+    "slugs": [
+      "psx",
+      "ps1",
+      "playstation"
+    ],
+    "aspect": 1.3333333333333333,
+    "buttons": [
+      {
+        "id": "Up",
+        "label": "Up",
+        "key": 4,
+        "x": 74,
+        "y": 74,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Left",
+        "label": "Left",
+        "key": 6,
+        "x": 26,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Right",
+        "label": "Right",
+        "key": 7,
+        "x": 122,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Down",
+        "label": "Down",
+        "key": 5,
+        "x": 74,
+        "y": 170,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "stick0",
+        "label": "Analog stick",
+        "stick": 0,
+        "x": 74,
+        "y": 256,
+        "side": "left",
+        "size": 76
+      },
+      {
+        "id": "Square",
+        "label": "Square",
+        "key": 1,
+        "x": 26,
+        "y": 122,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Cross",
+        "label": "Cross",
+        "key": 0,
+        "x": 74,
+        "y": 170,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Circle",
+        "label": "Circle",
+        "key": 8,
+        "x": 122,
+        "y": 122,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Triangle",
+        "label": "Triangle",
+        "key": 9,
+        "x": 74,
+        "y": 74,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "L1",
+        "label": "L1",
+        "key": 10,
+        "x": 38,
+        "y": 24,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "R1",
+        "label": "R1",
+        "key": 11,
+        "x": 38,
+        "y": 24,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "L2",
+        "label": "L2",
+        "key": 12,
+        "x": 110,
+        "y": 24,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "R2",
+        "label": "R2",
+        "key": 13,
+        "x": 110,
+        "y": 24,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Select",
+        "label": "Select",
+        "key": 2,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      },
+      {
+        "id": "Start",
+        "label": "Start",
+        "key": 3,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      },
+      {
+        "id": "L3",
+        "label": "L3",
+        "key": 14,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      },
+      {
+        "id": "R3",
+        "label": "R3",
+        "key": 15,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      },
+      {
+        "id": "stick1",
+        "label": "Right stick",
+        "stick": 1,
+        "x": 74,
+        "y": 256,
+        "side": "right",
+        "size": 76
+      },
+      {
+        "id": "Analog",
+        "label": "Analog",
+        "combo": [
+          10,
+          11,
+          2
+        ],
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      }
+    ]
+  },
+  "n64": {
+    "name": "Nintendo 64",
+    "slugs": [
+      "n64"
+    ],
+    "aspect": 1.3333333333333333,
+    "buttons": [
+      {
+        "id": "Up",
+        "label": "Up",
+        "key": 4,
+        "x": 74,
+        "y": 74,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Left",
+        "label": "Left",
+        "key": 6,
+        "x": 26,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Right",
+        "label": "Right",
+        "key": 7,
+        "x": 122,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Down",
+        "label": "Down",
+        "key": 5,
+        "x": 74,
+        "y": 170,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "stick0",
+        "label": "Analog stick",
+        "stick": 0,
+        "x": 74,
+        "y": 256,
+        "side": "left",
+        "size": 76
+      },
+      {
+        "id": "A",
+        "label": "A",
+        "key": 0,
+        "x": 110,
+        "y": 240,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "B",
+        "label": "B",
+        "key": 1,
+        "x": 38,
+        "y": 240,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "L",
+        "label": "L",
+        "key": 10,
+        "x": 38,
+        "y": 24,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Z",
+        "label": "Z",
+        "key": 12,
+        "x": 110,
+        "y": 24,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "R",
+        "label": "R",
+        "key": 11,
+        "x": 74,
+        "y": 24,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Start",
+        "label": "Start",
+        "key": 3,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      },
+      {
+        "id": "C-Up",
+        "label": "C-Up",
+        "axis": [
+          0,
+          -1
+        ],
+        "x": 74,
+        "y": 74,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "C-Left",
+        "label": "C-Left",
+        "axis": [
+          -1,
+          0
+        ],
+        "x": 26,
+        "y": 122,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "C-Right",
+        "label": "C-Right",
+        "axis": [
+          1,
+          0
+        ],
+        "x": 122,
+        "y": 122,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "C-Down",
+        "label": "C-Down",
+        "axis": [
+          0,
+          1
+        ],
+        "x": 74,
+        "y": 170,
+        "side": "right",
+        "size": 48
+      }
+    ]
+  },
+  "psp": {
+    "name": "PlayStation Portable",
+    "slugs": [
+      "psp"
+    ],
+    "aspect": 1.7647058823529411,
+    "buttons": [
+      {
+        "id": "Up",
+        "label": "Up",
+        "key": 4,
+        "x": 74,
+        "y": 74,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Left",
+        "label": "Left",
+        "key": 6,
+        "x": 26,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Right",
+        "label": "Right",
+        "key": 7,
+        "x": 122,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Down",
+        "label": "Down",
+        "key": 5,
+        "x": 74,
+        "y": 170,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "stick0",
+        "label": "Analog stick",
+        "stick": 0,
+        "x": 74,
+        "y": 256,
+        "side": "left",
+        "size": 76
+      },
+      {
+        "id": "Square",
+        "label": "Square",
+        "key": 1,
+        "x": 26,
+        "y": 146,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Cross",
+        "label": "Cross",
+        "key": 0,
+        "x": 74,
+        "y": 194,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Circle",
+        "label": "Circle",
+        "key": 8,
+        "x": 122,
+        "y": 146,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Triangle",
+        "label": "Triangle",
+        "key": 9,
+        "x": 74,
+        "y": 98,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "L",
+        "label": "L",
+        "key": 10,
+        "x": 74,
+        "y": 24,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "R",
+        "label": "R",
+        "key": 11,
+        "x": 74,
+        "y": 24,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Select",
+        "label": "Select",
+        "key": 2,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      },
+      {
+        "id": "Start",
+        "label": "Start",
+        "key": 3,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      }
+    ]
+  },
+  "nes": {
+    "name": "NES / Famicom",
+    "slugs": [
+      "nes",
+      "famicom"
+    ],
+    "aspect": 1.3333333333333333,
+    "generateProfile": false,
+    "buttons": [
+      {
+        "id": "Up",
+        "label": "Up",
+        "key": 4,
+        "x": 74,
+        "y": 74,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Left",
+        "label": "Left",
+        "key": 6,
+        "x": 26,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Right",
+        "label": "Right",
+        "key": 7,
+        "x": 122,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Down",
+        "label": "Down",
+        "key": 5,
+        "x": 74,
+        "y": 170,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "B",
+        "label": "B",
+        "key": 0,
+        "x": 38,
+        "y": 148,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "A",
+        "label": "A",
+        "key": 8,
+        "x": 110,
+        "y": 100,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Select",
+        "label": "Select",
+        "key": 2,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      },
+      {
+        "id": "Start",
+        "label": "Start",
+        "key": 3,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      }
+    ]
+  },
+  "snes": {
+    "name": "SNES / Super Famicom",
+    "slugs": [
+      "snes",
+      "sfam"
+    ],
+    "aspect": 1.3333333333333333,
+    "generateProfile": false,
+    "buttons": [
+      {
+        "id": "Up",
+        "label": "Up",
+        "key": 4,
+        "x": 74,
+        "y": 74,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Left",
+        "label": "Left",
+        "key": 6,
+        "x": 26,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Right",
+        "label": "Right",
+        "key": 7,
+        "x": 122,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Down",
+        "label": "Down",
+        "key": 5,
+        "x": 74,
+        "y": 170,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Y",
+        "label": "Y",
+        "key": 1,
+        "x": 26,
+        "y": 122,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "B",
+        "label": "B",
+        "key": 0,
+        "x": 74,
+        "y": 170,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "A",
+        "label": "A",
+        "key": 8,
+        "x": 122,
+        "y": 122,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "X",
+        "label": "X",
+        "key": 9,
+        "x": 74,
+        "y": 74,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "L",
+        "label": "L",
+        "key": 10,
+        "x": 74,
+        "y": 24,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "R",
+        "label": "R",
+        "key": 11,
+        "x": 74,
+        "y": 24,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Select",
+        "label": "Select",
+        "key": 2,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      },
+      {
+        "id": "Start",
+        "label": "Start",
+        "key": 3,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      }
+    ]
+  },
+  "gb": {
+    "name": "Game Boy / Color",
+    "slugs": [
+      "gb",
+      "gbc"
+    ],
+    "aspect": 1.1111111111111112,
+    "generateProfile": false,
+    "buttons": [
+      {
+        "id": "Up",
+        "label": "Up",
+        "key": 4,
+        "x": 74,
+        "y": 74,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Left",
+        "label": "Left",
+        "key": 6,
+        "x": 26,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Right",
+        "label": "Right",
+        "key": 7,
+        "x": 122,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Down",
+        "label": "Down",
+        "key": 5,
+        "x": 74,
+        "y": 170,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "B",
+        "label": "B",
+        "key": 0,
+        "x": 38,
+        "y": 148,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "A",
+        "label": "A",
+        "key": 8,
+        "x": 110,
+        "y": 100,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Select",
+        "label": "Select",
+        "key": 2,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      },
+      {
+        "id": "Start",
+        "label": "Start",
+        "key": 3,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      }
+    ]
+  },
+  "gba": {
+    "name": "Game Boy Advance",
+    "slugs": [
+      "gba"
+    ],
+    "aspect": 1.5,
+    "generateProfile": false,
+    "buttons": [
+      {
+        "id": "Up",
+        "label": "Up",
+        "key": 4,
+        "x": 74,
+        "y": 74,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Left",
+        "label": "Left",
+        "key": 6,
+        "x": 26,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Right",
+        "label": "Right",
+        "key": 7,
+        "x": 122,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Down",
+        "label": "Down",
+        "key": 5,
+        "x": 74,
+        "y": 170,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "B",
+        "label": "B",
+        "key": 0,
+        "x": 38,
+        "y": 148,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "A",
+        "label": "A",
+        "key": 8,
+        "x": 110,
+        "y": 100,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "L",
+        "label": "L",
+        "key": 10,
+        "x": 74,
+        "y": 24,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "R",
+        "label": "R",
+        "key": 11,
+        "x": 74,
+        "y": 24,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Select",
+        "label": "Select",
+        "key": 2,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      },
+      {
+        "id": "Start",
+        "label": "Start",
+        "key": 3,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      }
+    ]
+  },
+  "atari": {
+    "name": "Atari",
+    "slugs": [
+      "atari2600",
+      "atari7800",
+      "lynx"
+    ],
+    "aspect": 1.3333333333333333,
+    "generateProfile": false,
+    "buttons": [
+      {
+        "id": "Up",
+        "label": "Up",
+        "key": 4,
+        "x": 74,
+        "y": 74,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Left",
+        "label": "Left",
+        "key": 6,
+        "x": 26,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Right",
+        "label": "Right",
+        "key": 7,
+        "x": 122,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Down",
+        "label": "Down",
+        "key": 5,
+        "x": 74,
+        "y": 170,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "1",
+        "label": "1",
+        "key": 8,
+        "x": 38,
+        "y": 148,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "2",
+        "label": "2",
+        "key": 0,
+        "x": 110,
+        "y": 100,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Option",
+        "label": "Option",
+        "key": 2,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      },
+      {
+        "id": "Start",
+        "label": "Start",
+        "key": 3,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      }
+    ]
+  },
+  "tg16": {
+    "name": "Two-button handhelds",
+    "slugs": [
+      "tg16",
+      "neo-geo-pocket",
+      "neo-geo-pocket-color",
+      "wonderswan",
+      "wonderswan-color"
+    ],
+    "aspect": 1.3333333333333333,
+    "generateProfile": false,
+    "buttons": [
+      {
+        "id": "Up",
+        "label": "Up",
+        "key": 4,
+        "x": 74,
+        "y": 74,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Left",
+        "label": "Left",
+        "key": 6,
+        "x": 26,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Right",
+        "label": "Right",
+        "key": 7,
+        "x": 122,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Down",
+        "label": "Down",
+        "key": 5,
+        "x": 74,
+        "y": 170,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "II",
+        "label": "II",
+        "key": 8,
+        "x": 38,
+        "y": 148,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "I",
+        "label": "I",
+        "key": 0,
+        "x": 110,
+        "y": 100,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Select",
+        "label": "Select",
+        "key": 2,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      },
+      {
+        "id": "Start",
+        "label": "Start",
+        "key": 3,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      }
+    ]
+  },
+  "arcade": {
+    "name": "Arcade",
+    "slugs": [
+      "arcade"
+    ],
+    "aspect": 1.3333333333333333,
+    "generateProfile": false,
+    "buttons": [
+      {
+        "id": "Up",
+        "label": "Up",
+        "key": 4,
+        "x": 74,
+        "y": 74,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Left",
+        "label": "Left",
+        "key": 6,
+        "x": 26,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Right",
+        "label": "Right",
+        "key": 7,
+        "x": 122,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Down",
+        "label": "Down",
+        "key": 5,
+        "x": 74,
+        "y": 170,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "1",
+        "label": "1",
+        "key": 1,
+        "x": 26,
+        "y": 122,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "2",
+        "label": "2",
+        "key": 0,
+        "x": 74,
+        "y": 170,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "3",
+        "label": "3",
+        "key": 8,
+        "x": 122,
+        "y": 122,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "4",
+        "label": "4",
+        "key": 9,
+        "x": 74,
+        "y": 74,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Coin",
+        "label": "Coin",
+        "key": 2,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      },
+      {
+        "id": "Start",
+        "label": "Start",
+        "key": 3,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      }
+    ]
+  },
+  "nds": {
+    "name": "Nintendo DS",
+    "slugs": [
+      "nds",
+      "dsi",
+      "nintendo-dsi"
+    ],
+    "aspect": 0.6666666666666666,
+    "generateProfile": false,
+    "buttons": [
+      {
+        "id": "Up",
+        "label": "Up",
+        "key": 4,
+        "x": 74,
+        "y": 74,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Left",
+        "label": "Left",
+        "key": 6,
+        "x": 26,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Right",
+        "label": "Right",
+        "key": 7,
+        "x": 122,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Down",
+        "label": "Down",
+        "key": 5,
+        "x": 74,
+        "y": 170,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Y",
+        "label": "Y",
+        "key": 1,
+        "x": 26,
+        "y": 122,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "B",
+        "label": "B",
+        "key": 0,
+        "x": 74,
+        "y": 170,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "A",
+        "label": "A",
+        "key": 8,
+        "x": 122,
+        "y": 122,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "X",
+        "label": "X",
+        "key": 9,
+        "x": 74,
+        "y": 74,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "L",
+        "label": "L",
+        "key": 10,
+        "x": 74,
+        "y": 24,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "R",
+        "label": "R",
+        "key": 11,
+        "x": 74,
+        "y": 24,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Select",
+        "label": "Select",
+        "key": 2,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      },
+      {
+        "id": "Start",
+        "label": "Start",
+        "key": 3,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      }
+    ]
+  }
+}

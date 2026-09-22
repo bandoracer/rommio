@@ -6,6 +6,10 @@ import io.github.bandoracer.rommio.domain.storage.LibraryStore
 class CoreCatalogResolver(
     private val context: Context,
     private val libraryStore: LibraryStore,
+    private val firmwareStore: FirmwareStore = FirmwareStore(libraryStore),
+    private val artifacts: CoreArtifactStore = CoreArtifactStore(libraryStore.coresDirectory()),
+    private val packaged: PackagedCoreArtifacts? = null,
+    private val abiProvider: () -> AndroidCoreAbi? = ::currentCoreAbi,
 ) : CoreResolver {
     private val families = buildPlatformRuntimeFamilies()
 
@@ -38,9 +42,7 @@ class CoreCatalogResolver(
             )
         }
 
-        val missingBios = profile.requiredBiosFiles.filterNot { fileName ->
-            java.io.File(libraryStore.biosDirectory(), fileName).exists()
-        }
+        val missingBios = firmwareStore.missing(profile, platformSlug)
         if (missingBios.isNotEmpty()) {
             return CoreResolution(
                 capability = PlayerCapability.MISSING_BIOS,
@@ -48,17 +50,25 @@ class CoreCatalogResolver(
                 runtimeProfile = profile,
                 availableProfiles = family.runtimeOptions,
                 missingBios = missingBios,
-                message = "Install BIOS files in app-managed storage before launching this game.",
+                message = "Import valid BIOS files in Settings before playing: ${missingBios.joinToString()}.",
             )
         }
 
-        val coreLibrary = libraryStore.resolveCoreLibrary(context, profile.libraryFileName)
+        val abi = abiProvider()
+        val inspection = runCatching {
+            requireNotNull(abi) { "This app process ABI is unsupported." }
+            val installed = artifacts.selected(profile, abi) ?: libraryStore.resolveCoreLibrary(context, profile.libraryFileName)?.let { legacy ->
+                artifacts.inspectLegacy(profile, abi, legacy, "existing-unpinned")
+            }
+            installed?.let { it.file to it.identity } ?: packaged?.find(profile, abi)?.let { null to it.identity }
+        }
+        val installed = inspection.getOrNull()
             ?: return CoreResolution(
                 capability = PlayerCapability.MISSING_CORE,
                 platformFamily = family,
                 runtimeProfile = profile,
                 availableProfiles = family.runtimeOptions,
-                message = "Download the recommended ${profile.displayName} core to launch this game inside the app.",
+                message = inspection.exceptionOrNull()?.message ?: "Download the recommended ${profile.displayName} core to launch this game inside the app.",
             )
 
         return CoreResolution(
@@ -66,7 +76,8 @@ class CoreCatalogResolver(
             platformFamily = family,
             runtimeProfile = profile,
             availableProfiles = family.runtimeOptions,
-            coreLibrary = coreLibrary,
+            coreLibrary = installed.first,
+            coreIdentity = installed.second,
             message = null,
         )
     }
@@ -76,6 +87,23 @@ class CoreCatalogResolver(
     }
 
     override fun supportedPlatforms(): List<PlatformRuntimeFamily> = families
+
+    /** Freeze existing packaged/legacy bytes before passing a path to native code. Always revalidate at launch. */
+    override fun prepareCore(profile: RuntimeProfile, expected: CoreArtifactIdentity): InstalledCore {
+        val abi = requireNotNull(abiProvider()) { "Unsupported app process ABI." }
+        val selected = artifacts.selected(profile, abi, fresh = true)
+        if (selected != null) {
+            check(selected.identity == expected) { "Core selection changed during launch. Start the game again." }
+            return selected
+        }
+        val source = libraryStore.resolveCoreLibrary(context, profile.libraryFileName)
+            ?: return requireNotNull(packaged) { "Core disappeared during launch." }.install(profile, abi, expected)
+        val verified = artifacts.inspectLegacy(profile, abi, source, "existing-unpinned", fresh = true)
+        check(verified.identity == expected) { "Core changed during launch. Start the game again." }
+        return artifacts.install(profile, abi, source, "existing-unpinned", expectedSha256 = expected.sha256, approvedPin = false).also {
+            check(it.identity.sha256 == expected.sha256) { "Core changed while freezing its installed version." }
+        }
+    }
 }
 
 internal fun buildPlatformRuntimeFamilies(): List<PlatformRuntimeFamily> = listOf(
@@ -186,6 +214,7 @@ internal fun buildPlatformRuntimeFamilies(): List<PlatformRuntimeFamily> = listO
                     displayName = "Genesis Plus GX",
                     platformSlugs = setOf("genesis", "sms", "gamegear", "segacd"),
                     artifactBaseName = "genesis_plus_gx",
+                    supportedExtensions = setOf("md", "gen", "bin", "smd", "sms", "gg", "chd", "iso"),
                     shader = PlayerShader.CRT,
                     documentationUrl = "https://docs.libretro.com/library/genesis_plus_gx/",
                 ),
@@ -220,7 +249,7 @@ internal fun buildPlatformRuntimeFamilies(): List<PlatformRuntimeFamily> = listO
             familyId = "n64",
             displayName = "Nintendo 64",
             platformSlugs = setOf("n64"),
-            supportTier = EmbeddedSupportTier.CONTROLLER_SUPPORTED,
+            supportTier = EmbeddedSupportTier.TOUCH_SUPPORTED,
             defaultRuntimeId = "mupen64plus_next_gles3",
             runtimeOptions = listOf(
                 libretroProfile(
@@ -228,9 +257,14 @@ internal fun buildPlatformRuntimeFamilies(): List<PlatformRuntimeFamily> = listO
                     displayName = "Mupen64Plus-Next (GLES3)",
                     platformSlugs = setOf("n64"),
                     artifactBaseName = "mupen64plus_next_gles3",
+                    supportedExtensions = setOf("z64", "n64", "v64", "bin"),
                     defaultVariables = mapOf(
                         "mupen64plus-43screensize" to "320x240",
                         "mupen64plus-FrameDuping" to "True",
+                        "mupen64plus-rdp-plugin" to "angrylion",
+                        "mupen64plus-rsp-plugin" to "cxd4",
+                        "mupen64plus-cpucore" to "cached_interpreter",
+                        "mupen64plus-ThreadedRenderer" to "False",
                     ),
                     documentationUrl = "https://docs.libretro.com/library/mupen64plus/",
                 ),
@@ -254,6 +288,7 @@ internal fun buildPlatformRuntimeFamilies(): List<PlatformRuntimeFamily> = listO
                     displayName = "PCSX ReARMed",
                     platformSlugs = setOf("psx", "ps1", "playstation"),
                     artifactBaseName = "pcsx_rearmed",
+                    supportedExtensions = setOf("chd", "bin", "img", "iso", "pbp", "exe"),
                     requiredBiosFiles = listOf("scph5501.bin"),
                     defaultVariables = mapOf("pcsx_rearmed_drc" to "disabled"),
                     shader = PlayerShader.CRT,
@@ -274,7 +309,7 @@ internal fun buildPlatformRuntimeFamilies(): List<PlatformRuntimeFamily> = listO
             familyId = "psp",
             displayName = "PlayStation Portable",
             platformSlugs = setOf("psp"),
-            supportTier = EmbeddedSupportTier.CONTROLLER_SUPPORTED,
+            supportTier = EmbeddedSupportTier.TOUCH_SUPPORTED,
             defaultRuntimeId = "ppsspp",
             runtimeOptions = listOf(
                 libretroProfile(
@@ -282,7 +317,8 @@ internal fun buildPlatformRuntimeFamilies(): List<PlatformRuntimeFamily> = listO
                     displayName = "PPSSPP",
                     platformSlugs = setOf("psp"),
                     artifactBaseName = "ppsspp",
-                    defaultVariables = mapOf("ppsspp_frame_duplication" to "enabled"),
+                    defaultVariables = mapOf("ppsspp_frame_duplication" to "enabled", "ppsspp_cpu_core" to "IR JIT"),
+                    supportedExtensions = setOf("iso", "cso", "pbp", "elf", "prx"),
                     shader = PlayerShader.LCD,
                     documentationUrl = "https://docs.libretro.com/library/ppsspp/",
                 ),
@@ -478,7 +514,7 @@ internal fun buildPlatformRuntimeFamilies(): List<PlatformRuntimeFamily> = listO
                     platformSlugs = setOf("dreamcast", "naomi"),
                     artifactBaseName = "flycast",
                     supportedExtensions = setOf("cdi", "gdi", "chd", "cue", "bin", "elf", "zip", "7z", "lst", "dat", "m3u"),
-                    requiredBiosFiles = listOf("dc_boot.bin", "dc_flash.bin"),
+                    requiredBiosFiles = listOf("dc/dc_boot.bin"),
                     shader = PlayerShader.CRT,
                     documentationUrl = "https://docs.libretro.com/library/flycast/",
                 ),
@@ -496,6 +532,7 @@ internal fun buildPlatformRuntimeFamilies(): List<PlatformRuntimeFamily> = listO
                     displayName = "Opera",
                     platformSlugs = setOf("3do"),
                     artifactBaseName = "opera",
+                    requiredBiosFiles = listOf("panafz10.bin"),
                     supportedExtensions = setOf("cue", "iso", "bin", "chd", "m3u"),
                     shader = PlayerShader.CRT,
                     documentationUrl = "https://docs.libretro.com/library/opera/",

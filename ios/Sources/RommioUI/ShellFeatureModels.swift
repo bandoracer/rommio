@@ -268,6 +268,7 @@ public final class DownloadsFeatureModel {
 @MainActor
 @Observable
 public final class SettingsFeatureModel {
+    public var progressService: ApplicationProgress { services.progress }
     public var activeProfile: ServerProfile?
     public var profiles: [ServerProfile] = []
     public var offlineState = OfflineState(connectivity: .online)

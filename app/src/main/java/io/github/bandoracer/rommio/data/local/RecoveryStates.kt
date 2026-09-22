@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.Flow
 
 @Entity(
     tableName = "recovery_states",
-    primaryKeys = ["romId", "fileId", "entryId"],
+    primaryKeys = ["progressScope", "romId", "fileId", "entryId"],
 )
 data class RecoveryStateEntity(
     val romId: Int,
@@ -31,21 +31,22 @@ data class RecoveryStateEntity(
     val sourceDeviceName: String? = null,
     val capturedAtEpochMs: Long,
     val lastSyncedAtEpochMs: Long? = null,
+    val progressScope: String = "legacy",
 )
 
 @Dao
 interface RecoveryStateDao {
-    @Query("SELECT * FROM recovery_states WHERE romId = :romId AND fileId = :fileId ORDER BY capturedAtEpochMs DESC, entryId ASC")
-    fun observeByGame(romId: Int, fileId: Int): Flow<List<RecoveryStateEntity>>
+    @Query("SELECT * FROM recovery_states WHERE progressScope = :progressScope AND romId = :romId AND fileId = :fileId ORDER BY capturedAtEpochMs DESC, entryId ASC")
+    fun observeByGame(romId: Int, fileId: Int, progressScope: String = "legacy"): Flow<List<RecoveryStateEntity>>
 
-    @Query("SELECT * FROM recovery_states WHERE romId = :romId AND fileId = :fileId ORDER BY capturedAtEpochMs DESC, entryId ASC")
-    suspend fun listByGame(romId: Int, fileId: Int): List<RecoveryStateEntity>
+    @Query("SELECT * FROM recovery_states WHERE progressScope = :progressScope AND romId = :romId AND fileId = :fileId ORDER BY capturedAtEpochMs DESC, entryId ASC")
+    suspend fun listByGame(romId: Int, fileId: Int, progressScope: String = "legacy"): List<RecoveryStateEntity>
 
     @Query("SELECT * FROM recovery_states ORDER BY romId ASC, fileId ASC, capturedAtEpochMs DESC, entryId ASC")
     suspend fun listAll(): List<RecoveryStateEntity>
 
-    @Query("SELECT * FROM recovery_states WHERE romId = :romId AND fileId = :fileId AND entryId = :entryId LIMIT 1")
-    suspend fun getByKey(romId: Int, fileId: Int, entryId: String): RecoveryStateEntity?
+    @Query("SELECT * FROM recovery_states WHERE progressScope = :progressScope AND romId = :romId AND fileId = :fileId AND entryId = :entryId LIMIT 1")
+    suspend fun getByKey(romId: Int, fileId: Int, entryId: String, progressScope: String = "legacy"): RecoveryStateEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: RecoveryStateEntity)
@@ -53,11 +54,11 @@ interface RecoveryStateDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(entities: List<RecoveryStateEntity>)
 
-    @Query("DELETE FROM recovery_states WHERE romId = :romId AND fileId = :fileId")
-    suspend fun deleteByGame(romId: Int, fileId: Int)
+    @Query("DELETE FROM recovery_states WHERE progressScope = :progressScope AND romId = :romId AND fileId = :fileId")
+    suspend fun deleteByGame(romId: Int, fileId: Int, progressScope: String = "legacy")
 
-    @Query("DELETE FROM recovery_states WHERE romId = :romId AND fileId = :fileId AND entryId = :entryId")
-    suspend fun deleteByKey(romId: Int, fileId: Int, entryId: String)
+    @Query("DELETE FROM recovery_states WHERE progressScope = :progressScope AND romId = :romId AND fileId = :fileId AND entryId = :entryId")
+    suspend fun deleteByKey(romId: Int, fileId: Int, entryId: String, progressScope: String = "legacy")
 
     @Query("DELETE FROM recovery_states")
     suspend fun deleteAll()

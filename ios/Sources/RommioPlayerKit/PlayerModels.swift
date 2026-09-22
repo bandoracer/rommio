@@ -222,6 +222,7 @@ public struct PlayerSession: Hashable, Sendable {
     public var saveStatesDirectory: URL
     public var preferredViewportAspectRatio: Double?
     public var variables: [String: String]
+    public var ownsProgress = false
     public var initialSaveRAM: Data?
 
     public init(
@@ -264,9 +265,20 @@ public enum PlayerMotionSource: String, Codable, Sendable, CaseIterable {
 
 public struct PlayerInputConfiguration: Codable, Hashable, Sendable {
     public var deadzone: Double
+    public var reserveTouchSpace: Bool?
+    public var controlDeckHeight: Double?
+    public var controlScale: Double?
+    public var controlUtilityCount: Int?
+    /// Fold, dual-screen, and side-pane facts shared with the touch overlay.
+    public var stage: PlayerStageContext?
 
-    public init(deadzone: Double = 0.2) {
+    public init(deadzone: Double = 0.2, reserveTouchSpace: Bool? = nil, controlDeckHeight: Double? = nil, controlScale: Double? = nil, controlUtilityCount: Int? = nil, stage: PlayerStageContext? = nil) {
         self.deadzone = deadzone
+        self.reserveTouchSpace = reserveTouchSpace
+        self.controlDeckHeight = controlDeckHeight
+        self.controlScale = controlScale
+        self.controlUtilityCount = controlUtilityCount
+        self.stage = stage
     }
 }
 
@@ -305,6 +317,7 @@ public protocol PlayerEngine: AnyObject, Sendable {
     func reset() async throws
     func updateVariables(_ variables: [String: String]) async throws
     func dispatchDigital(keyCode: Int, pressed: Bool, port: Int) async throws
+    func dispatchPointer(x: Double, y: Double, pressed: Bool, port: Int) async throws
     func dispatchMotion(source: PlayerMotionSource, x: Double, y: Double, port: Int) async throws
     func updateInputConfiguration(_ configuration: PlayerInputConfiguration) async throws
     func availableControllerTypes(port: Int) async throws -> [PlayerControllerDescriptor]
@@ -312,4 +325,10 @@ public protocol PlayerEngine: AnyObject, Sendable {
     func hotkeySignals() -> AsyncStream<PlayerHotkeyAction>
     func rumbleSignals() -> AsyncStream<PlayerRumbleSignal>
     func detach()
+}
+
+public extension PlayerEngine {
+    func dispatchPointer(x: Double, y: Double, pressed: Bool, port: Int) async throws {
+        throw PlayerEngineError.hostUnavailable
+    }
 }

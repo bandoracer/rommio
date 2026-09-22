@@ -180,16 +180,44 @@ resolve_device_serial() {
   esac
 }
 
-wait_for_boot_complete() {
-  local serial="${1:-$(resolve_device_serial)}"
-
-  "$ADB_BIN" -s "$serial" wait-for-device >/dev/null
-
-  until [[ "$("$ADB_BIN" -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; do
+# A new emulator can take longer than five seconds to register with adb. Match
+# its AVD name so another connected device cannot satisfy startup readiness.
+wait_for_avd_serial() {
+  local avd_name="$1"
+  local deadline=$((SECONDS + 180))
+  local serial name
+  while (( SECONDS < deadline )); do
+    while IFS= read -r serial; do
+      [[ -n "$serial" ]] || continue
+      name="$("$ADB_BIN" -s "$serial" emu avd name 2>/dev/null | tr -d '\r' | head -n 1)" || continue
+      if [[ "$name" == "$avd_name" ]]; then
+        printf '%s\n' "$serial"
+        return 0
+      fi
+    done < <("$ADB_BIN" devices | awk 'NR > 1 && $1 ~ /^emulator-/ && $2 == "device" { print $1 }')
     sleep 2
   done
+  echo "Timed out waiting for AVD $avd_name to connect." >&2
+  return 1
+}
 
-  "$ADB_BIN" -s "$serial" shell input keyevent 82 >/dev/null 2>&1 || true
+wait_for_boot_complete() {
+  local serial deadline
+  serial="${1:-}"
+  if [[ -z "$serial" ]]; then
+    serial="$(resolve_device_serial)" || return 1
+  fi
+  [[ -n "$serial" ]] || return 1
+  deadline=$((SECONDS + 300))
+  while (( SECONDS < deadline )); do
+    if [[ "$("$ADB_BIN" -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then
+      "$ADB_BIN" -s "$serial" shell input keyevent 82 >/dev/null 2>&1 || true
+      return 0
+    fi
+    sleep 2
+  done
+  echo "Timed out waiting for Android boot on $serial." >&2
+  return 1
 }
 
 run_gradle() {

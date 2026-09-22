@@ -1,0 +1,128 @@
+{
+  "cores": [
+    {
+      "runtime": "gambatte",
+      "iosSimulator": "3a10191b3bf0fbde4a11afcc25cda901615a8ed27e0dd825114634ed89440bde",
+      "android": [
+        {
+          "abi": "arm64-v8a",
+          "sha256": "fb651b64e091832cbc5306481bc3c4cf28f1dfadf046fde249f01f6509594338"
+        },
+        {
+          "abi": "armeabi-v7a",
+          "sha256": "cd5fa8a1106bdf498a8e9cae87971ceb61ce7194eec0939608d5fe53c9ca3014"
+        },
+        {
+          "abi": "x86",
+          "sha256": "f7cc01d2e18a9774829a6b9ebdd6515937f5a9079f8636f0acad8b890fae7c83"
+        },
+        {
+          "abi": "x86_64",
+          "sha256": "9ca2837ef2239903c4d3c70caae72c4451b18e5a20e02401d17abc911d9916a5"
+        }
+      ]
+    },
+    {
+      "runtime": "mgba",
+      "iosSimulator": "ea60c2f638803079fbf4606ca0b2e8f1fd5768dec2ae51a08c2e310f0c38f203",
+      "android": [
+        {
+          "abi": "arm64-v8a",
+          "sha256": "b560ab17c4c1fe6554a32831b5bd32c6045abcd19fa5ef433245d7da47a17efd"
+        },
+        {
+          "abi": "armeabi-v7a",
+          "sha256": "4e4bce8fe5ad2ac4c8eedff17c2280884dd7084cd51fff633e5c0ccaab1243c7"
+        },
+        {
+          "abi": "x86",
+          "sha256": "c855c5b839b004cac7fc1863e024b415558bc5dc5cabefad662f1d04ba5fd9b6"
+        },
+        {
+          "abi": "x86_64",
+          "sha256": "da1244bd7bd34e7377f71676ec564f86fe8c1881edf14f8124f9cb59d1370f81"
+        }
+      ]
+    },
+    {
+      "runtime": "snes9x",
+      "iosSimulator": "9c22baf3fe70a41d0afb753cee414784ac5cad1f36c475c46587b6a775fd4094",
+      "android": [
+        {
+          "abi": "arm64-v8a",
+          "sha256": "39292a933b85fa45b5f7e75da64bb0a5d69bf7d39f8ba49f0b630ba87b62c057"
+        },
+        {
+          "abi": "armeabi-v7a",
+          "sha256": "8da3d55c01d88c68cc4286614fa74c6cc1e827dadc33b079e3409968f5f061a8"
+        },
+        {
+          "abi": "x86",
+          "sha256": "60c292c52fca5db6c22c27b4906dd6ce3e0f7104aabcc84756e9f67a6712c551"
+        },
+        {
+          "abi": "x86_64",
+          "sha256": "e75d67c58ce1f347479aa8b7f7389626fc3bcadf378c145cccf56e785690ceec"
+        }
+      ]
+    },
+    {
+      "runtime": "melonds_ds",
+      "iosSimulator": "989b84b1be49590ccacde02a960437b2d346ec8c80db0d8a4e324a97e5f46019",
+      "android": [
+        {
+          "abi": "arm64-v8a",
+          "sha256": "eed8cf565cf187a4905a02a1a6d32bd6d697523cb760c59d953307d111ef6a4b"
+        },
+        {
+          "abi": "armeabi-v7a",
+          "sha256": "94beb338751bb80e3a3482f466231826200b51c86eb7bc0a1920111e6538153a"
+        },
+        {
+          "abi": "x86",
+          "sha256": "124e08b099b820e971a6982c2f25d0b24550a99dd0faeb6bf560c18b958bcdeb"
+        },
+        {
+          "abi": "x86_64",
+          "sha256": "7b2c4b846e25b5cc2ae2042ffc7addfe098028492773c235a609546897d13191"
+        }
+      ]
+    }
+  ],
+  "validation": {
+    "iosCodeSignature": "codesign --verify --deep --strict passed",
+    "android64BitLoadAlignment": 16384,
+    "androidRuntimeABI": "arm64-v8a",
+    "iosRuntime": "iPhone Air iOS 27 arm64 simulator",
+    "physicalExecution": "deferred",
+    "swiftPackage": {
+      "tests": 165,
+      "skipped": 2,
+      "failures": 0
+    },
+    "androidUnit": {
+      "tests": 118,
+      "failures": 0
+    },
+    "androidNativeCartridges": {
+      "cases": [
+        "gb",
+        "gbc",
+        "gba",
+        "snes",
+        "nds"
+      ],
+      "checks": [
+        "capture",
+        "snapshot restore",
+        "game-only cold boot"
+      ],
+      "failures": 0
+    },
+    "iphoneArm64CoreBuilds": "all four cartridge cores built; no physical execution",
+    "androidExistingNativeAndPlayerUIRegressions": {
+      "tests": 22,
+      "failures": 0
+    }
+  }
+}

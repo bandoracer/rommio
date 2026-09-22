@@ -1,6 +1,10 @@
 package io.github.bandoracer.rommio.data.auth
 
-import android.webkit.CookieManager
+import io.github.bandoracer.rommio.domain.storage.StorageAccess
+
+import io.github.bandoracer.rommio.data.network.CredentialScope
+import io.github.bandoracer.rommio.data.network.CredentialScopeInterceptor
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import io.github.bandoracer.rommio.data.local.ServerProfileDao
@@ -27,14 +31,10 @@ import io.github.bandoracer.rommio.model.UserDto
 import java.io.IOException
 import java.time.Instant
 import java.util.UUID
-import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -63,10 +63,15 @@ class AuthManager(
     private val discovery: AuthDiscovery,
     private val jsonCodec: AuthJsonCodec,
 ) {
-    private val cookieManager = CookieManager.getInstance().apply {
-        setAcceptCookie(true)
-    }
-    private val refreshMutex = Mutex()
+    val profileCookies = ProfileCookies(secretStore::cookieStoreName, secretStore::storeCookieStoreName)
+
+    fun cookieInterceptor() = io.github.bandoracer.rommio.data.network.CookiePersistenceInterceptor(profileCookies)
+    private val tokenRefresh = TokenRefreshCoordinator(
+        read = secretStore::getTokenBundle,
+        write = secretStore::storeTokenBundle,
+        clear = secretStore::clearTokenBundle,
+        refresh = ::performTokenRefresh,
+    )
     private val moshi = Moshi.Builder()
         .add(KotlinJsonAdapterFactory())
         .build()
@@ -75,6 +80,8 @@ class AuthManager(
     private val tokenAdapter = moshi.adapter(TokenResponsePayload::class.java)
     private val deviceRegistrationResponseAdapter = moshi.adapter(DeviceRegistrationResponse::class.java)
     private val bareClient = OkHttpClient.Builder()
+        .addNetworkInterceptor(CredentialScopeInterceptor())
+        .addNetworkInterceptor(cookieInterceptor())
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
@@ -83,33 +90,33 @@ class AuthManager(
         return serverProfileDao.observeActive().map { entity -> entity?.toModel() }
     }
 
-    suspend fun getActiveProfile(): ServerProfile? = serverProfileDao.getActive()?.toModel()
+    suspend fun getActiveProfile(): ServerProfile? = StorageAccess.normal { serverProfileDao.getActive()?.toModel() }
 
-    suspend fun getProfile(profileId: String): ServerProfile? = serverProfileDao.getById(profileId)?.toModel()
+    suspend fun getProfile(profileId: String): ServerProfile? = StorageAccess.normal { serverProfileDao.getById(profileId)?.toModel() }
 
-    suspend fun listProfiles(): List<ServerProfile> = serverProfileDao.listAll().map { it.toModel() }
+    suspend fun listProfiles(): List<ServerProfile> = StorageAccess.normal { serverProfileDao.listAll().map { it.toModel() } }
 
-    suspend fun setActiveProfile(profileId: String): ServerProfile {
+    suspend fun setActiveProfile(profileId: String): ServerProfile = StorageAccess.normal {
         requireNotNull(serverProfileDao.getById(profileId)) { "Unknown server profile." }
         serverProfileDao.setActiveOnly(profileId, nowIso())
-        return requireProfile(profileId)
+        return@normal requireProfile(profileId)
     }
 
     fun hasCloudflareServiceCredentials(profileId: String): Boolean {
         return secretStore.getCloudflareCredentials(profileId) != null
     }
 
-    suspend fun initializeForAppLaunch() {
-        val active = getActiveProfile() ?: return
+    suspend fun initializeForAppLaunch() = StorageAccess.normal {
+        val active = getActiveProfile() ?: return@normal
         if (active.serverAccess.status != ServerAccessStatus.READY) {
-            return
+            return@normal
         }
         if (active.status == AuthStatus.CONNECTED || active.sessionState.hasOriginSession) {
             runCatching { validateProfile(active.id) }
         }
     }
 
-    suspend fun discoverServer(baseUrl: String) = discovery.discover(baseUrl)
+    suspend fun discoverServer(baseUrl: String) = StorageAccess.normal { discovery.discover(baseUrl) }
 
     suspend fun configureServerProfile(
         baseUrl: String,
@@ -118,7 +125,7 @@ class AuthManager(
         originAuthMode: OriginAuthMode? = null,
         discoveryResult: io.github.bandoracer.rommio.model.AuthDiscoveryResult? = null,
         makeActive: Boolean = true,
-    ): ServerProfile {
+    ): ServerProfile = StorageAccess.normal {
         val resolvedDiscovery = discoveryResult ?: discoverServer(baseUrl)
         val normalized = resolvedDiscovery.baseUrl
         val existing = serverProfileDao.listAll().map { it.toModel() }.firstOrNull { it.baseUrl == normalized }
@@ -146,10 +153,10 @@ class AuthManager(
         if (makeActive) {
             serverProfileDao.setActiveOnly(profile.id, now)
         }
-        return requireNotNull(getProfile(profile.id))
+        return@normal requireNotNull(getProfile(profile.id))
     }
 
-    suspend fun setCloudflareServiceCredentials(profileId: String, credentials: CloudflareServiceCredentials) {
+    suspend fun setCloudflareServiceCredentials(profileId: String, credentials: CloudflareServiceCredentials) = StorageAccess.normal {
         secretStore.storeCloudflareCredentials(profileId, credentials)
         val profile = requireProfile(profileId)
         persistProfile(
@@ -162,7 +169,7 @@ class AuthManager(
         )
     }
 
-    suspend fun beginEdgeAccess(profileId: String) {
+    suspend fun beginEdgeAccess(profileId: String) = StorageAccess.normal {
         val profile = requireProfile(profileId)
         persistProfile(
             profile.copy(
@@ -177,11 +184,10 @@ class AuthManager(
         )
     }
 
-    suspend fun completeEdgeAccessAttempt(profileId: String): ServerAccessState {
+    suspend fun completeEdgeAccessAttempt(profileId: String): ServerAccessState = StorageAccess.normal {
         val profile = requireProfile(profileId)
-        cookieManager.flush()
-        val cookieNames = getCookieNames(profile.baseUrl)
-        val hasRequiredCookie = hasRequiredEdgeCookie(profile, profile.baseUrl)
+        val cookieNames = getCookieNames(profile)
+        val hasRequiredCookie = hasRequiredEdgeCookie(profile)
         val sessionState = profile.sessionState.copy(
             hasEdgeSession = hasRequiredCookie || profile.edgeAuthMode == EdgeAuthMode.CLOUDFLARE_ACCESS_SERVICE,
             lastValidatedAt = nowIso(),
@@ -206,12 +212,13 @@ class AuthManager(
                 updatedAt = nowIso(),
             ),
         )
-        return nextAccess
+        return@normal nextAccess
     }
 
-    suspend fun getInteractiveSessionConfig(profileId: String, provider: InteractiveSessionProvider): InteractiveSessionConfig {
+    suspend fun getInteractiveSessionConfig(profileId: String, provider: InteractiveSessionProvider): InteractiveSessionConfig = StorageAccess.normal {
         val profile = requireProfile(profileId)
-        return when (provider) {
+        val cookieContext = profileCookies.requireBrowserContext(profile.id, profile.baseUrl)
+        return@normal when (provider) {
             InteractiveSessionProvider.EDGE -> InteractiveSessionConfig(
                 profileId = profile.id,
                 title = when (profile.edgeAuthMode) {
@@ -221,6 +228,7 @@ class AuthManager(
                 startUrl = profile.baseUrl,
                 provider = provider,
                 expectedBaseUrl = profile.baseUrl,
+                cookieContext = cookieContext,
             )
 
             InteractiveSessionProvider.ORIGIN -> InteractiveSessionConfig(
@@ -229,29 +237,29 @@ class AuthManager(
                 startUrl = "${profile.baseUrl}/api/login/openid",
                 provider = provider,
                 expectedBaseUrl = profile.baseUrl,
+                cookieContext = cookieContext,
             )
         }
     }
 
-    suspend fun completeInteractiveLogin(profileId: String, provider: InteractiveSessionProvider): AuthStatus {
+    suspend fun completeInteractiveLogin(profileId: String, provider: InteractiveSessionProvider): AuthStatus = StorageAccess.normal {
         if (provider == InteractiveSessionProvider.EDGE) {
             completeEdgeAccessAttempt(profileId)
-            return AuthStatus.REAUTH_REQUIRED_ORIGIN
+            return@normal AuthStatus.REAUTH_REQUIRED_ORIGIN
         }
 
         val profile = requireProfile(profileId)
-        cookieManager.flush()
         val sessionState = profile.sessionState.copy(
-            hasOriginSession = !getCookieHeader(profile.baseUrl).isNullOrBlank(),
+            hasOriginSession = !getCookieHeader(profile, profile.baseUrl).isNullOrBlank(),
             lastValidatedAt = nowIso(),
             canRefreshInBackground = profile.edgeAuthMode == EdgeAuthMode.CLOUDFLARE_ACCESS_SERVICE,
         )
         persistProfile(profile.copy(sessionState = sessionState, updatedAt = nowIso()))
-        return validateProfile(profile.id)
+        return@normal validateProfile(profile.id)
     }
 
-    suspend fun testServerAccess(profileId: String? = null): ServerAccessResult {
-        return withContext(Dispatchers.IO) {
+    suspend fun testServerAccess(profileId: String? = null): ServerAccessResult = StorageAccess.normal {
+        return@normal withContext(Dispatchers.IO) {
             val profile = profileId?.let { requireProfile(it) } ?: getActiveProfile()
                 ?: return@withContext ServerAccessResult(
                     status = ServerAccessStatus.FAILED,
@@ -269,9 +277,9 @@ class AuthManager(
 
             runCatching {
                 bareClient.newCall(request).execute().use { response ->
-                    persistCookies(response.request.url.toString(), response.headers("Set-Cookie"))
+
                     val probe = probeJsonResponse(response, heartbeatAdapter)
-                    val cookieNames = getCookieNames(profile.baseUrl)
+                    val cookieNames = getCookieNames(profile)
                     if (probe.ok && probe.data?.system != null) {
                         val nextProfile = profile.copy(
                             serverAccess = profile.serverAccess.copy(
@@ -367,22 +375,23 @@ class AuthManager(
         }
     }
 
-    suspend fun loginWithDirectCredentials(profileId: String, credentials: DirectLoginCredentials) {
+    suspend fun loginWithDirectCredentials(profileId: String, credentials: DirectLoginCredentials) = StorageAccess.normal {
         withContext(Dispatchers.IO) {
-            val normalized = credentials.copy(username = credentials.username.trim(), password = credentials.password.trim())
+            val normalized = credentials.copy(username = credentials.username.trim(), password = credentials.password)
             require(normalized.username.isNotBlank() && normalized.password.isNotBlank()) {
                 "Enter both your RomM username and password."
             }
 
             val profile = requireProfile(profileId)
+            val generation = tokenRefresh.invalidate(profileId)
             val tokenLoginSucceeded = if (profile.originAuthMode != OriginAuthMode.ROMM_BASIC_LEGACY) {
-                tryTokenLogin(profile, normalized)
+                tryTokenLogin(profile, normalized, generation)
             } else {
                 false
             }
 
             if (!tokenLoginSucceeded) {
-                performLegacyBasicLogin(profile, normalized)
+                performLegacyBasicLogin(profile, normalized, generation)
             }
 
             when (val status = validateProfile(profileId)) {
@@ -394,9 +403,10 @@ class AuthManager(
         }
     }
 
-    suspend fun validateProfile(profileId: String? = null): AuthStatus {
-        return withContext(Dispatchers.IO) {
+    suspend fun validateProfile(profileId: String? = null): AuthStatus = StorageAccess.normal {
+        return@normal withContext(Dispatchers.IO) {
             val profile = profileId?.let { requireProfile(it) } ?: getActiveProfile() ?: return@withContext AuthStatus.INVALID_CONFIGURATION
+            val generation = tokenRefresh.generation(profile.id)
             runCatching {
                 if (profile.serverAccess.status != ServerAccessStatus.READY) {
                     if (profile.edgeAuthMode == EdgeAuthMode.NONE) {
@@ -412,7 +422,7 @@ class AuthManager(
                         .applyDecoration(decorateRequest(profile.id, heartbeatUrl, includeOriginAuth = true))
                         .build()
                     val heartbeatProbe = bareClient.newCall(heartbeatRequest).execute().use { response ->
-                        persistCookies(response.request.url.toString(), response.headers("Set-Cookie"))
+
                         probeJsonResponse(response, heartbeatAdapter)
                     }
 
@@ -493,7 +503,9 @@ class AuthManager(
                             .applyDecoration(decorateRequest(profile.id, meUrl, includeOriginAuth = true))
                             .build()
                         val meProbe = bareClient.newCall(meRequest).execute().use { response ->
-                            persistCookies(response.request.url.toString(), response.headers("Set-Cookie"))
+                            if (!CredentialScope(profile.baseUrl).contains(response.request.url)) {
+                                throw TokenRefreshException(TokenRefreshException.Reason.ACCESS_REQUIRED)
+                            }
                             probeJsonResponse(response, userAdapter)
                         }
 
@@ -507,6 +519,11 @@ class AuthManager(
                             else -> AuthStatus.CONNECTED
                         }
 
+                        if (nextStatus == AuthStatus.CONNECTED) {
+                            tokenRefresh.mutateSession(profile.id, generation) {
+                                secretStore.bindVerifiedAccount(profile.id, VerifiedAccount(profile.baseUrl, requireNotNull(meProbe.data).id))
+                            }
+                        }
                         persistProfile(
                             profile.copy(
                                 status = nextStatus,
@@ -534,6 +551,31 @@ class AuthManager(
                     }
                 }
             }.getOrElse { error ->
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                if (error is AccountBindingException) {
+                    // A browser/server changed the authenticated account. Retain the owner,
+                    // but retire credentials and cookies before another request can reuse them.
+                    tokenRefresh.mutateSession(profile.id, generation) {
+                        secretStore.clearBasicCredentials(profile.id)
+                        secretStore.clearTokenBundle(profile.id)
+                    }
+                    logout(profile.id)
+                    throw error
+                }
+                if (error is TokenRefreshException) {
+                    when (error.reason) {
+                        TokenRefreshException.Reason.UNAVAILABLE, TokenRefreshException.Reason.INVALID_RESPONSE -> throw error
+                        TokenRefreshException.Reason.INVALID_CREDENTIALS -> {
+                            persistProfile(profile.copy(
+                                status = AuthStatus.REAUTH_REQUIRED_ORIGIN,
+                                sessionState = profile.sessionState.copy(hasOriginSession = false),
+                                updatedAt = nowIso(),
+                            ))
+                            return@getOrElse AuthStatus.REAUTH_REQUIRED_ORIGIN
+                        }
+                        TokenRefreshException.Reason.ACCESS_REQUIRED -> Unit
+                    }
+                }
                 val status = if (profile.edgeAuthMode == EdgeAuthMode.NONE) {
                     AuthStatus.REAUTH_REQUIRED_ORIGIN
                 } else {
@@ -571,36 +613,42 @@ class AuthManager(
         }
     }
 
-    suspend fun logout(profileId: String? = null, clearServerAccess: Boolean = false) {
-        val profile = profileId?.let { requireProfile(it) } ?: getActiveProfile() ?: return
-        secretStore.clearBasicCredentials(profile.id)
-        secretStore.clearTokenBundle(profile.id)
-        if (clearServerAccess) {
-            secretStore.clearCloudflareCredentials(profile.id)
-            clearCookies()
+    suspend fun logout(profileId: String? = null, clearServerAccess: Boolean = false) = StorageAccess.normal {
+        val profile = profileId?.let { requireProfile(it) } ?: getActiveProfile() ?: return@normal
+        tokenRefresh.invalidate(profile.id) {
+            secretStore.clearBasicCredentials(profile.id)
+            secretStore.clearTokenBundle(profile.id)
         }
+        profileCookies.clear(profile.id, profile.baseUrl)
+        val clearedEdgeCookies = profile.edgeAuthMode in setOf(EdgeAuthMode.CLOUDFLARE_ACCESS_SESSION, EdgeAuthMode.GENERIC_COOKIE_SSO)
+        if (clearServerAccess) { secretStore.clearCloudflareCredentials(profile.id); secretStore.clearDeviceId(profile.id) }
         persistProfile(
             profile.copy(
                 sessionState = profile.sessionState.copy(
                     hasOriginSession = false,
+                    hasEdgeSession = if (clearServerAccess || clearedEdgeCookies) false else profile.sessionState.hasEdgeSession,
                     lastValidatedAt = nowIso(),
                 ),
-                status = if (profile.serverAccess.status == ServerAccessStatus.READY) {
+                status = if (!clearServerAccess && !clearedEdgeCookies && profile.serverAccess.status == ServerAccessStatus.READY) {
                     AuthStatus.REAUTH_REQUIRED_ORIGIN
                 } else {
                     AuthStatus.INVALID_CONFIGURATION
                 },
-                serverAccess = if (clearServerAccess) ServerAccessState() else profile.serverAccess,
+                serverAccess = if (clearServerAccess || clearedEdgeCookies) ServerAccessState() else profile.serverAccess,
                 updatedAt = nowIso(),
             ),
         )
     }
 
-    suspend fun clearServerAccess(profileId: String) {
+    suspend fun clearServerAccess(profileId: String) = StorageAccess.normal {
         val profile = requireProfile(profileId)
+        tokenRefresh.invalidate(profile.id) {
+            secretStore.clearBasicCredentials(profile.id)
+            secretStore.clearTokenBundle(profile.id)
+        }
         secretStore.clearCloudflareCredentials(profile.id)
         secretStore.clearDeviceId(profile.id)
-        clearCookies()
+        profileCookies.clear(profile.id, profile.baseUrl)
         persistProfile(
             profile.copy(
                 serverAccess = ServerAccessState(),
@@ -615,13 +663,11 @@ class AuthManager(
         )
     }
 
-    suspend fun deleteProfile(profileId: String): ServerProfile? {
+    suspend fun deleteProfile(profileId: String): ServerProfile? = StorageAccess.normal {
         val profile = requireProfile(profileId)
         val wasActive = profile.isActive
-        secretStore.clearAll(profile.id)
-        if (wasActive) {
-            clearCookies()
-        }
+        tokenRefresh.invalidate(profile.id) { secretStore.clearAll(profile.id) }
+        profileCookies.clear(profile.id, profile.baseUrl)
         serverProfileDao.delete(profile.id)
         if (wasActive) {
             val nextProfile = serverProfileDao.listAll()
@@ -632,11 +678,14 @@ class AuthManager(
                 serverProfileDao.setActiveOnly(nextProfile.id, nowIso())
             }
         }
-        return getActiveProfile()
+        return@normal getActiveProfile()
     }
 
-    suspend fun decorateRequest(profileId: String, url: String, includeOriginAuth: Boolean): RequestDecoration {
+    suspend fun decorateRequest(profileId: String, url: String, includeOriginAuth: Boolean): RequestDecoration = StorageAccess.normal {
         val profile = requireProfile(profileId)
+        if (!CredentialScope(profile.baseUrl).contains(url.toHttpUrl())) {
+            return@normal RequestDecoration(url, emptyMap(), shouldPersistCookies = false, credentialBaseUrl = profile.baseUrl)
+        }
         val headers = linkedMapOf<String, String>()
 
         if (profile.edgeAuthMode == EdgeAuthMode.CLOUDFLARE_ACCESS_SERVICE) {
@@ -647,11 +696,14 @@ class AuthManager(
         }
 
         if (includeOriginAuth) {
+            secretStore.verifiedAccount(profile.id)?.let {
+                if (it.baseUrl != profile.baseUrl) throw AccountBindingException()
+            }
             when (profile.originAuthMode) {
                 OriginAuthMode.ROMM_BEARER_PASSWORD -> {
                     refreshBearerTokenIfNeeded(profile.id)
-                    secretStore.getTokenBundle(profile.id)?.accessToken?.let { accessToken ->
-                        headers["Authorization"] = "Bearer $accessToken"
+                    secretStore.getTokenBundle(profile.id)?.let { bundle ->
+                        headers["Authorization"] = "${bundle.tokenType} ${bundle.accessToken}"
                     }
                 }
 
@@ -665,21 +717,24 @@ class AuthManager(
             }
         }
 
-        if (shouldSendCookies(profile)) {
-            getCookieHeader(url)?.let { cookieHeader ->
+        val cookieContext = if (shouldSendCookies(profile)) profileCookies.context(profile.id, profile.baseUrl) else null
+        if (cookieContext != null) {
+            profileCookies.header(cookieContext, url.toHttpUrl())?.let { cookieHeader ->
                 headers["Cookie"] = cookieHeader
             }
         }
 
-        return RequestDecoration(url = url, headers = headers)
+        return@normal RequestDecoration(url = url, headers = headers, credentialBaseUrl = profile.baseUrl, cookieContext = cookieContext)
     }
+
+    fun verifiedAccount(profileId: String): VerifiedAccount? = secretStore.verifiedAccount(profileId)
 
     fun getDeviceId(profileId: String): String? = secretStore.getDeviceId(profileId)
 
     fun storeDeviceId(profileId: String, deviceId: String) = secretStore.storeDeviceId(profileId, deviceId)
 
-    suspend fun ensureDeviceId(profileId: String): String {
-        return withContext(Dispatchers.IO) {
+    suspend fun ensureDeviceId(profileId: String): String = StorageAccess.normal {
+        return@normal withContext(Dispatchers.IO) {
             secretStore.getDeviceId(profileId)?.let { return@withContext it }
             val profile = requireProfile(profileId)
             val payload = moshi.adapter(DeviceRegistrationRequest::class.java).toJson(
@@ -691,7 +746,7 @@ class AuthManager(
                 .applyDecoration(decorateRequest(profile.id, "${profile.baseUrl}/api/devices", includeOriginAuth = true))
                 .build()
             val deviceId = bareClient.newCall(request).execute().use { response ->
-                persistCookies(response.request.url.toString(), response.headers("Set-Cookie"))
+
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
                     error("Device registration failed with ${response.code}")
@@ -703,43 +758,20 @@ class AuthManager(
         }
     }
 
-    private suspend fun performLegacyBasicLogin(profile: ServerProfile, credentials: DirectLoginCredentials) {
+    private suspend fun performLegacyBasicLogin(profile: ServerProfile, credentials: DirectLoginCredentials, generation: Long) {
         withContext(Dispatchers.IO) {
-            val url = "${profile.baseUrl}/api/users/me"
-            val decoration = decorateRequest(profile.id, url, includeOriginAuth = false)
-            val request = Request.Builder()
-                .url(url)
-                .get()
-                .applyDecoration(decoration)
-                .header("Accept", "application/json")
-                .header("Authorization", okhttp3.Credentials.basic(credentials.username, credentials.password))
-                .build()
+            val user = verifyCandidate(profile, okhttp3.Credentials.basic(credentials.username, credentials.password))
 
-            bareClient.newCall(request).execute().use { response ->
-                persistCookies(response.request.url.toString(), response.headers("Set-Cookie"))
-                val body = response.body?.string().orEmpty()
-                if (looksLikeHtmlResponse(body, response.header("Content-Type"))) {
-                    error("Protected server access did not carry over to the app. Complete the protected login again.")
-                }
-                if (!response.isSuccessful) {
-                    if (response.code == 401 || response.code == 403) {
-                        error("RomM rejected the username and password. Check the credentials and try again.")
-                    }
-                    error(body.ifBlank { "Login failed (${response.code})" })
-                }
-                val user = userAdapter.fromJson(body)
-                require(user?.id != null && user.username.isNotBlank()) {
-                    "RomM did not return the expected user profile response."
-                }
+            tokenRefresh.mutateSession(profile.id, generation) {
+                secretStore.bindVerifiedAccount(profile.id, VerifiedAccount(profile.baseUrl, user.id))
+                secretStore.storeBasicCredentials(profile.id, credentials)
+                secretStore.clearTokenBundle(profile.id)
             }
-
-            secretStore.storeBasicCredentials(profile.id, credentials)
-            secretStore.clearTokenBundle(profile.id)
             persistProfile(profile.copy(originAuthMode = OriginAuthMode.ROMM_BASIC_LEGACY, updatedAt = nowIso()))
         }
     }
 
-    private suspend fun tryTokenLogin(profile: ServerProfile, credentials: DirectLoginCredentials): Boolean {
+    private suspend fun tryTokenLogin(profile: ServerProfile, credentials: DirectLoginCredentials, generation: Long): Boolean {
         return withContext(Dispatchers.IO) {
             val decoration = decorateRequest(profile.id, "${profile.baseUrl}/api/token", includeOriginAuth = false)
             val body = FormBody.Builder()
@@ -756,93 +788,103 @@ class AuthManager(
                 .build()
 
             bareClient.newCall(request).execute().use { response ->
-                persistCookies(response.request.url.toString(), response.headers("Set-Cookie"))
-                if (!response.isSuccessful) {
-                    return@use false
+                if (!CredentialScope(profile.baseUrl).contains(response.request.url)) {
+                    throw TokenRefreshException(TokenRefreshException.Reason.ACCESS_REQUIRED)
                 }
+
                 val responseText = response.body?.string().orEmpty()
                 if (looksLikeHtmlResponse(responseText, response.header("Content-Type"))) {
-                    return@use false
+                    throw TokenRefreshException(TokenRefreshException.Reason.ACCESS_REQUIRED)
                 }
-                val tokenResponse = tokenAdapter.fromJson(responseText) ?: return@use false
-                val accessToken = tokenResponse.access_token ?: return@use false
+                if (response.code == 404 || response.code == 405) return@use false
+                if (!response.isSuccessful) {
+                    if (response.code == 401 || response.code == 403) {
+                        throw IOException("RomM rejected the username and password. Check the credentials and try again.")
+                    }
+                    throw TokenRefreshException(TokenRefreshException.Reason.UNAVAILABLE, response.code)
+                }
+                val tokenResponse = tokenAdapter.fromJson(responseText)
+                    ?: throw TokenRefreshException(TokenRefreshException.Reason.INVALID_RESPONSE)
+                val accessToken = tokenResponse.access_token?.takeIf { it.isNotBlank() }
+                    ?: throw TokenRefreshException(TokenRefreshException.Reason.INVALID_RESPONSE)
                 val expiresAt = (tokenResponse.expires_in ?: tokenResponse.expires)?.let { seconds ->
                     Instant.ofEpochMilli(System.currentTimeMillis() + seconds * 1000).toString()
                 }
-                secretStore.storeTokenBundle(
-                    profile.id,
-                    TokenBundle(
-                        accessToken = accessToken,
-                        refreshToken = tokenResponse.refresh_token,
-                        tokenType = tokenResponse.token_type ?: "Bearer",
-                        expiresAt = expiresAt,
-                    ),
-                )
-                secretStore.clearBasicCredentials(profile.id)
+                val user = verifyCandidate(profile, "${tokenResponse.token_type ?: "Bearer"} $accessToken")
+                tokenRefresh.mutateSession(profile.id, generation) {
+                    secretStore.bindVerifiedAccount(profile.id, VerifiedAccount(profile.baseUrl, user.id))
+                    secretStore.storeTokenBundle(
+                        profile.id,
+                        TokenBundle(
+                            accessToken = accessToken,
+                            refreshToken = tokenResponse.refresh_token,
+                            tokenType = tokenResponse.token_type ?: "Bearer",
+                            expiresAt = expiresAt,
+                        ),
+                    )
+                    secretStore.clearBasicCredentials(profile.id)
+                }
                 persistProfile(profile.copy(originAuthMode = OriginAuthMode.ROMM_BEARER_PASSWORD, updatedAt = nowIso()))
                 true
             }
         }
     }
 
-    private suspend fun refreshBearerTokenIfNeeded(profileId: String) {
-        withContext(Dispatchers.IO) {
-            refreshMutex.withLock {
-                val tokenBundle = secretStore.getTokenBundle(profileId) ?: return@withLock
-                val expiresAt = tokenBundle.expiresAt?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() } ?: return@withLock
-                if (expiresAt - System.currentTimeMillis() > 90_000 || tokenBundle.refreshToken.isNullOrBlank()) {
-                    return@withLock
-                }
-
-                val profile = requireProfile(profileId)
-                val decoration = decorateRequest(profile.id, "${profile.baseUrl}/api/token", includeOriginAuth = false)
-                val request = Request.Builder()
-                    .url("${profile.baseUrl}/api/token")
-                    .post(
-                        FormBody.Builder()
-                            .add("grant_type", "refresh_token")
-                            .add("refresh_token", tokenBundle.refreshToken)
-                            .build(),
-                    )
-                    .applyDecoration(decoration)
-                    .header("Content-Type", "application/x-www-form-urlencoded")
-                    .build()
-
-                bareClient.newCall(request).execute().use { response ->
-                    persistCookies(response.request.url.toString(), response.headers("Set-Cookie"))
-                    if (!response.isSuccessful) {
-                        secretStore.clearTokenBundle(profileId)
-                        return@use
-                    }
-
-                    val responseText = response.body?.string().orEmpty()
-                    if (looksLikeHtmlResponse(responseText, response.header("Content-Type"))) {
-                        secretStore.clearTokenBundle(profileId)
-                        return@use
-                    }
-
-                    val refreshed = tokenAdapter.fromJson(responseText)
-                    val accessToken = refreshed?.access_token
-                    if (accessToken.isNullOrBlank()) {
-                        secretStore.clearTokenBundle(profileId)
-                        return@use
-                    }
-
-                    val refreshedExpiresAt = (refreshed.expires_in ?: refreshed.expires)?.let { seconds ->
-                        Instant.ofEpochMilli(System.currentTimeMillis() + seconds * 1000).toString()
-                    } ?: tokenBundle.expiresAt
-
-                    secretStore.storeTokenBundle(
-                        profileId,
-                        TokenBundle(
-                            accessToken = accessToken,
-                            refreshToken = refreshed.refresh_token ?: tokenBundle.refreshToken,
-                            tokenType = refreshed.token_type ?: tokenBundle.tokenType,
-                            expiresAt = refreshedExpiresAt,
-                        ),
-                    )
-                }
+    private suspend fun verifyCandidate(profile: ServerProfile, authorization: String): UserDto {
+        val url = "${profile.baseUrl}/api/users/me"
+        val request = Request.Builder().url(url).get()
+            .applyDecoration(decorateRequest(profile.id, url, includeOriginAuth = false))
+            .header("Accept", "application/json").header("Authorization", authorization).build()
+        return bareClient.newCall(request).execute().use { response ->
+            if (!CredentialScope(profile.baseUrl).contains(response.request.url)) {
+                throw TokenRefreshException(TokenRefreshException.Reason.ACCESS_REQUIRED)
             }
+            val probe = probeJsonResponse(response, userAdapter)
+            if (!probe.ok || probe.data == null || probe.data.username.isBlank()) {
+                throw IOException("RomM did not verify the account for these credentials.")
+            }
+            probe.data
+        }
+    }
+
+    private suspend fun refreshBearerTokenIfNeeded(profileId: String) {
+        tokenRefresh.prepare(profileId)
+    }
+
+    suspend fun refreshAfterUnauthorized(profileId: String, url: String, rejectedAuthorization: String): Boolean = StorageAccess.normal {
+        val profile = requireProfile(profileId)
+        if (profile.originAuthMode != OriginAuthMode.ROMM_BEARER_PASSWORD ||
+            !CredentialScope(profile.baseUrl).contains(url.toHttpUrl())) return@normal false
+        tokenRefresh.prepare(profileId, rejectedAuthorization)
+        val bundle = secretStore.getTokenBundle(profileId) ?: return@normal false
+        return@normal "${bundle.tokenType} ${bundle.accessToken}" != rejectedAuthorization
+    }
+
+    private suspend fun performTokenRefresh(profileId: String, bundle: TokenBundle): TokenBundle = withContext(Dispatchers.IO) {
+        val profile = requireProfile(profileId)
+        val url = "${profile.baseUrl}/api/token"
+        val request = Request.Builder()
+            .url(url)
+            .post(FormBody.Builder().add("grant_type", "refresh_token").add("refresh_token", requireNotNull(bundle.refreshToken)).build())
+            .applyDecoration(decorateRequest(profileId, url, includeOriginAuth = false))
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .build()
+        try {
+            bareClient.newCall(request).execute().use { response ->
+                if (!CredentialScope(profile.baseUrl).contains(response.request.url)) {
+                    throw TokenRefreshException(TokenRefreshException.Reason.ACCESS_REQUIRED)
+                }
+
+                val candidate = TokenRefreshResponse.decode(response.code, response.header("Content-Type"), response.body?.string().orEmpty(), bundle)
+                secretStore.verifiedAccount(profileId)?.let { owner ->
+                    val user = verifyCandidate(profile, "${candidate.tokenType} ${candidate.accessToken}")
+                    if (owner != VerifiedAccount(profile.baseUrl, user.id)) throw AccountBindingException()
+                }
+                candidate
+            }
+        } catch (error: IOException) {
+            if (error is TokenRefreshException || error is AccountBindingException) throw error
+            throw TokenRefreshException(TokenRefreshException.Reason.UNAVAILABLE)
         }
     }
 
@@ -858,43 +900,19 @@ class AuthManager(
         }
     }
 
-    private fun getCookieHeader(url: String): String? {
-        return cookieManager.getCookie(url)?.takeIf { it.isNotBlank() }
-    }
+    private suspend fun getCookieHeader(profile: ServerProfile, url: String): String? =
+        profileCookies.header(profileCookies.context(profile.id, profile.baseUrl), url.toHttpUrl())
 
-    private fun getCookieNames(url: String): List<String> {
-        val cookieHeader = getCookieHeader(url).orEmpty()
-        return cookieHeader.split(';')
-            .mapNotNull { fragment ->
-                fragment.substringBefore('=').trim().takeIf { it.isNotBlank() }
-            }
-            .distinct()
-    }
+    private suspend fun getCookieNames(profile: ServerProfile): List<String> =
+        getCookieHeader(profile, "${profile.baseUrl.removeSuffix("/")}/api/users/me").orEmpty().split(';')
+            .mapNotNull { it.substringBefore('=').trim().takeIf(String::isNotBlank) }.distinct()
 
-    private fun hasRequiredEdgeCookie(profile: ServerProfile, url: String): Boolean {
-        val names = getCookieNames(url)
+    private suspend fun hasRequiredEdgeCookie(profile: ServerProfile): Boolean {
+        val names = getCookieNames(profile)
         return when (profile.edgeAuthMode) {
             EdgeAuthMode.CLOUDFLARE_ACCESS_SESSION -> names.any { it.startsWith("CF_Authorization") }
             EdgeAuthMode.GENERIC_COOKIE_SSO -> names.isNotEmpty()
             else -> false
-        }
-    }
-
-    private fun persistCookies(url: String, setCookies: List<String>) {
-        setCookies.forEach { cookie ->
-            cookieManager.setCookie(url, cookie)
-        }
-        cookieManager.flush()
-    }
-
-    private suspend fun clearCookies() {
-        withContext(Dispatchers.Main) {
-            suspendCancellableCoroutine<Unit> { continuation ->
-                cookieManager.removeAllCookies {
-                    cookieManager.flush()
-                    continuation.resume(Unit)
-                }
-            }
         }
     }
 
@@ -988,12 +1006,14 @@ class AuthManager(
     private fun nowIso(): String = Instant.now().toString()
 
     private fun Request.Builder.applyDecoration(decoration: RequestDecoration): Request.Builder {
+        decoration.credentialBaseUrl?.let { tag(CredentialScope::class.java, CredentialScope(it)) }
+        tag(ProfileCookieContext::class.java, decoration.cookieContext)
         decoration.headers.forEach { (key, value) -> header(key, value) }
         return this
     }
 
     companion object {
         private const val MOBILE_APP_SCOPES =
-            "me.read me.write roms.read platforms.read assets.read assets.write devices.read devices.write firmware.read collections.read roms.user.read roms.user.write users.read users.write"
+            "me.read me.write roms.read platforms.read assets.read assets.write devices.read devices.write firmware.read collections.read roms.user.read roms.user.write"
     }
 }

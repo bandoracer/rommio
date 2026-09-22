@@ -1,0 +1,1922 @@
+{
+  "libretrodroid": "0ebd299624bfd51a0a1336dd0a2c56fe7ddbc0e3",
+  "oboe": "b15f5e39c01a7ada306d959e5129620b145fb8b4",
+  "libretroCommon": "b0c348ea5543c4d7fb0bc479258aa6988b20c0c9",
+  "files": [
+    {
+      "path": "src/main/AndroidManifest.xml",
+      "upstreamSha256": "4cbf905fe9cce0de39dbaf24d5a53d04d5fce7eec5978144b8c01382f5f723c5",
+      "vendoredSha256": "3e2936bfa3896b5ab11351fb3136c64a736220e5695bd949a864a25ab22dea50"
+    },
+    {
+      "path": "src/main/cpp/CMakeLists.txt",
+      "upstreamSha256": "1b71e90039525290c809ab6436bff5407630ad043a0517a77683410735b62c18",
+      "vendoredSha256": "1b71e90039525290c809ab6436bff5407630ad043a0517a77683410735b62c18"
+    },
+    {
+      "path": "src/main/cpp/audio.cpp",
+      "upstreamSha256": "4ab232b013f59fa3d431cca267778dee34e758977c905a17e73199d073f61c40",
+      "vendoredSha256": "4ab232b013f59fa3d431cca267778dee34e758977c905a17e73199d073f61c40"
+    },
+    {
+      "path": "src/main/cpp/audio.h",
+      "upstreamSha256": "8e6309e0bda4bc6e5661fd9e7a8c47b5ccb05f4aea4bbfb2c74fb0ebaa7d69b7",
+      "vendoredSha256": "8e6309e0bda4bc6e5661fd9e7a8c47b5ccb05f4aea4bbfb2c74fb0ebaa7d69b7"
+    },
+    {
+      "path": "src/main/cpp/core.cpp",
+      "upstreamSha256": "b5315426908e2315cb8a9eea121e0492e1c889c99a45d68591b02e0ac0303c30",
+      "vendoredSha256": "ad6c038d9ee432bef865dd7bd03851206cc03456129dcf08f95914ddfadf784b"
+    },
+    {
+      "path": "src/main/cpp/core.h",
+      "upstreamSha256": "afb18cceb164eb8052cc57776a520394edb6338ae553f49a398d54e876357707",
+      "vendoredSha256": "40e86811eb44777d50c81e2ec7bb2af729d04977e73347437e29f570f276233c"
+    },
+    {
+      "path": "src/main/cpp/environment.cpp",
+      "upstreamSha256": "3ed58748cd391168c492ea61d5b0b071df11bb701e3b7383070a47f18e987f6a",
+      "vendoredSha256": "f14bebeaaadea0557545219defa6d039ded5970820776681978ed6ac00605777"
+    },
+    {
+      "path": "src/main/cpp/environment.h",
+      "upstreamSha256": "b56204ba8b9c153918414ae9b65de32c9088e5d1305d1940c07f35fd4ebf382e",
+      "vendoredSha256": "e419e09098a4e8d90699c658cda0ce36cd9e6756a7e6b687d0194f211961c13e"
+    },
+    {
+      "path": "src/main/cpp/errorcodes.cpp",
+      "upstreamSha256": "e94c4ac620414a96e4aa1f6ec4d55d0931810dd2dc86876063a1852bb42d0e55",
+      "vendoredSha256": "e94c4ac620414a96e4aa1f6ec4d55d0931810dd2dc86876063a1852bb42d0e55"
+    },
+    {
+      "path": "src/main/cpp/errorcodes.h",
+      "upstreamSha256": "36a366737c35a5b5ff33bf5954c21c9a09fd5d7af94b7912cb10915a55318340",
+      "vendoredSha256": "36a366737c35a5b5ff33bf5954c21c9a09fd5d7af94b7912cb10915a55318340"
+    },
+    {
+      "path": "src/main/cpp/fpssync.cpp",
+      "upstreamSha256": "b3649841f6fa99068d0862fcd70204339ac8de7c9542a105b081cb5ec18fe24d",
+      "vendoredSha256": "b3649841f6fa99068d0862fcd70204339ac8de7c9542a105b081cb5ec18fe24d"
+    },
+    {
+      "path": "src/main/cpp/fpssync.h",
+      "upstreamSha256": "8f14679902af5c4a914090c89d9fd67563079f53f7deff69b2dc0bd6ea6f01e8",
+      "vendoredSha256": "8f14679902af5c4a914090c89d9fd67563079f53f7deff69b2dc0bd6ea6f01e8"
+    },
+    {
+      "path": "src/main/cpp/immersivemode.cpp",
+      "upstreamSha256": "b9e94e9ebcd73b867c463dc92d6ad6a11d13e4518eeeda5e778b620ff19c1526",
+      "vendoredSha256": "b9e94e9ebcd73b867c463dc92d6ad6a11d13e4518eeeda5e778b620ff19c1526"
+    },
+    {
+      "path": "src/main/cpp/immersivemode.h",
+      "upstreamSha256": "70e5864217c188b04ad96a8813976fe3b31b7d97e6369f86cbd5491d0a870e68",
+      "vendoredSha256": "70e5864217c188b04ad96a8813976fe3b31b7d97e6369f86cbd5491d0a870e68"
+    },
+    {
+      "path": "src/main/cpp/input.cpp",
+      "upstreamSha256": "7492701c76e6023171ed3a0c8dada2a7357212aa28c36f4462c468e84e401237",
+      "vendoredSha256": "7492701c76e6023171ed3a0c8dada2a7357212aa28c36f4462c468e84e401237"
+    },
+    {
+      "path": "src/main/cpp/input.h",
+      "upstreamSha256": "10ee9de56598351e390ec02313c9ccb2864faa38f31ea5f20a40a3bc4f83aed8",
+      "vendoredSha256": "10ee9de56598351e390ec02313c9ccb2864faa38f31ea5f20a40a3bc4f83aed8"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/encodings/encoding_utf.c",
+      "upstreamSha256": "f3cbcd2245801dd90e75bf46b30d9f97ca7b7f07a564d7e985b127f09ecab5cd",
+      "vendoredSha256": "f3cbcd2245801dd90e75bf46b30d9f97ca7b7f07a564d7e985b127f09ecab5cd"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/file/file_path.c",
+      "upstreamSha256": "c9133a8b6f5fa06da83b0129621452b467ac6648603d300e609a7a557d97ae91",
+      "vendoredSha256": "c9133a8b6f5fa06da83b0129621452b467ac6648603d300e609a7a557d97ae91"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/array/rbuf.h",
+      "upstreamSha256": "fb77a889b8a040abafcf6df914153131b301fa6dae2797344c9d0124661e9b89",
+      "vendoredSha256": "fb77a889b8a040abafcf6df914153131b301fa6dae2797344c9d0124661e9b89"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/array/rhmap.h",
+      "upstreamSha256": "61a73aba11e9daead6d86d1c25dec3ed09991340f5fdf3cdbd5089469233b68a",
+      "vendoredSha256": "61a73aba11e9daead6d86d1c25dec3ed09991340f5fdf3cdbd5089469233b68a"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/audio/audio_mix.h",
+      "upstreamSha256": "e682f96504565bbc7964812bee80584624efaef7bd39c2f0bad1555578ac627a",
+      "vendoredSha256": "e682f96504565bbc7964812bee80584624efaef7bd39c2f0bad1555578ac627a"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/audio/audio_mixer.h",
+      "upstreamSha256": "924b46938582461bb7af943517c0ec5f91e73d2562bcdb2a3f221d6a6f1d5b7b",
+      "vendoredSha256": "924b46938582461bb7af943517c0ec5f91e73d2562bcdb2a3f221d6a6f1d5b7b"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/audio/audio_resampler.h",
+      "upstreamSha256": "7cad097d22f5ac73abdf55aa6a3148e30c5a83283e3d5562209a083b8447fb70",
+      "vendoredSha256": "7cad097d22f5ac73abdf55aa6a3148e30c5a83283e3d5562209a083b8447fb70"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/audio/conversion/dual_mono.h",
+      "upstreamSha256": "8581bf2b144f77c265535aab25f101a9a6de4bdb09cf7f37c3dedbdb19b2bd3c",
+      "vendoredSha256": "8581bf2b144f77c265535aab25f101a9a6de4bdb09cf7f37c3dedbdb19b2bd3c"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/audio/conversion/float_to_s16.h",
+      "upstreamSha256": "ed48ab2726224f300b3e276cc98fba4e7fa6e7afbf16b66847e3f5aa44e9efb8",
+      "vendoredSha256": "ed48ab2726224f300b3e276cc98fba4e7fa6e7afbf16b66847e3f5aa44e9efb8"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/audio/conversion/s16_to_float.h",
+      "upstreamSha256": "60f36b42a9b0e90915bb11f8761d97055c0eb736b30bcdb6a6146a6956d40907",
+      "vendoredSha256": "60f36b42a9b0e90915bb11f8761d97055c0eb736b30bcdb6a6146a6956d40907"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/audio/dsp_filter.h",
+      "upstreamSha256": "cf157072a9d4cce431dc487368b3e0e126d076b2925664ab443ce3832b506c92",
+      "vendoredSha256": "cf157072a9d4cce431dc487368b3e0e126d076b2925664ab443ce3832b506c92"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/boolean.h",
+      "upstreamSha256": "9ae2871b702c3c7d89b5e0e40de28895e72bd0177e1d6da32cde6f59e46bb36e",
+      "vendoredSha256": "9ae2871b702c3c7d89b5e0e40de28895e72bd0177e1d6da32cde6f59e46bb36e"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/cdrom/cdrom.h",
+      "upstreamSha256": "5c1884ab0a6823d01ca5adab9427dfacaf7326b2559e46c16609ab7a79de85f8",
+      "vendoredSha256": "5c1884ab0a6823d01ca5adab9427dfacaf7326b2559e46c16609ab7a79de85f8"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/clamping.h",
+      "upstreamSha256": "5a23f8805a7c85168842871412919ac38e753fbc9f26f7ce1706e1a8c4e09aa6",
+      "vendoredSha256": "5a23f8805a7c85168842871412919ac38e753fbc9f26f7ce1706e1a8c4e09aa6"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/compat/apple_compat.h",
+      "upstreamSha256": "964743f2a9eeb90c455af18d0c7e963a68d101dfee72bb588be3d79e4aa6c237",
+      "vendoredSha256": "964743f2a9eeb90c455af18d0c7e963a68d101dfee72bb588be3d79e4aa6c237"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/compat/fnmatch.h",
+      "upstreamSha256": "1aff35326c9a1026a52aec7d1b201cb3a59a7779174f1937a75ca382f3ab59b4",
+      "vendoredSha256": "1aff35326c9a1026a52aec7d1b201cb3a59a7779174f1937a75ca382f3ab59b4"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/compat/fopen_utf8.h",
+      "upstreamSha256": "c452f1cc0c33d9476b32a3a35ca72fbd4b447b3764b3da0ed7b27815c522b28a",
+      "vendoredSha256": "c452f1cc0c33d9476b32a3a35ca72fbd4b447b3764b3da0ed7b27815c522b28a"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/compat/getopt.h",
+      "upstreamSha256": "f852d1f8845bdc525de5974b465f68e52c0d0aa3e00834e8470f23dbbddbe95c",
+      "vendoredSha256": "f852d1f8845bdc525de5974b465f68e52c0d0aa3e00834e8470f23dbbddbe95c"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/compat/ifaddrs.h",
+      "upstreamSha256": "d59285645efec71a7c7c53559652c689e0b398a4da148d7db45c71829655b170",
+      "vendoredSha256": "d59285645efec71a7c7c53559652c689e0b398a4da148d7db45c71829655b170"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/compat/intrinsics.h",
+      "upstreamSha256": "580bb380cff2e63b96b424921566ba7226079db6116f1902a2e68af6256bc418",
+      "vendoredSha256": "580bb380cff2e63b96b424921566ba7226079db6116f1902a2e68af6256bc418"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/compat/msvc/stdint.h",
+      "upstreamSha256": "5d5bd08fd56d572446ba34fdf05dac0d66f13f0f3945dd66199ea200dc06736f",
+      "vendoredSha256": "5d5bd08fd56d572446ba34fdf05dac0d66f13f0f3945dd66199ea200dc06736f"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/compat/msvc.h",
+      "upstreamSha256": "94f9fae7c9d507a9b4a88ffb8236279ca0fecd6933164b7e77a071010b1170c8",
+      "vendoredSha256": "94f9fae7c9d507a9b4a88ffb8236279ca0fecd6933164b7e77a071010b1170c8"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/compat/posix_string.h",
+      "upstreamSha256": "9e50ba653d0a72598c1b32bf90eddc113dedfe0ef660cd18284d435c461dabd3",
+      "vendoredSha256": "9e50ba653d0a72598c1b32bf90eddc113dedfe0ef660cd18284d435c461dabd3"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/compat/strcasestr.h",
+      "upstreamSha256": "9f866c7cf5c72965497ae2f721040109211f90271ea3e2a6e7a44de8e757a728",
+      "vendoredSha256": "9f866c7cf5c72965497ae2f721040109211f90271ea3e2a6e7a44de8e757a728"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/compat/strl.h",
+      "upstreamSha256": "e4ed9641ccb973442e5f521ebd7ee58a5a4474b28b91870406aca6e5e7dae9d5",
+      "vendoredSha256": "e4ed9641ccb973442e5f521ebd7ee58a5a4474b28b91870406aca6e5e7dae9d5"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/compat/zconf.h",
+      "upstreamSha256": "c11a7b89a749c4f3a9aaadb4fbde83002800d9c63b17813b5e26d293b7955d19",
+      "vendoredSha256": "c11a7b89a749c4f3a9aaadb4fbde83002800d9c63b17813b5e26d293b7955d19"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/compat/zconf.h.in",
+      "upstreamSha256": "c11a7b89a749c4f3a9aaadb4fbde83002800d9c63b17813b5e26d293b7955d19",
+      "vendoredSha256": "c11a7b89a749c4f3a9aaadb4fbde83002800d9c63b17813b5e26d293b7955d19"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/compat/zlib/zconf.h",
+      "upstreamSha256": "c11a7b89a749c4f3a9aaadb4fbde83002800d9c63b17813b5e26d293b7955d19",
+      "vendoredSha256": "c11a7b89a749c4f3a9aaadb4fbde83002800d9c63b17813b5e26d293b7955d19"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/compat/zlib/zconf.h.in",
+      "upstreamSha256": "c11a7b89a749c4f3a9aaadb4fbde83002800d9c63b17813b5e26d293b7955d19",
+      "vendoredSha256": "c11a7b89a749c4f3a9aaadb4fbde83002800d9c63b17813b5e26d293b7955d19"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/compat/zlib/zlib.h",
+      "upstreamSha256": "9ce011950583450d1323953f2c4cb04122fbc74168bd14ed20cc3c279ec55003",
+      "vendoredSha256": "9ce011950583450d1323953f2c4cb04122fbc74168bd14ed20cc3c279ec55003"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/compat/zlib/zutil.h",
+      "upstreamSha256": "95b06a60e39c7dc4e32b8bd84fa22c2c00668534e01696955f089d11a0246e55",
+      "vendoredSha256": "95b06a60e39c7dc4e32b8bd84fa22c2c00668534e01696955f089d11a0246e55"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/compat/zlib.h",
+      "upstreamSha256": "99241ed0db123feb87238f0fbab374bffd3fa5c6d4858c251a082987e065f9e4",
+      "vendoredSha256": "99241ed0db123feb87238f0fbab374bffd3fa5c6d4858c251a082987e065f9e4"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/compat/zutil.h",
+      "upstreamSha256": "d43a34777612ed1ab7c63fe1c759b4b4105ce4ce52fdb69dbce68ecf0f562c7b",
+      "vendoredSha256": "d43a34777612ed1ab7c63fe1c759b4b4105ce4ce52fdb69dbce68ecf0f562c7b"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/defines/cocoa_defines.h",
+      "upstreamSha256": "53de857ba20364298378800f8d4a4ba1324398b348cd4c84bca326ceccaea59c",
+      "vendoredSha256": "53de857ba20364298378800f8d4a4ba1324398b348cd4c84bca326ceccaea59c"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/defines/d3d_defines.h",
+      "upstreamSha256": "9e56742f69746a18b405eb5ecba59ed68ba30adb9054d17c0e2828dc18cb491c",
+      "vendoredSha256": "9e56742f69746a18b405eb5ecba59ed68ba30adb9054d17c0e2828dc18cb491c"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/defines/gx_defines.h",
+      "upstreamSha256": "e17c786ad1edd28a90b51212f0da650c9401d94b31d13857760b86a36680007e",
+      "vendoredSha256": "e17c786ad1edd28a90b51212f0da650c9401d94b31d13857760b86a36680007e"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/defines/ps3_defines.h",
+      "upstreamSha256": "800728ad646733de0af98b58bfcd9c9fe65a784f8bd58c361389ef151abc3226",
+      "vendoredSha256": "800728ad646733de0af98b58bfcd9c9fe65a784f8bd58c361389ef151abc3226"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/defines/ps4_defines.h",
+      "upstreamSha256": "70cd0decc06befde979c10b6b7e7ef63b2da8bff9a3b9cea02c9e588aab3e17a",
+      "vendoredSha256": "70cd0decc06befde979c10b6b7e7ef63b2da8bff9a3b9cea02c9e588aab3e17a"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/defines/psp_defines.h",
+      "upstreamSha256": "988c0f02413b9616eb38df4560bf677d052f494d000db9701c28abeae0ca2df1",
+      "vendoredSha256": "988c0f02413b9616eb38df4560bf677d052f494d000db9701c28abeae0ca2df1"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/dynamic/dylib.h",
+      "upstreamSha256": "85c5cb67d7ed28ca48d356ae91afda34ffb5fdb64ec40a5e0a5ff65dd81abe2a",
+      "vendoredSha256": "85c5cb67d7ed28ca48d356ae91afda34ffb5fdb64ec40a5e0a5ff65dd81abe2a"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/encodings/base64.h",
+      "upstreamSha256": "367bd9588d13326355edddbc9b953e1934bf45424daebe222921dcab8796530a",
+      "vendoredSha256": "367bd9588d13326355edddbc9b953e1934bf45424daebe222921dcab8796530a"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/encodings/crc32.h",
+      "upstreamSha256": "37ab5211ea52fc8642998bee28f70cb23d1b12c1e23b66c5838d1a74f229cb91",
+      "vendoredSha256": "37ab5211ea52fc8642998bee28f70cb23d1b12c1e23b66c5838d1a74f229cb91"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/encodings/utf.h",
+      "upstreamSha256": "16aaf2b941ee26797c68126e4920a37fcff8f76d7baf0f24a0c9c13dd99da326",
+      "vendoredSha256": "16aaf2b941ee26797c68126e4920a37fcff8f76d7baf0f24a0c9c13dd99da326"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/encodings/win32.h",
+      "upstreamSha256": "01630725b7171305a2088f1f4bb560c802e1baa45c55b50a1d846b6948ca6799",
+      "vendoredSha256": "01630725b7171305a2088f1f4bb560c802e1baa45c55b50a1d846b6948ca6799"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/fastcpy.h",
+      "upstreamSha256": "5da9f12678f14d53b8d0958b5d1c4699bd8284ed451f6a0535c6e4b3b72a1d1d",
+      "vendoredSha256": "5da9f12678f14d53b8d0958b5d1c4699bd8284ed451f6a0535c6e4b3b72a1d1d"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/features/features_cpu.h",
+      "upstreamSha256": "9194f28b51c79b5ea8d7a0300d5df60417a12063372a5e5d9d2e1ef041c90901",
+      "vendoredSha256": "9194f28b51c79b5ea8d7a0300d5df60417a12063372a5e5d9d2e1ef041c90901"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/file/archive_file.h",
+      "upstreamSha256": "5e8b7e778b93b8256ecf08de5653dc3fa66f144f5b97177644d22d7b17d1824f",
+      "vendoredSha256": "5e8b7e778b93b8256ecf08de5653dc3fa66f144f5b97177644d22d7b17d1824f"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/file/config_file.h",
+      "upstreamSha256": "fad371f1402f994fd53a54261a263463aad6306c8e2cfc70403fad43546aa452",
+      "vendoredSha256": "fad371f1402f994fd53a54261a263463aad6306c8e2cfc70403fad43546aa452"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/file/config_file_userdata.h",
+      "upstreamSha256": "7efdc676500f5dd97ce8e6c6264460e06037c0b109b03129eb129b30df2babda",
+      "vendoredSha256": "7efdc676500f5dd97ce8e6c6264460e06037c0b109b03129eb129b30df2babda"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/file/file_path.h",
+      "upstreamSha256": "f1e43da47ab8cda8c3e3415b213f05e2e7410c56bd4813f8f72bdd0bbcb864da",
+      "vendoredSha256": "f1e43da47ab8cda8c3e3415b213f05e2e7410c56bd4813f8f72bdd0bbcb864da"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/file/nbio.h",
+      "upstreamSha256": "d2209f7b13f3c4d5afa7535668dfaeb0bb538543a2d41ecbd07a1cd0a47eb231",
+      "vendoredSha256": "d2209f7b13f3c4d5afa7535668dfaeb0bb538543a2d41ecbd07a1cd0a47eb231"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/filters.h",
+      "upstreamSha256": "77076de21893af6241c2e15cbe5697c9c29477ccd797eb0416df18c2d812d28c",
+      "vendoredSha256": "77076de21893af6241c2e15cbe5697c9c29477ccd797eb0416df18c2d812d28c"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/formats/cdfs.h",
+      "upstreamSha256": "fe711c72fd3a26f15aafc00fe2bb73425a10131b2bbad783d62f50db4672ec5f",
+      "vendoredSha256": "fe711c72fd3a26f15aafc00fe2bb73425a10131b2bbad783d62f50db4672ec5f"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/formats/image.h",
+      "upstreamSha256": "cf9fb6791b9a549e322d8efb33f74c702285da364ecca9a3e9e980291b2217de",
+      "vendoredSha256": "cf9fb6791b9a549e322d8efb33f74c702285da364ecca9a3e9e980291b2217de"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/formats/logiqx_dat.h",
+      "upstreamSha256": "e750d1d704b9603256b7aab3bb436f218ffb9a0eacf69068eb0b16662f24df2d",
+      "vendoredSha256": "e750d1d704b9603256b7aab3bb436f218ffb9a0eacf69068eb0b16662f24df2d"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/formats/m3u_file.h",
+      "upstreamSha256": "e7eff229e945ec343da994175bc2c660f7cf987922889ca03d725cbcbbf9cd35",
+      "vendoredSha256": "e7eff229e945ec343da994175bc2c660f7cf987922889ca03d725cbcbbf9cd35"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/formats/rbmp.h",
+      "upstreamSha256": "9642d2bef8ea9cd5fbae364f28d55e46e87b27ae3fcac5b378329ec77a5518d3",
+      "vendoredSha256": "9642d2bef8ea9cd5fbae364f28d55e46e87b27ae3fcac5b378329ec77a5518d3"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/formats/rjpeg.h",
+      "upstreamSha256": "a5febe991a769171fe9ab17e2db92d6852f02e86899ffd294c27960bc9a031d5",
+      "vendoredSha256": "a5febe991a769171fe9ab17e2db92d6852f02e86899ffd294c27960bc9a031d5"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/formats/rjson.h",
+      "upstreamSha256": "57cf9025bd215177e67ca6f8d9f4a1b371bc059763bfcd8b6f7f1eefdd47850e",
+      "vendoredSha256": "57cf9025bd215177e67ca6f8d9f4a1b371bc059763bfcd8b6f7f1eefdd47850e"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/formats/rjson_helpers.h",
+      "upstreamSha256": "a110e66db2482696ca11fa8e28ef7e164107fd8bc69960fe84a7231fd725b9e6",
+      "vendoredSha256": "a110e66db2482696ca11fa8e28ef7e164107fd8bc69960fe84a7231fd725b9e6"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/formats/rpng.h",
+      "upstreamSha256": "c465db2994781a5b34b727fa1adfdfb96233e4ccfa682b1655669a43091cbd11",
+      "vendoredSha256": "c465db2994781a5b34b727fa1adfdfb96233e4ccfa682b1655669a43091cbd11"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/formats/rtga.h",
+      "upstreamSha256": "1e95496a0f7d25b8a746347df47f92535bb026e1fbc0410c559a5df51e31358c",
+      "vendoredSha256": "1e95496a0f7d25b8a746347df47f92535bb026e1fbc0410c559a5df51e31358c"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/formats/rwav.h",
+      "upstreamSha256": "d44d2a78aa45c72d8c5eabde5ab5b122a972de6ba396bddbf2fd9f84333f3f55",
+      "vendoredSha256": "d44d2a78aa45c72d8c5eabde5ab5b122a972de6ba396bddbf2fd9f84333f3f55"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/formats/rxml.h",
+      "upstreamSha256": "a478f6059df62fcead0e9b8a7dcf5afb373f5566eda05409e7fd20b25759214b",
+      "vendoredSha256": "a478f6059df62fcead0e9b8a7dcf5afb373f5566eda05409e7fd20b25759214b"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/gfx/gl_capabilities.h",
+      "upstreamSha256": "408d2e745c35956365805067d1f2dd5e8e8dbba4bce9e61400c9e2784c671caf",
+      "vendoredSha256": "408d2e745c35956365805067d1f2dd5e8e8dbba4bce9e61400c9e2784c671caf"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/gfx/math/matrix_3x3.h",
+      "upstreamSha256": "456a62f2cd446a0b03532ac115d7d75875e1770ddd342c48b7cfc9fa7582810c",
+      "vendoredSha256": "456a62f2cd446a0b03532ac115d7d75875e1770ddd342c48b7cfc9fa7582810c"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/gfx/math/matrix_4x4.h",
+      "upstreamSha256": "72c601d9207a8aa6a4d0a7f80f4ec16a7da2ba56e9fe7a2c6e0cb81c19e951b6",
+      "vendoredSha256": "72c601d9207a8aa6a4d0a7f80f4ec16a7da2ba56e9fe7a2c6e0cb81c19e951b6"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/gfx/math/vector_2.h",
+      "upstreamSha256": "4ff5565e2aa54df234cd799631518e54a53576dd6d1935e3dcce615547a46fc0",
+      "vendoredSha256": "4ff5565e2aa54df234cd799631518e54a53576dd6d1935e3dcce615547a46fc0"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/gfx/math/vector_3.h",
+      "upstreamSha256": "cb107f56df5d55695e55b4cec27b1f3d1bded4e76eead658440d4f1d6a5dde6c",
+      "vendoredSha256": "cb107f56df5d55695e55b4cec27b1f3d1bded4e76eead658440d4f1d6a5dde6c"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/gfx/math/vector_4.h",
+      "upstreamSha256": "99f28ee1327057c1e2b3743a0d677adf2e77fade03d932c53cae64112220b519",
+      "vendoredSha256": "99f28ee1327057c1e2b3743a0d677adf2e77fade03d932c53cae64112220b519"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/gfx/scaler/filter.h",
+      "upstreamSha256": "441466ff0838d93f3816d7fb6a7a571366c3ea14f781d86ad63ac59e761f7edd",
+      "vendoredSha256": "441466ff0838d93f3816d7fb6a7a571366c3ea14f781d86ad63ac59e761f7edd"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/gfx/scaler/pixconv.h",
+      "upstreamSha256": "758853bbea51e5ef3965340eff519d63061923444e73e7c182fc0e4121df8018",
+      "vendoredSha256": "758853bbea51e5ef3965340eff519d63061923444e73e7c182fc0e4121df8018"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/gfx/scaler/scaler.h",
+      "upstreamSha256": "1fa779842103a467ab6feb69c539480b6305c673b410a7239ad2e88f635ad456",
+      "vendoredSha256": "1fa779842103a467ab6feb69c539480b6305c673b410a7239ad2e88f635ad456"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/gfx/scaler/scaler_int.h",
+      "upstreamSha256": "41dc1c3247552e46eb6031ef544ba676637566cdaaaa50c7098a1095e03bd18b",
+      "vendoredSha256": "41dc1c3247552e46eb6031ef544ba676637566cdaaaa50c7098a1095e03bd18b"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/gfx/video_frame.h",
+      "upstreamSha256": "0f0a808982fb7112dcccec9161c668d1c60ebb59fe2531ca0db6d584a6f73d8d",
+      "vendoredSha256": "0f0a808982fb7112dcccec9161c668d1c60ebb59fe2531ca0db6d584a6f73d8d"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/glsm/glsm.h",
+      "upstreamSha256": "dede557ce20f142bda5fbd86a62fd040294183ecc6871604222f0d4a251972ce",
+      "vendoredSha256": "dede557ce20f142bda5fbd86a62fd040294183ecc6871604222f0d4a251972ce"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/glsm/glsmsym.h",
+      "upstreamSha256": "20ae5bf9ddaa7c613b234bf1445083744d225cfd4bed419a3640019b499d5958",
+      "vendoredSha256": "20ae5bf9ddaa7c613b234bf1445083744d225cfd4bed419a3640019b499d5958"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/glsym/glsym.h",
+      "upstreamSha256": "dc7c8afe450910cba90c1adee2c7829ac1ba5d8a2f2fee9688050683b1b2bc58",
+      "vendoredSha256": "dc7c8afe450910cba90c1adee2c7829ac1ba5d8a2f2fee9688050683b1b2bc58"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/glsym/glsym_es2.h",
+      "upstreamSha256": "b7d28a6468073a0e01c7f77a16584aada5cd6a5eed236b4aa20fda78bfdb92e3",
+      "vendoredSha256": "b7d28a6468073a0e01c7f77a16584aada5cd6a5eed236b4aa20fda78bfdb92e3"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/glsym/glsym_es3.h",
+      "upstreamSha256": "1c5578bfb452d97e48146ebfa675e1ff25da6a5fe789f47bdb87e37269043573",
+      "vendoredSha256": "1c5578bfb452d97e48146ebfa675e1ff25da6a5fe789f47bdb87e37269043573"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/glsym/glsym_gl.h",
+      "upstreamSha256": "a6cd5adff94ff59b2a9a7d3241e7cde2b93a4231d056fe9b1a8bdfcac09e4998",
+      "vendoredSha256": "a6cd5adff94ff59b2a9a7d3241e7cde2b93a4231d056fe9b1a8bdfcac09e4998"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/glsym/rglgen.h",
+      "upstreamSha256": "707f4754657550bd785be4597be453aeff5d591ff6300174881edb7df7a677bf",
+      "vendoredSha256": "707f4754657550bd785be4597be453aeff5d591ff6300174881edb7df7a677bf"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/glsym/rglgen_headers.h",
+      "upstreamSha256": "d2a57fb83be524407b34c7fa378b2268832c82525ed112c1bb43c6e7b08e103d",
+      "vendoredSha256": "d2a57fb83be524407b34c7fa378b2268832c82525ed112c1bb43c6e7b08e103d"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/glsym/rglgen_private_headers.h",
+      "upstreamSha256": "729dfaad3c1ce87f552c329fef8838065d3002e797b1f7ac3eea18c29d8cfaec",
+      "vendoredSha256": "729dfaad3c1ce87f552c329fef8838065d3002e797b1f7ac3eea18c29d8cfaec"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/glsym/switch/nx_gl.h",
+      "upstreamSha256": "6489584d16aebc52583ff2f4af994d31f890a1fe5944aa8bb6bd7f021141786f",
+      "vendoredSha256": "6489584d16aebc52583ff2f4af994d31f890a1fe5944aa8bb6bd7f021141786f"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/glsym/switch/nx_glsym.h",
+      "upstreamSha256": "0efffbdcd9679b76652823ab8858d62c91169776b2164a5736b77e28e43abddd",
+      "vendoredSha256": "0efffbdcd9679b76652823ab8858d62c91169776b2164a5736b77e28e43abddd"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/libchdr/bitstream.h",
+      "upstreamSha256": "0087e719e47e1edc70f9448b61bab3ba785566732e2ee22068f8c36c22399452",
+      "vendoredSha256": "0087e719e47e1edc70f9448b61bab3ba785566732e2ee22068f8c36c22399452"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/libchdr/cdrom.h",
+      "upstreamSha256": "fc2901ec96ec8282285881e552cc47d4e1568702934e261c1e62f1825915c221",
+      "vendoredSha256": "fc2901ec96ec8282285881e552cc47d4e1568702934e261c1e62f1825915c221"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/libchdr/chd.h",
+      "upstreamSha256": "be04ea1da7a89cd5206b11a0fb94f911bd1073a36448f34e143b2f69af57729c",
+      "vendoredSha256": "be04ea1da7a89cd5206b11a0fb94f911bd1073a36448f34e143b2f69af57729c"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/libchdr/coretypes.h",
+      "upstreamSha256": "4b405f9be61e08f13f724b7617b456daf1f883d5a2be1158d65fbd33a5d3249d",
+      "vendoredSha256": "4b405f9be61e08f13f724b7617b456daf1f883d5a2be1158d65fbd33a5d3249d"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/libchdr/flac.h",
+      "upstreamSha256": "7a6f8f2d8beddafedb601e5d08679bdd38abfc6689bf9b96fc6702c52014d13c",
+      "vendoredSha256": "7a6f8f2d8beddafedb601e5d08679bdd38abfc6689bf9b96fc6702c52014d13c"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/libchdr/huffman.h",
+      "upstreamSha256": "691998b30fb419b794c8816f5941045ae1c680250fdf2d94ca0cf444b6f1d99b",
+      "vendoredSha256": "691998b30fb419b794c8816f5941045ae1c680250fdf2d94ca0cf444b6f1d99b"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/libchdr/libchdr_zlib.h",
+      "upstreamSha256": "c699cb74efe0fa6b7a01c0ad9350f3e3998cf0d12ed8568ecbebbd587f62d781",
+      "vendoredSha256": "c699cb74efe0fa6b7a01c0ad9350f3e3998cf0d12ed8568ecbebbd587f62d781"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/libchdr/lzma.h",
+      "upstreamSha256": "95856079bc096e352540d04dbec2396335fb080b99bfcc564a37604444de54a1",
+      "vendoredSha256": "95856079bc096e352540d04dbec2396335fb080b99bfcc564a37604444de54a1"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/libchdr/minmax.h",
+      "upstreamSha256": "8f3b486c7e0cba798f6a1d4aab1038a8b6026748d9444ce0db9bce459ec0d44b",
+      "vendoredSha256": "8f3b486c7e0cba798f6a1d4aab1038a8b6026748d9444ce0db9bce459ec0d44b"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/libco.h",
+      "upstreamSha256": "b81daa332456adee08b67eca20c9dbef8c06112c5e61d7dc7e3042f7fa688f0c",
+      "vendoredSha256": "b81daa332456adee08b67eca20c9dbef8c06112c5e61d7dc7e3042f7fa688f0c"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/libretro.h",
+      "upstreamSha256": "4cdfd5817418f366502d91a8bdcb5d7260a22d1a2e2456a213cc54a0eb3c3a68",
+      "vendoredSha256": "4cdfd5817418f366502d91a8bdcb5d7260a22d1a2e2456a213cc54a0eb3c3a68"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/libretro_d3d.h",
+      "upstreamSha256": "bc19d50ae9477bed178f111b361525837a62110e1ddb884f7184809ecfcfbf98",
+      "vendoredSha256": "bc19d50ae9477bed178f111b361525837a62110e1ddb884f7184809ecfcfbf98"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/libretro_dspfilter.h",
+      "upstreamSha256": "d278ef18be73779a7da36ce4289e47b2d9f6e88bad521b8d89955a70f1680d56",
+      "vendoredSha256": "d278ef18be73779a7da36ce4289e47b2d9f6e88bad521b8d89955a70f1680d56"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/libretro_gskit_ps2.h",
+      "upstreamSha256": "f033776da71d3100cb7c27f13966dcd23098ac7b4fb0d5cfc8afbcdbd89df93e",
+      "vendoredSha256": "f033776da71d3100cb7c27f13966dcd23098ac7b4fb0d5cfc8afbcdbd89df93e"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/libretro_vulkan.h",
+      "upstreamSha256": "0f55a7c4416f1c05df939aaeba402fdd00f09f7e3df95878901641835cec0904",
+      "vendoredSha256": "0f55a7c4416f1c05df939aaeba402fdd00f09f7e3df95878901641835cec0904"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/lists/dir_list.h",
+      "upstreamSha256": "8c224e0ed3bac6b880a9e4b2cb4b32490bc1f6ceb15a6920ff7d511773df00f4",
+      "vendoredSha256": "8c224e0ed3bac6b880a9e4b2cb4b32490bc1f6ceb15a6920ff7d511773df00f4"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/lists/file_list.h",
+      "upstreamSha256": "c67a1864f5a1350f224af1b317e6210d929d12bdb64b42475539d380b6480181",
+      "vendoredSha256": "c67a1864f5a1350f224af1b317e6210d929d12bdb64b42475539d380b6480181"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/lists/linked_list.h",
+      "upstreamSha256": "a017d6de654645a4ca8ee27c906e37fcc8785ed2168a1c29766e25e11e03903b",
+      "vendoredSha256": "a017d6de654645a4ca8ee27c906e37fcc8785ed2168a1c29766e25e11e03903b"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/lists/nested_list.h",
+      "upstreamSha256": "d8927e1c47f17307020c512cd8fe9d9e85cea7065eda831a16ba6268fb0c0707",
+      "vendoredSha256": "d8927e1c47f17307020c512cd8fe9d9e85cea7065eda831a16ba6268fb0c0707"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/lists/string_list.h",
+      "upstreamSha256": "ca5e5508f2262d6ba446dd5f11db095728f5a680ba58ba841f9ca1b7ad97f1e7",
+      "vendoredSha256": "ca5e5508f2262d6ba446dd5f11db095728f5a680ba58ba841f9ca1b7ad97f1e7"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/lrc_hash.h",
+      "upstreamSha256": "0ab39946fb4c1d4048279513c9ebe8de47fe189378efee9c684428c2f3b8cae3",
+      "vendoredSha256": "0ab39946fb4c1d4048279513c9ebe8de47fe189378efee9c684428c2f3b8cae3"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/math/complex.h",
+      "upstreamSha256": "215612566cf556b9c254004de671dbb6ae99d86fbfb768a3a18009581eb17898",
+      "vendoredSha256": "215612566cf556b9c254004de671dbb6ae99d86fbfb768a3a18009581eb17898"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/math/float_minmax.h",
+      "upstreamSha256": "7193c1716960416faf96c8be5452551d562d0cb73f5ed774daa0cf25204a14b1",
+      "vendoredSha256": "7193c1716960416faf96c8be5452551d562d0cb73f5ed774daa0cf25204a14b1"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/math/fxp.h",
+      "upstreamSha256": "29d3d19d410d6c121143f05af088057dd6fbf39148b01cb4ed4fc053cfc1fbdb",
+      "vendoredSha256": "29d3d19d410d6c121143f05af088057dd6fbf39148b01cb4ed4fc053cfc1fbdb"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/media/media_detect_cd.h",
+      "upstreamSha256": "ff4c55a77b54babf14ea4355931fd14458eaa2bc6e96840f044343e464bc3455",
+      "vendoredSha256": "ff4c55a77b54babf14ea4355931fd14458eaa2bc6e96840f044343e464bc3455"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/memalign.h",
+      "upstreamSha256": "2cf21f44ed2f4bf5e92e983654c114b26d40d21acc96c521fb3cc7363da47ec6",
+      "vendoredSha256": "2cf21f44ed2f4bf5e92e983654c114b26d40d21acc96c521fb3cc7363da47ec6"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/memmap.h",
+      "upstreamSha256": "9a4aa08881542237ff47c1c0190bd191dcc7a8c441f409d80219f46073ea2df3",
+      "vendoredSha256": "9a4aa08881542237ff47c1c0190bd191dcc7a8c441f409d80219f46073ea2df3"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/net/net_compat.h",
+      "upstreamSha256": "647eff8999402b934a86620290c9b7830a02c30cc2ab8aa8ab9c4804877235e4",
+      "vendoredSha256": "647eff8999402b934a86620290c9b7830a02c30cc2ab8aa8ab9c4804877235e4"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/net/net_http.h",
+      "upstreamSha256": "0de97a451f41aa371a048d327eb3775073d268db0404100d1d48f37ac24da8a6",
+      "vendoredSha256": "0de97a451f41aa371a048d327eb3775073d268db0404100d1d48f37ac24da8a6"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/net/net_http_parse.h",
+      "upstreamSha256": "3d8c44646a0b0da9c8f3f80032551fafd32424e7805d568eb24cc0649ea0bf26",
+      "vendoredSha256": "3d8c44646a0b0da9c8f3f80032551fafd32424e7805d568eb24cc0649ea0bf26"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/net/net_ifinfo.h",
+      "upstreamSha256": "1167fcb034306337cc11ccce88178b1d385d30efc27dc1feae86b63bab80145b",
+      "vendoredSha256": "1167fcb034306337cc11ccce88178b1d385d30efc27dc1feae86b63bab80145b"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/net/net_socket.h",
+      "upstreamSha256": "0e320c53348de66ede2ebf9f8365d9b0598a3076cefce4739e4e8f8842dbda92",
+      "vendoredSha256": "0e320c53348de66ede2ebf9f8365d9b0598a3076cefce4739e4e8f8842dbda92"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/net/net_socket_ssl.h",
+      "upstreamSha256": "66ab60b0f17eb9880786bace6d8b35f7e241a90cc7d931b81abd62bafa5b9dbd",
+      "vendoredSha256": "66ab60b0f17eb9880786bace6d8b35f7e241a90cc7d931b81abd62bafa5b9dbd"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/playlists/label_sanitization.h",
+      "upstreamSha256": "21c39b6c90d8612b5fe3f453c497e39b48f1a8618682447332b8b07071a8a0a2",
+      "vendoredSha256": "21c39b6c90d8612b5fe3f453c497e39b48f1a8618682447332b8b07071a8a0a2"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/queues/fifo_queue.h",
+      "upstreamSha256": "cb9479ed274553bb70e483a620c780d992172ecb7971d0f60183f6d554839243",
+      "vendoredSha256": "cb9479ed274553bb70e483a620c780d992172ecb7971d0f60183f6d554839243"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/queues/generic_queue.h",
+      "upstreamSha256": "de6b8311a89faf32a945a67e59bd50b9eb0692bd146a32f6e73ca92c75186eed",
+      "vendoredSha256": "de6b8311a89faf32a945a67e59bd50b9eb0692bd146a32f6e73ca92c75186eed"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/queues/message_queue.h",
+      "upstreamSha256": "6407c4305c14b83de0d9fa9e447e9f6c4b0c9ea07c0c54a21d2fff9293abde5c",
+      "vendoredSha256": "6407c4305c14b83de0d9fa9e447e9f6c4b0c9ea07c0c54a21d2fff9293abde5c"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/queues/task_queue.h",
+      "upstreamSha256": "3a0c0acae0a8a164a75eb36112590547140264b594ad19c2c0638df345dd24d6",
+      "vendoredSha256": "3a0c0acae0a8a164a75eb36112590547140264b594ad19c2c0638df345dd24d6"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/retro_assert.h",
+      "upstreamSha256": "7d20fd476baf4e355f3f2dea4cc7130e44e9836388473adaa31ed8d0c39290a2",
+      "vendoredSha256": "7d20fd476baf4e355f3f2dea4cc7130e44e9836388473adaa31ed8d0c39290a2"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/retro_common.h",
+      "upstreamSha256": "11184277e2f32d5d862a1e56a6bc9909e52a292ecf3bea98e174516b5067aacb",
+      "vendoredSha256": "11184277e2f32d5d862a1e56a6bc9909e52a292ecf3bea98e174516b5067aacb"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/retro_common_api.h",
+      "upstreamSha256": "4963d063a6a8a945abdc16e8d0d7ebed006e66fc5424aaa09c88e87be5dd9dc9",
+      "vendoredSha256": "4963d063a6a8a945abdc16e8d0d7ebed006e66fc5424aaa09c88e87be5dd9dc9"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/retro_dirent.h",
+      "upstreamSha256": "2842c45bfeff682ee1c85c4feccb6a0d913591277e6ee5038011b81802480b64",
+      "vendoredSha256": "2842c45bfeff682ee1c85c4feccb6a0d913591277e6ee5038011b81802480b64"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/retro_endianness.h",
+      "upstreamSha256": "2145ca26e29b91b58c23c3789df93a6b0354496ea186777ae7ac5cb655815001",
+      "vendoredSha256": "2145ca26e29b91b58c23c3789df93a6b0354496ea186777ae7ac5cb655815001"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/retro_environment.h",
+      "upstreamSha256": "1ad60566c8356a12e51a52c542e85535bdd46baeaeae7c40460efac59e56a084",
+      "vendoredSha256": "1ad60566c8356a12e51a52c542e85535bdd46baeaeae7c40460efac59e56a084"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/retro_inline.h",
+      "upstreamSha256": "432f72c1efb8f71410feb915c96a188c9f41aff3818cefb745d8222bc31067b1",
+      "vendoredSha256": "432f72c1efb8f71410feb915c96a188c9f41aff3818cefb745d8222bc31067b1"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/retro_math.h",
+      "upstreamSha256": "31674fe8d8b48d0b23848e5e9730cc01dca13632934491e8e1991b9fc418927a",
+      "vendoredSha256": "31674fe8d8b48d0b23848e5e9730cc01dca13632934491e8e1991b9fc418927a"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/retro_miscellaneous.h",
+      "upstreamSha256": "b5353c56763788e1638536aec8c9acbb863ec978b47b405832fbff856fadf64e",
+      "vendoredSha256": "b5353c56763788e1638536aec8c9acbb863ec978b47b405832fbff856fadf64e"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/retro_stat.h",
+      "upstreamSha256": "a9b5546a09156706153df395f06d4f1b5758958bb13887e52c01161126f5b0f9",
+      "vendoredSha256": "a9b5546a09156706153df395f06d4f1b5758958bb13887e52c01161126f5b0f9"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/retro_timers.h",
+      "upstreamSha256": "0c11d71722609315d654fc3f0e8a680a58fa55b91cf01774b47d015155b6eb8c",
+      "vendoredSha256": "0c11d71722609315d654fc3f0e8a680a58fa55b91cf01774b47d015155b6eb8c"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/rthreads/async_job.h",
+      "upstreamSha256": "276a69bd4bd80a716b2c9cfde6c0fd7526c5f35243bae856934da685014447f6",
+      "vendoredSha256": "276a69bd4bd80a716b2c9cfde6c0fd7526c5f35243bae856934da685014447f6"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/rthreads/rthreads.h",
+      "upstreamSha256": "4fe53639071c822f6f513a1825d6e28cd917b7035c979ba0aed6c77816853c49",
+      "vendoredSha256": "4fe53639071c822f6f513a1825d6e28cd917b7035c979ba0aed6c77816853c49"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/rthreads/tpool.h",
+      "upstreamSha256": "d92c96e79bbb294ff835d098367b5cf90a72072fc54997266e891ee36fea20f3",
+      "vendoredSha256": "d92c96e79bbb294ff835d098367b5cf90a72072fc54997266e891ee36fea20f3"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/streams/chd_stream.h",
+      "upstreamSha256": "c256e64ea947bbbc867cfa6880f5c61d8c09a9acc82cb1abff2505f7c800ab22",
+      "vendoredSha256": "c256e64ea947bbbc867cfa6880f5c61d8c09a9acc82cb1abff2505f7c800ab22"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/streams/file_stream.h",
+      "upstreamSha256": "9314a608be9cddc61fdc3934ce1420996adbfbbc5100b9e837ff1e57978c0959",
+      "vendoredSha256": "9314a608be9cddc61fdc3934ce1420996adbfbbc5100b9e837ff1e57978c0959"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/streams/file_stream_transforms.h",
+      "upstreamSha256": "27edc6c4ad71e7a27a9c2a2e91cf156dbc5c4b167ad918aaaf706b444435647d",
+      "vendoredSha256": "27edc6c4ad71e7a27a9c2a2e91cf156dbc5c4b167ad918aaaf706b444435647d"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/streams/interface_stream.h",
+      "upstreamSha256": "0cfa78b3651607c6f11c8cae8ee9c249f35348b8abe86a6d83440e2cc2617690",
+      "vendoredSha256": "0cfa78b3651607c6f11c8cae8ee9c249f35348b8abe86a6d83440e2cc2617690"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/streams/memory_stream.h",
+      "upstreamSha256": "5ac5ebaedd6c4b93051b4a478bd81810c4d461be27e7e5ab330d2a509c1a1208",
+      "vendoredSha256": "5ac5ebaedd6c4b93051b4a478bd81810c4d461be27e7e5ab330d2a509c1a1208"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/streams/network_stream.h",
+      "upstreamSha256": "a54ba3617734470bba09ee7e0f6fd368e6a40142c82c9e712eb28a91ef490a28",
+      "vendoredSha256": "a54ba3617734470bba09ee7e0f6fd368e6a40142c82c9e712eb28a91ef490a28"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/streams/rzip_stream.h",
+      "upstreamSha256": "95885fff3eb97b1b8e53f5a4b0990f1f08d2bb554c0cd06d2a57a2ec35a616cc",
+      "vendoredSha256": "95885fff3eb97b1b8e53f5a4b0990f1f08d2bb554c0cd06d2a57a2ec35a616cc"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/streams/stdin_stream.h",
+      "upstreamSha256": "18ae24d23128a9ad7598fbe3dfa979d9a45dcf0f3d30838452cc5ec503ecbfe6",
+      "vendoredSha256": "18ae24d23128a9ad7598fbe3dfa979d9a45dcf0f3d30838452cc5ec503ecbfe6"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/streams/trans_stream.h",
+      "upstreamSha256": "fdd4e3d4fb9041bd93a5e11c645ed08560446afbec0b53cbfc7fd2bd5cfd2c6c",
+      "vendoredSha256": "fdd4e3d4fb9041bd93a5e11c645ed08560446afbec0b53cbfc7fd2bd5cfd2c6c"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/string/stdstring.h",
+      "upstreamSha256": "cbdc0b8f28a01fde926c4c8c455c1bb467c4d1d449bf74f0891b1c34d00a87af",
+      "vendoredSha256": "cbdc0b8f28a01fde926c4c8c455c1bb467c4d1d449bf74f0891b1c34d00a87af"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/time/rtime.h",
+      "upstreamSha256": "718a13b92f91e17761dc96c01983c168f08e3b72aeb6dd647caec19efff936f3",
+      "vendoredSha256": "718a13b92f91e17761dc96c01983c168f08e3b72aeb6dd647caec19efff936f3"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/utils/md5.h",
+      "upstreamSha256": "b6a2497d259f41ae455168f82122bcfab339ee10744d8b8e76b314de7071a739",
+      "vendoredSha256": "b6a2497d259f41ae455168f82122bcfab339ee10744d8b8e76b314de7071a739"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/vfs/vfs.h",
+      "upstreamSha256": "e6ef607bc97ac1c8354abd765ead3acfdc105420a4cb6c20cf231c224bfdbb0c",
+      "vendoredSha256": "e6ef607bc97ac1c8354abd765ead3acfdc105420a4cb6c20cf231c224bfdbb0c"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/vfs/vfs_implementation.h",
+      "upstreamSha256": "708b49b9d7c0c148173385be8be4dcbbcba8e4934ac17d74ee77b7ac1ed13e0d",
+      "vendoredSha256": "708b49b9d7c0c148173385be8be4dcbbcba8e4934ac17d74ee77b7ac1ed13e0d"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/vfs/vfs_implementation_cdrom.h",
+      "upstreamSha256": "101e7c4edf416c77aadc37849c62c3c3f30f99500410a34e942eefc6ab584b75",
+      "vendoredSha256": "101e7c4edf416c77aadc37849c62c3c3f30f99500410a34e942eefc6ab584b75"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/include/vulkan/vulkan_symbol_wrapper.h",
+      "upstreamSha256": "8d95aa5acbf4853ced2b0d9f32043480a2286037debd3e5cde2f690af71e9780",
+      "vendoredSha256": "8d95aa5acbf4853ced2b0d9f32043480a2286037debd3e5cde2f690af71e9780"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/string/stdstring.c",
+      "upstreamSha256": "6c7380ccff9c51da1b37ae04ee155f504276d602e8c1b3acb8ad63f95ecbc2ca",
+      "vendoredSha256": "6c7380ccff9c51da1b37ae04ee155f504276d602e8c1b3acb8ad63f95ecbc2ca"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/time/rtime.c",
+      "upstreamSha256": "fbcdbda3391536a5167d83cf87e431c66dd567209ed0e7fcca4f0b0603da9506",
+      "vendoredSha256": "fbcdbda3391536a5167d83cf87e431c66dd567209ed0e7fcca4f0b0603da9506"
+    },
+    {
+      "path": "src/main/cpp/libretro/libretro-common/vfs/vfs_implementation.c",
+      "upstreamSha256": "42610e84f76d3e58358f606042b4165067714dc1f2aa4f1cde2fcb008b6c7ad4",
+      "vendoredSha256": "42610e84f76d3e58358f606042b4165067714dc1f2aa4f1cde2fcb008b6c7ad4"
+    },
+    {
+      "path": "src/main/cpp/libretrodroid.cpp",
+      "upstreamSha256": "55e65d20c69a09da51832123e1693f9dd4a84d45db9e42724591bbf6bf18d2d0",
+      "vendoredSha256": "b231a28513e44c3770ac0ffd62f3b498314dfcd9c1784e8abdeb09978a5f7772"
+    },
+    {
+      "path": "src/main/cpp/libretrodroid.h",
+      "upstreamSha256": "fc0272e1093f79942929dc4bb03a60eb13f8bcf640b1f644a21a63063da5e08f",
+      "vendoredSha256": "f45f09fe1b03785d0292d8b576ca6375b9baf2b34b06c2b01dfb33c0d66b8619"
+    },
+    {
+      "path": "src/main/cpp/libretrodroidjni.cpp",
+      "upstreamSha256": "a25398f4ee893529830e78ed84d1d0ae0389958ab7dc13fc852492c2bd96f714",
+      "vendoredSha256": "54e36ed3be61521c8f46abf4ea356c7a6488e82c26645b90a33cad088de70c8b"
+    },
+    {
+      "path": "src/main/cpp/libretrodroidjni.h",
+      "upstreamSha256": "02148b528411be98724931a3ada9c9b6459c3f6ebd39183a351a5d4d2c4bdf4c",
+      "vendoredSha256": "02148b528411be98724931a3ada9c9b6459c3f6ebd39183a351a5d4d2c4bdf4c"
+    },
+    {
+      "path": "src/main/cpp/log.h",
+      "upstreamSha256": "f45b5a748ef74d6bbe19324f993bd4406fccd8aca2f19d18e9f91f5ffdf3e457",
+      "vendoredSha256": "f45b5a748ef74d6bbe19324f993bd4406fccd8aca2f19d18e9f91f5ffdf3e457"
+    },
+    {
+      "path": "src/main/cpp/microphone/microphone.cpp",
+      "upstreamSha256": "9204d9e3884568dc535a9de0add8c2035865baef8b688e5f4ce20f90b21ad286",
+      "vendoredSha256": "9204d9e3884568dc535a9de0add8c2035865baef8b688e5f4ce20f90b21ad286"
+    },
+    {
+      "path": "src/main/cpp/microphone/microphone.h",
+      "upstreamSha256": "44c8b00df79d14477a23c9a82f45fdcd21ec7177dc5b582e443e30417c7d2b35",
+      "vendoredSha256": "44c8b00df79d14477a23c9a82f45fdcd21ec7177dc5b582e443e30417c7d2b35"
+    },
+    {
+      "path": "src/main/cpp/microphone/microphoneinterface.cpp",
+      "upstreamSha256": "1f6d8e90ead30c322782528d78ac5ce609f3c7706ab03b65b48e2c6676069792",
+      "vendoredSha256": "1f6d8e90ead30c322782528d78ac5ce609f3c7706ab03b65b48e2c6676069792"
+    },
+    {
+      "path": "src/main/cpp/microphone/microphoneinterface.h",
+      "upstreamSha256": "415856afe8d92fb1121c0846972769f648c696fcb0be1ea4171cfbba99e845b6",
+      "vendoredSha256": "415856afe8d92fb1121c0846972769f648c696fcb0be1ea4171cfbba99e845b6"
+    },
+    {
+      "path": "src/main/cpp/oboe/AUTHORS",
+      "upstreamSha256": "c04aa4049aeb3d8268ae43074ae89fb86ef5a5eb53ec0c453015bc1889bd6ca9",
+      "vendoredSha256": "c04aa4049aeb3d8268ae43074ae89fb86ef5a5eb53ec0c453015bc1889bd6ca9"
+    },
+    {
+      "path": "src/main/cpp/oboe/CMakeLists.txt",
+      "upstreamSha256": "4020b0138023dca4da62df9a8f797233ef97ae9bd7e77a4e8b4cb1d23040b316",
+      "vendoredSha256": "4020b0138023dca4da62df9a8f797233ef97ae9bd7e77a4e8b4cb1d23040b316"
+    },
+    {
+      "path": "src/main/cpp/oboe/CONTRIBUTORS",
+      "upstreamSha256": "3183e3ecdcf1a396e9a04e06d7d833821d9c2109ce916fde9482edd318d279c3",
+      "vendoredSha256": "3183e3ecdcf1a396e9a04e06d7d833821d9c2109ce916fde9482edd318d279c3"
+    },
+    {
+      "path": "src/main/cpp/oboe/LICENSE",
+      "upstreamSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "vendoredSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "src/main/cpp/oboe/MODULE_LICENSE_APACHE2",
+      "upstreamSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "vendoredSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "src/main/cpp/oboe/include/oboe/AudioClock.h",
+      "upstreamSha256": "fba8d9c441f85a9816c7c3023aad5fb77acdef15075cc0c51cb5852796b78810",
+      "vendoredSha256": "fba8d9c441f85a9816c7c3023aad5fb77acdef15075cc0c51cb5852796b78810"
+    },
+    {
+      "path": "src/main/cpp/oboe/include/oboe/AudioStream.h",
+      "upstreamSha256": "78b51aa7ab0a56fdd2c9e0b7238f5d0f3a27754bd3728a43cd3504cbbaf06869",
+      "vendoredSha256": "78b51aa7ab0a56fdd2c9e0b7238f5d0f3a27754bd3728a43cd3504cbbaf06869"
+    },
+    {
+      "path": "src/main/cpp/oboe/include/oboe/AudioStreamBase.h",
+      "upstreamSha256": "eb0a7278f122fa656fc35ceb1462d7576a32af3bdbc2072986019c7edd253e50",
+      "vendoredSha256": "eb0a7278f122fa656fc35ceb1462d7576a32af3bdbc2072986019c7edd253e50"
+    },
+    {
+      "path": "src/main/cpp/oboe/include/oboe/AudioStreamBuilder.h",
+      "upstreamSha256": "b80c94b7b8a1a2a445dd2ab2346b29c8bb770f258ab53291615fba58d142a248",
+      "vendoredSha256": "b80c94b7b8a1a2a445dd2ab2346b29c8bb770f258ab53291615fba58d142a248"
+    },
+    {
+      "path": "src/main/cpp/oboe/include/oboe/AudioStreamCallback.h",
+      "upstreamSha256": "583b85936d23237f9a9b9f5d25fac93044914070ae42899ca4193e6d069ce178",
+      "vendoredSha256": "583b85936d23237f9a9b9f5d25fac93044914070ae42899ca4193e6d069ce178"
+    },
+    {
+      "path": "src/main/cpp/oboe/include/oboe/Definitions.h",
+      "upstreamSha256": "f63c508ea55c997c1462f82dcf4aa44f0f1ac008f19114b34d03897cde00c5b3",
+      "vendoredSha256": "f63c508ea55c997c1462f82dcf4aa44f0f1ac008f19114b34d03897cde00c5b3"
+    },
+    {
+      "path": "src/main/cpp/oboe/include/oboe/FifoBuffer.h",
+      "upstreamSha256": "58b75b873846f237b1d5367d4e2d910358000db24c4d1f682cf2f8fa42272a4a",
+      "vendoredSha256": "58b75b873846f237b1d5367d4e2d910358000db24c4d1f682cf2f8fa42272a4a"
+    },
+    {
+      "path": "src/main/cpp/oboe/include/oboe/FifoControllerBase.h",
+      "upstreamSha256": "4899659723c5d1415bb943ec1590687a919f3e591b6d544c8d892d9fee6b1094",
+      "vendoredSha256": "4899659723c5d1415bb943ec1590687a919f3e591b6d544c8d892d9fee6b1094"
+    },
+    {
+      "path": "src/main/cpp/oboe/include/oboe/FullDuplexStream.h",
+      "upstreamSha256": "71a289cabcd07efb5696f0e5c895bb1ab8050dbf91bf7cb97386606e73dba173",
+      "vendoredSha256": "71a289cabcd07efb5696f0e5c895bb1ab8050dbf91bf7cb97386606e73dba173"
+    },
+    {
+      "path": "src/main/cpp/oboe/include/oboe/LatencyTuner.h",
+      "upstreamSha256": "7d2922aba66d2d074abd9059d8e30e8410c734bc55f97268f3bac954c8e44170",
+      "vendoredSha256": "7d2922aba66d2d074abd9059d8e30e8410c734bc55f97268f3bac954c8e44170"
+    },
+    {
+      "path": "src/main/cpp/oboe/include/oboe/Oboe.h",
+      "upstreamSha256": "4ce4ea30bf5a4fe9e0a09e3db1b8ad7bd62e2c124831b787f1301ae2a3988421",
+      "vendoredSha256": "4ce4ea30bf5a4fe9e0a09e3db1b8ad7bd62e2c124831b787f1301ae2a3988421"
+    },
+    {
+      "path": "src/main/cpp/oboe/include/oboe/OboeExtensions.h",
+      "upstreamSha256": "860718e77f77e032268de51a6fcb9584dbe57c948392c01f66c6acf78708ff3e",
+      "vendoredSha256": "860718e77f77e032268de51a6fcb9584dbe57c948392c01f66c6acf78708ff3e"
+    },
+    {
+      "path": "src/main/cpp/oboe/include/oboe/ResultWithValue.h",
+      "upstreamSha256": "202a80acdf601cb902166a9cd76064c6ba32810846d3bcbb6602eb29e81bcaee",
+      "vendoredSha256": "202a80acdf601cb902166a9cd76064c6ba32810846d3bcbb6602eb29e81bcaee"
+    },
+    {
+      "path": "src/main/cpp/oboe/include/oboe/StabilizedCallback.h",
+      "upstreamSha256": "1aa4bed772c5188038a7666127cb91684428fd5b442aee5500a3e65eb9647134",
+      "vendoredSha256": "1aa4bed772c5188038a7666127cb91684428fd5b442aee5500a3e65eb9647134"
+    },
+    {
+      "path": "src/main/cpp/oboe/include/oboe/Utilities.h",
+      "upstreamSha256": "5b43ee24247e4699b2def3f2607e468d29146ed8b2685585e1bfffea0429d9cc",
+      "vendoredSha256": "5b43ee24247e4699b2def3f2607e468d29146ed8b2685585e1bfffea0429d9cc"
+    },
+    {
+      "path": "src/main/cpp/oboe/include/oboe/Version.h",
+      "upstreamSha256": "f5006a3918abc3736a3123e9817a517efaf3ff143e4e4ed07d4025982e18023e",
+      "vendoredSha256": "f5006a3918abc3736a3123e9817a517efaf3ff143e4e4ed07d4025982e18023e"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/aaudio/AAudioExtensions.h",
+      "upstreamSha256": "2463ddfb3616f2e5c1000226d123be32d7f40ba27637d24b4413273c02cb33e9",
+      "vendoredSha256": "2463ddfb3616f2e5c1000226d123be32d7f40ba27637d24b4413273c02cb33e9"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/aaudio/AAudioLoader.cpp",
+      "upstreamSha256": "cac2c6b5d43172ce3328420a330d6a433ede8863dff6d0694def7e1e463fa6c7",
+      "vendoredSha256": "cac2c6b5d43172ce3328420a330d6a433ede8863dff6d0694def7e1e463fa6c7"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/aaudio/AAudioLoader.h",
+      "upstreamSha256": "5c7ee61697d1a9922359c6d8e556705e3f72b9b0f62c71d66f0e45c0eee94d95",
+      "vendoredSha256": "5c7ee61697d1a9922359c6d8e556705e3f72b9b0f62c71d66f0e45c0eee94d95"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/aaudio/AudioStreamAAudio.cpp",
+      "upstreamSha256": "4fca933d33f55c4d18ecbb511d6fce8920f176229ff70417ee7f0b3dbb82c082",
+      "vendoredSha256": "4fca933d33f55c4d18ecbb511d6fce8920f176229ff70417ee7f0b3dbb82c082"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/aaudio/AudioStreamAAudio.h",
+      "upstreamSha256": "ebe43a1a035dea0d8e3f05a9078fa80369e17d9f14feb36fa45cf26ab8a386f0",
+      "vendoredSha256": "ebe43a1a035dea0d8e3f05a9078fa80369e17d9f14feb36fa45cf26ab8a386f0"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/AdpfWrapper.cpp",
+      "upstreamSha256": "aa6c8886872ba2e4b882a85c478a5ae9dd81d8ed7ea17d30d57018b685b074f0",
+      "vendoredSha256": "aa6c8886872ba2e4b882a85c478a5ae9dd81d8ed7ea17d30d57018b685b074f0"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/AdpfWrapper.h",
+      "upstreamSha256": "68fec1422b5d12d7de7605ad8e18aeb2735f2c8face109657eb9ee730f43e076",
+      "vendoredSha256": "68fec1422b5d12d7de7605ad8e18aeb2735f2c8face109657eb9ee730f43e076"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/AudioSourceCaller.cpp",
+      "upstreamSha256": "fde04eeee246cbe9f06b642227b7dc5dfa11ce1aac792161677ee2e8a9af70fc",
+      "vendoredSha256": "fde04eeee246cbe9f06b642227b7dc5dfa11ce1aac792161677ee2e8a9af70fc"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/AudioSourceCaller.h",
+      "upstreamSha256": "9ef58014ff665d8a834039dd70c0550ca336b074dbfa6ee7167888a6007c8c34",
+      "vendoredSha256": "9ef58014ff665d8a834039dd70c0550ca336b074dbfa6ee7167888a6007c8c34"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/AudioStream.cpp",
+      "upstreamSha256": "00d5757e46689e352381695297205a9fefe48d7d92cc807c27165d9b5bd6ba0e",
+      "vendoredSha256": "00d5757e46689e352381695297205a9fefe48d7d92cc807c27165d9b5bd6ba0e"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/AudioStreamBuilder.cpp",
+      "upstreamSha256": "66075436abb63f0dd49ec287e3c50fc43e72e201c4a35beb81494c53d3a4b204",
+      "vendoredSha256": "66075436abb63f0dd49ec287e3c50fc43e72e201c4a35beb81494c53d3a4b204"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/DataConversionFlowGraph.cpp",
+      "upstreamSha256": "bd2ee6702821b40517eb509a573db85c4f373656bf182182e0cb139551236d9f",
+      "vendoredSha256": "bd2ee6702821b40517eb509a573db85c4f373656bf182182e0cb139551236d9f"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/DataConversionFlowGraph.h",
+      "upstreamSha256": "40e980d82d942d5c1d2473e51ca385ff79d8fc611a6a2e69f62ba4702651f0eb",
+      "vendoredSha256": "40e980d82d942d5c1d2473e51ca385ff79d8fc611a6a2e69f62ba4702651f0eb"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/FilterAudioStream.cpp",
+      "upstreamSha256": "6d7257350568f87f16d51cc94186828a3df8198312857aef208a88541764a100",
+      "vendoredSha256": "6d7257350568f87f16d51cc94186828a3df8198312857aef208a88541764a100"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/FilterAudioStream.h",
+      "upstreamSha256": "61c9cc040c52b92584f4726f37c003bf1d089011367fbb782336a3d66b78b373",
+      "vendoredSha256": "61c9cc040c52b92584f4726f37c003bf1d089011367fbb782336a3d66b78b373"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/FixedBlockAdapter.cpp",
+      "upstreamSha256": "6e9aea027556a261927f20ec99e500d2f0b00dea30bc65636880cd0cc4030974",
+      "vendoredSha256": "6e9aea027556a261927f20ec99e500d2f0b00dea30bc65636880cd0cc4030974"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/FixedBlockAdapter.h",
+      "upstreamSha256": "c5997a73eff0e0ad84ae4e0ecc1cc5e44eb3c044c5754cc09eb43c17b9698f86",
+      "vendoredSha256": "c5997a73eff0e0ad84ae4e0ecc1cc5e44eb3c044c5754cc09eb43c17b9698f86"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/FixedBlockReader.cpp",
+      "upstreamSha256": "ad76decfb9e37f63129262ca4d2e93465c84fa96d5a1509f315c3a82e528b7fd",
+      "vendoredSha256": "ad76decfb9e37f63129262ca4d2e93465c84fa96d5a1509f315c3a82e528b7fd"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/FixedBlockReader.h",
+      "upstreamSha256": "9efffb80e54ad02d24ebb40dc21c0601aee6faa97e63a5f0645f43e3e47e5436",
+      "vendoredSha256": "9efffb80e54ad02d24ebb40dc21c0601aee6faa97e63a5f0645f43e3e47e5436"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/FixedBlockWriter.cpp",
+      "upstreamSha256": "50e25c134c094ca3910ad7a97e5f91896acf48c28bec7165b53bddd33489a397",
+      "vendoredSha256": "50e25c134c094ca3910ad7a97e5f91896acf48c28bec7165b53bddd33489a397"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/FixedBlockWriter.h",
+      "upstreamSha256": "30cc5e2a056efac369680440a2c4dad76e2716d2c353bd5401436bd1d09e0b47",
+      "vendoredSha256": "30cc5e2a056efac369680440a2c4dad76e2716d2c353bd5401436bd1d09e0b47"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/LatencyTuner.cpp",
+      "upstreamSha256": "a681810244f41c91ce07e2b9c73d7e53e9dc387cdeaf5e92a001c306c36e6c75",
+      "vendoredSha256": "a681810244f41c91ce07e2b9c73d7e53e9dc387cdeaf5e92a001c306c36e6c75"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/MonotonicCounter.h",
+      "upstreamSha256": "88a8bf4193b8aa99382d7b2dfd902ec22dac8367e523ae3c7dbe0fe40340b9c5",
+      "vendoredSha256": "88a8bf4193b8aa99382d7b2dfd902ec22dac8367e523ae3c7dbe0fe40340b9c5"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/OboeDebug.h",
+      "upstreamSha256": "d6a76e901bbdb1f2c0886a20c3db28fe2f7b9fb98fc36ce9a7fda3c5c0bea837",
+      "vendoredSha256": "d6a76e901bbdb1f2c0886a20c3db28fe2f7b9fb98fc36ce9a7fda3c5c0bea837"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/OboeExtensions.cpp",
+      "upstreamSha256": "5d5f8b55f00f38bedd38a92c69d33449187479e823c44824a818966512c6a789",
+      "vendoredSha256": "5d5f8b55f00f38bedd38a92c69d33449187479e823c44824a818966512c6a789"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/QuirksManager.cpp",
+      "upstreamSha256": "29786b63846d59638c4aaf7f1a0dcc4f738719399405e5ff7742e861136561ac",
+      "vendoredSha256": "29786b63846d59638c4aaf7f1a0dcc4f738719399405e5ff7742e861136561ac"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/QuirksManager.h",
+      "upstreamSha256": "dbd887f49ffb6fae09d2f285717cdacd758900d3c8977199449f1d10e24ece4c",
+      "vendoredSha256": "dbd887f49ffb6fae09d2f285717cdacd758900d3c8977199449f1d10e24ece4c"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/README.md",
+      "upstreamSha256": "6600f826fbe5206439897d837ec2b26a2377a569f9f4e71ab33216edc6fa48b5",
+      "vendoredSha256": "6600f826fbe5206439897d837ec2b26a2377a569f9f4e71ab33216edc6fa48b5"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/SourceFloatCaller.cpp",
+      "upstreamSha256": "64484b4953accc13e11c25fb8533cbf7675c6ad04d4fe511dec56c2b9f55a959",
+      "vendoredSha256": "64484b4953accc13e11c25fb8533cbf7675c6ad04d4fe511dec56c2b9f55a959"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/SourceFloatCaller.h",
+      "upstreamSha256": "8145942eecabf70389a4219acb2cc0c229a6d063cb5916dcb78c63b74627448a",
+      "vendoredSha256": "8145942eecabf70389a4219acb2cc0c229a6d063cb5916dcb78c63b74627448a"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/SourceI16Caller.cpp",
+      "upstreamSha256": "b70f61735e81927ae78d8500decba139b95c408886d3db8495819190f8deaf48",
+      "vendoredSha256": "b70f61735e81927ae78d8500decba139b95c408886d3db8495819190f8deaf48"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/SourceI16Caller.h",
+      "upstreamSha256": "661e1b6e9ddf9f3875cb0da0a86b259cbbfdd86f472674957611830b5580845f",
+      "vendoredSha256": "661e1b6e9ddf9f3875cb0da0a86b259cbbfdd86f472674957611830b5580845f"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/SourceI24Caller.cpp",
+      "upstreamSha256": "bd7fbb3e70da47d1de274bd836d9b3a4d6bdf54a6045397cea9f0e136616c2fc",
+      "vendoredSha256": "bd7fbb3e70da47d1de274bd836d9b3a4d6bdf54a6045397cea9f0e136616c2fc"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/SourceI24Caller.h",
+      "upstreamSha256": "64e7cd54d7546ef739fe7eb7261971433bf103b72f6773ebc66ad4bd8bba35ef",
+      "vendoredSha256": "64e7cd54d7546ef739fe7eb7261971433bf103b72f6773ebc66ad4bd8bba35ef"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/SourceI32Caller.cpp",
+      "upstreamSha256": "d6bb42b6ecbcd5a173b231165961c16ca78671c0949d7f9c3cabab128539e57b",
+      "vendoredSha256": "d6bb42b6ecbcd5a173b231165961c16ca78671c0949d7f9c3cabab128539e57b"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/SourceI32Caller.h",
+      "upstreamSha256": "24be855f6c6263e1b6b703f26b30489d50dc0feae3a6f415d1a4e8e1eb5e8514",
+      "vendoredSha256": "24be855f6c6263e1b6b703f26b30489d50dc0feae3a6f415d1a4e8e1eb5e8514"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/StabilizedCallback.cpp",
+      "upstreamSha256": "a8cc7f98b5e966de515c9274ed3490f0110d2aa38c62593662b7bdfb36c01493",
+      "vendoredSha256": "a8cc7f98b5e966de515c9274ed3490f0110d2aa38c62593662b7bdfb36c01493"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/Trace.cpp",
+      "upstreamSha256": "ee4f9df31becefe0d1437dfff26e201ebe7ff989ac7bfdc0cfeb5b9f953677a2",
+      "vendoredSha256": "ee4f9df31becefe0d1437dfff26e201ebe7ff989ac7bfdc0cfeb5b9f953677a2"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/Trace.h",
+      "upstreamSha256": "d66843d09d2a1a695db789f357fb197d250bde7aa463780411d69114816cedd9",
+      "vendoredSha256": "d66843d09d2a1a695db789f357fb197d250bde7aa463780411d69114816cedd9"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/Utilities.cpp",
+      "upstreamSha256": "ef338b6263b37ba66677c6834bb0238cf1229384126525b92cfa6e66a76f64b5",
+      "vendoredSha256": "ef338b6263b37ba66677c6834bb0238cf1229384126525b92cfa6e66a76f64b5"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/common/Version.cpp",
+      "upstreamSha256": "852a7045a2ea33e255d5feb96686244c177d8025efa1bc4e42aada7712e05b13",
+      "vendoredSha256": "852a7045a2ea33e255d5feb96686244c177d8025efa1bc4e42aada7712e05b13"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/fifo/FifoBuffer.cpp",
+      "upstreamSha256": "bbf33ce4909038ae0e811435580bce8a8a08a7171c00d71ed7d20e328eff615e",
+      "vendoredSha256": "bbf33ce4909038ae0e811435580bce8a8a08a7171c00d71ed7d20e328eff615e"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/fifo/FifoController.cpp",
+      "upstreamSha256": "b91eb6eaa85cdf87bf04b98384c2e8408d4b81a803aeeceec3782e8a3e1b8e50",
+      "vendoredSha256": "b91eb6eaa85cdf87bf04b98384c2e8408d4b81a803aeeceec3782e8a3e1b8e50"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/fifo/FifoController.h",
+      "upstreamSha256": "26a9058bfbb88ca7cc1b8bf9464e62fd19f8a2d4aa2b554ee65b1dc39fab5017",
+      "vendoredSha256": "26a9058bfbb88ca7cc1b8bf9464e62fd19f8a2d4aa2b554ee65b1dc39fab5017"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/fifo/FifoControllerBase.cpp",
+      "upstreamSha256": "f8f1ee94d76be3a54dd0702005899a986fbc81e0f8ecffd98cc0cab0828785ce",
+      "vendoredSha256": "f8f1ee94d76be3a54dd0702005899a986fbc81e0f8ecffd98cc0cab0828785ce"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/fifo/FifoControllerIndirect.cpp",
+      "upstreamSha256": "a42bcd6201f4f6b0622a7deba26881af731adde91944d68de6da129ea9d4f0bf",
+      "vendoredSha256": "a42bcd6201f4f6b0622a7deba26881af731adde91944d68de6da129ea9d4f0bf"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/fifo/FifoControllerIndirect.h",
+      "upstreamSha256": "f7a0d3101487485834b82af36d8413f99d765414b9fe5c723fe17ab5ad1be29a",
+      "vendoredSha256": "f7a0d3101487485834b82af36d8413f99d765414b9fe5c723fe17ab5ad1be29a"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/ChannelCountConverter.cpp",
+      "upstreamSha256": "4a16fb9f3b5faba387aaf383e02dc5f2429ea2f2888d0b8b0273d4c1f760924b",
+      "vendoredSha256": "4a16fb9f3b5faba387aaf383e02dc5f2429ea2f2888d0b8b0273d4c1f760924b"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/ChannelCountConverter.h",
+      "upstreamSha256": "f812e30dea029c4e392d210852f090c6ebf863bb8ddbc6e1cd66e647d8f170db",
+      "vendoredSha256": "f812e30dea029c4e392d210852f090c6ebf863bb8ddbc6e1cd66e647d8f170db"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/ClipToRange.cpp",
+      "upstreamSha256": "2181721543585149855a114e051649fb10aa01741ddc63410d3f66a2dc581dab",
+      "vendoredSha256": "2181721543585149855a114e051649fb10aa01741ddc63410d3f66a2dc581dab"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/ClipToRange.h",
+      "upstreamSha256": "53f9cec7d95c534c3960238e42ff19e4a1fabe07bb77df53c9a1cbbcf5079205",
+      "vendoredSha256": "53f9cec7d95c534c3960238e42ff19e4a1fabe07bb77df53c9a1cbbcf5079205"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/FlowGraphNode.cpp",
+      "upstreamSha256": "17e609a696071fac5a92e1566ef36760307cff2431fdd83681e474dbd026a21a",
+      "vendoredSha256": "17e609a696071fac5a92e1566ef36760307cff2431fdd83681e474dbd026a21a"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/FlowGraphNode.h",
+      "upstreamSha256": "5b0499c0f5c9e1f25143e116d21d03119bdf83c768f05b61359489a58c934dd8",
+      "vendoredSha256": "5b0499c0f5c9e1f25143e116d21d03119bdf83c768f05b61359489a58c934dd8"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/FlowgraphUtilities.h",
+      "upstreamSha256": "a2a70b176abca6369e2e1e592feb5457da6e8466b451dcc70c747db0331c84f0",
+      "vendoredSha256": "a2a70b176abca6369e2e1e592feb5457da6e8466b451dcc70c747db0331c84f0"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/Limiter.cpp",
+      "upstreamSha256": "9f6b28f564b5e059619d449ddb5ad9b6a3018e82446dc68ca6240e54f7c62b06",
+      "vendoredSha256": "9f6b28f564b5e059619d449ddb5ad9b6a3018e82446dc68ca6240e54f7c62b06"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/Limiter.h",
+      "upstreamSha256": "d25cd2818883b714ed3ebd08b991cbb2d48f976874e17520448562cf09e076af",
+      "vendoredSha256": "d25cd2818883b714ed3ebd08b991cbb2d48f976874e17520448562cf09e076af"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/ManyToMultiConverter.cpp",
+      "upstreamSha256": "16d29d4256984a5549047558c3cb4d0b8193be3b0102c03b78673fefc592a868",
+      "vendoredSha256": "16d29d4256984a5549047558c3cb4d0b8193be3b0102c03b78673fefc592a868"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/ManyToMultiConverter.h",
+      "upstreamSha256": "7e9bcca40574b375ccd6d60949cabfb74db67d1b0ab585b450be79b15b1f48f9",
+      "vendoredSha256": "7e9bcca40574b375ccd6d60949cabfb74db67d1b0ab585b450be79b15b1f48f9"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/MonoBlend.cpp",
+      "upstreamSha256": "b11325e8be5fe7474a24a6f9f124b1eda0f8c03ad65ad7d88889a83dbd691ca1",
+      "vendoredSha256": "b11325e8be5fe7474a24a6f9f124b1eda0f8c03ad65ad7d88889a83dbd691ca1"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/MonoBlend.h",
+      "upstreamSha256": "b9e779a411ecb07acb8cb2051093db69ed67996593483e401cfb1359d8736161",
+      "vendoredSha256": "b9e779a411ecb07acb8cb2051093db69ed67996593483e401cfb1359d8736161"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/MonoToMultiConverter.cpp",
+      "upstreamSha256": "81c03fab188d7c7a78cea3aa57b599ee0ddc448c8e6aa21fa533867ec3ed630f",
+      "vendoredSha256": "81c03fab188d7c7a78cea3aa57b599ee0ddc448c8e6aa21fa533867ec3ed630f"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/MonoToMultiConverter.h",
+      "upstreamSha256": "6168c1a43c5063fffe4e4b2ea24768d3d55c080bf149c762a1e77d0d77e3afb1",
+      "vendoredSha256": "6168c1a43c5063fffe4e4b2ea24768d3d55c080bf149c762a1e77d0d77e3afb1"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/MultiToManyConverter.cpp",
+      "upstreamSha256": "a710de3aabf30ac9c444545f4461b2e73fee27eed4a5858346de991db47c7acc",
+      "vendoredSha256": "a710de3aabf30ac9c444545f4461b2e73fee27eed4a5858346de991db47c7acc"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/MultiToManyConverter.h",
+      "upstreamSha256": "48b32f0086738b7c3e1977a92a4142c40c319aad3c91472702cc36312140da2c",
+      "vendoredSha256": "48b32f0086738b7c3e1977a92a4142c40c319aad3c91472702cc36312140da2c"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/MultiToMonoConverter.cpp",
+      "upstreamSha256": "59ad36ef810eb58f2d99a3a8aecf90af22f70c9d2582c11fa41c5c3b298b86f6",
+      "vendoredSha256": "59ad36ef810eb58f2d99a3a8aecf90af22f70c9d2582c11fa41c5c3b298b86f6"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/MultiToMonoConverter.h",
+      "upstreamSha256": "06ac08b6089c6f3b90229f0ab8b9ed1eb4eaf2d0afbfac457de12aa98c4205e0",
+      "vendoredSha256": "06ac08b6089c6f3b90229f0ab8b9ed1eb4eaf2d0afbfac457de12aa98c4205e0"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/RampLinear.cpp",
+      "upstreamSha256": "9960959781977a6f8793a6fadb9232b6b56e35dfd877a5aa936c6700e6159461",
+      "vendoredSha256": "9960959781977a6f8793a6fadb9232b6b56e35dfd877a5aa936c6700e6159461"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/RampLinear.h",
+      "upstreamSha256": "23815ff8657695c7a9bb02d79216b0006deaef785d388853aeb833a8a4abec00",
+      "vendoredSha256": "23815ff8657695c7a9bb02d79216b0006deaef785d388853aeb833a8a4abec00"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/SampleRateConverter.cpp",
+      "upstreamSha256": "ca9c9b790fe13721a39e0a2efa27b032770462c2cb0207dbe87022d2a085b844",
+      "vendoredSha256": "ca9c9b790fe13721a39e0a2efa27b032770462c2cb0207dbe87022d2a085b844"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/SampleRateConverter.h",
+      "upstreamSha256": "e7ac2304788f198361cfaea15d38acf15789292cf6afe92e953580518ebf56bf",
+      "vendoredSha256": "e7ac2304788f198361cfaea15d38acf15789292cf6afe92e953580518ebf56bf"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/SinkFloat.cpp",
+      "upstreamSha256": "a2e27b1a4d7db0f0bee3a654561f7f62fe38781cc4d51ac5236a91522eb600f3",
+      "vendoredSha256": "a2e27b1a4d7db0f0bee3a654561f7f62fe38781cc4d51ac5236a91522eb600f3"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/SinkFloat.h",
+      "upstreamSha256": "81397dabe8454045ff001f39566c1503cfab5b02794cfa4f080101af64d26746",
+      "vendoredSha256": "81397dabe8454045ff001f39566c1503cfab5b02794cfa4f080101af64d26746"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/SinkI16.cpp",
+      "upstreamSha256": "c521d4b12baf7e8d6627403278f454b5c0dfe60190be5f3a0c5d30b01cee6359",
+      "vendoredSha256": "c521d4b12baf7e8d6627403278f454b5c0dfe60190be5f3a0c5d30b01cee6359"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/SinkI16.h",
+      "upstreamSha256": "2160bc822188c6beb49764d430296f4114b2e7e403625b404f13489b1e4d53c0",
+      "vendoredSha256": "2160bc822188c6beb49764d430296f4114b2e7e403625b404f13489b1e4d53c0"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/SinkI24.cpp",
+      "upstreamSha256": "3649d98993ed4dcf2098162671aaea9c04536c51bcabb114622ee4d1850dc2bb",
+      "vendoredSha256": "3649d98993ed4dcf2098162671aaea9c04536c51bcabb114622ee4d1850dc2bb"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/SinkI24.h",
+      "upstreamSha256": "45f1900910709fb40dcd11bd1535cb38ec13876e3437f6d59561701684ae5bb8",
+      "vendoredSha256": "45f1900910709fb40dcd11bd1535cb38ec13876e3437f6d59561701684ae5bb8"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/SinkI32.cpp",
+      "upstreamSha256": "575d733aaf692e25ebf885190569b4ba51789e742f2ef5efb1513e981dea5ebb",
+      "vendoredSha256": "575d733aaf692e25ebf885190569b4ba51789e742f2ef5efb1513e981dea5ebb"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/SinkI32.h",
+      "upstreamSha256": "e478c6f3e215019bea9655a7334164d7f4c6834b79d8c9eeba27bf78c724e930",
+      "vendoredSha256": "e478c6f3e215019bea9655a7334164d7f4c6834b79d8c9eeba27bf78c724e930"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/SinkI8_24.cpp",
+      "upstreamSha256": "4ebb7a2263a37679ee7fa10ea5ffdaeebea0dfc419ddf29ce598b2f100e139b8",
+      "vendoredSha256": "4ebb7a2263a37679ee7fa10ea5ffdaeebea0dfc419ddf29ce598b2f100e139b8"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/SinkI8_24.h",
+      "upstreamSha256": "469fc74da492825e04c86d99cdd36b71f9b33311d41002cc1e3322f3daaae0ed",
+      "vendoredSha256": "469fc74da492825e04c86d99cdd36b71f9b33311d41002cc1e3322f3daaae0ed"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/SourceFloat.cpp",
+      "upstreamSha256": "32187d507b62d1c9e2ac56d2060016fa0c45e8f0b13c5874a53d09b0bab41f8d",
+      "vendoredSha256": "32187d507b62d1c9e2ac56d2060016fa0c45e8f0b13c5874a53d09b0bab41f8d"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/SourceFloat.h",
+      "upstreamSha256": "a25a88587f94b6227f22378d45ba3e1e252a2023697349eb0a84690d0fe340a6",
+      "vendoredSha256": "a25a88587f94b6227f22378d45ba3e1e252a2023697349eb0a84690d0fe340a6"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/SourceI16.cpp",
+      "upstreamSha256": "b8fd3faf1019e87010329382ff37994ca1842cc8a13db996fb75b2b25da44ec6",
+      "vendoredSha256": "b8fd3faf1019e87010329382ff37994ca1842cc8a13db996fb75b2b25da44ec6"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/SourceI16.h",
+      "upstreamSha256": "6805305815effa5dd6a327dc55e0cf81197dad65aed828a169a1eb8d63314f5d",
+      "vendoredSha256": "6805305815effa5dd6a327dc55e0cf81197dad65aed828a169a1eb8d63314f5d"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/SourceI24.cpp",
+      "upstreamSha256": "d824b751e078cb8c054213c8f3b03573092da7d747d607b1d365f88b3ebb72cb",
+      "vendoredSha256": "d824b751e078cb8c054213c8f3b03573092da7d747d607b1d365f88b3ebb72cb"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/SourceI24.h",
+      "upstreamSha256": "13d7d0823dc37ed8682ad1e7c565401d85067c2680f0a616c02efd575b51c577",
+      "vendoredSha256": "13d7d0823dc37ed8682ad1e7c565401d85067c2680f0a616c02efd575b51c577"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/SourceI32.cpp",
+      "upstreamSha256": "c229a9f50fa18d892a86fc7b210ff798aa7673dc265d8c73b4493a66d0d4ffa3",
+      "vendoredSha256": "c229a9f50fa18d892a86fc7b210ff798aa7673dc265d8c73b4493a66d0d4ffa3"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/SourceI32.h",
+      "upstreamSha256": "3bc07ffe8821bdd41dd46f69be255113af0402444a758da51da987ec6a30ff4f",
+      "vendoredSha256": "3bc07ffe8821bdd41dd46f69be255113af0402444a758da51da987ec6a30ff4f"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/SourceI8_24.cpp",
+      "upstreamSha256": "d4669a56494ea0a2e0c7d375e51e5e905df31407e9d21cb6854cb4999780e8b7",
+      "vendoredSha256": "d4669a56494ea0a2e0c7d375e51e5e905df31407e9d21cb6854cb4999780e8b7"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/SourceI8_24.h",
+      "upstreamSha256": "a8a7211cd19987d99e35e74e3f4be77d9c7acf773010be8c2406409e3db65665",
+      "vendoredSha256": "a8a7211cd19987d99e35e74e3f4be77d9c7acf773010be8c2406409e3db65665"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/resampler/HyperbolicCosineWindow.h",
+      "upstreamSha256": "17e6c8b2b663225e4fb5f3d4802d19e11733bea88fe4fd2dfeeb51de876c80f0",
+      "vendoredSha256": "17e6c8b2b663225e4fb5f3d4802d19e11733bea88fe4fd2dfeeb51de876c80f0"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/resampler/IntegerRatio.cpp",
+      "upstreamSha256": "f46d93bce0190c8ec92305758424daad4184c6b8f520606aa07d48438dfdf5ef",
+      "vendoredSha256": "f46d93bce0190c8ec92305758424daad4184c6b8f520606aa07d48438dfdf5ef"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/resampler/IntegerRatio.h",
+      "upstreamSha256": "1cd1bf01e11c31b930fe8df995794c3e9a160e0c534324617cee40d13ba961ab",
+      "vendoredSha256": "1cd1bf01e11c31b930fe8df995794c3e9a160e0c534324617cee40d13ba961ab"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/resampler/KaiserWindow.h",
+      "upstreamSha256": "82453588a0aaa44ca6b62a1e8ee57579864f234c5cfb1706bf91eb51f6c94022",
+      "vendoredSha256": "82453588a0aaa44ca6b62a1e8ee57579864f234c5cfb1706bf91eb51f6c94022"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/resampler/LinearResampler.cpp",
+      "upstreamSha256": "f4c5948dcc9625d7b9f451906a472dcd4a2eec4c1cd67f687497933e74bbb790",
+      "vendoredSha256": "f4c5948dcc9625d7b9f451906a472dcd4a2eec4c1cd67f687497933e74bbb790"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/resampler/LinearResampler.h",
+      "upstreamSha256": "2fb1496df12695ac685c32741ad2280d2175480e6f9d40afde77bf81e103b0dc",
+      "vendoredSha256": "2fb1496df12695ac685c32741ad2280d2175480e6f9d40afde77bf81e103b0dc"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/resampler/MultiChannelResampler.cpp",
+      "upstreamSha256": "4ea261850c458e2f405e38f3f8eba813bc6b158772c4fdd0cd98ded66f414c9d",
+      "vendoredSha256": "4ea261850c458e2f405e38f3f8eba813bc6b158772c4fdd0cd98ded66f414c9d"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/resampler/MultiChannelResampler.h",
+      "upstreamSha256": "13646f2b70b63123ee8271cfebee028d9a745dfc419238e12bb8222476eac9cc",
+      "vendoredSha256": "13646f2b70b63123ee8271cfebee028d9a745dfc419238e12bb8222476eac9cc"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/resampler/PolyphaseResampler.cpp",
+      "upstreamSha256": "b549b6e86efc9ce6014f88480aa0d0dae0f5741a8f03cb9b552e209249d867ce",
+      "vendoredSha256": "b549b6e86efc9ce6014f88480aa0d0dae0f5741a8f03cb9b552e209249d867ce"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/resampler/PolyphaseResampler.h",
+      "upstreamSha256": "8232615175a0ff6965fa072b4b499598d4c418759e81237f1f3634ccae7133f0",
+      "vendoredSha256": "8232615175a0ff6965fa072b4b499598d4c418759e81237f1f3634ccae7133f0"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/resampler/PolyphaseResamplerMono.cpp",
+      "upstreamSha256": "5451b3ce714ba9e4903faa28931ae8172833d3ee29e02442272c92e4a8d1f640",
+      "vendoredSha256": "5451b3ce714ba9e4903faa28931ae8172833d3ee29e02442272c92e4a8d1f640"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/resampler/PolyphaseResamplerMono.h",
+      "upstreamSha256": "36e8d16e75935d8c70353eea22efa746740566f0a20b7aed726f1973763fd4a8",
+      "vendoredSha256": "36e8d16e75935d8c70353eea22efa746740566f0a20b7aed726f1973763fd4a8"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/resampler/PolyphaseResamplerStereo.cpp",
+      "upstreamSha256": "6bfaf60969fec6c734d2e8f43819ce88b6bf30c7dc3c59ad05e6665c4df4b40b",
+      "vendoredSha256": "6bfaf60969fec6c734d2e8f43819ce88b6bf30c7dc3c59ad05e6665c4df4b40b"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/resampler/PolyphaseResamplerStereo.h",
+      "upstreamSha256": "9db979c11a30503d1973c32e33496b776e8f55cf624d0349af98025f7de2a94a",
+      "vendoredSha256": "9db979c11a30503d1973c32e33496b776e8f55cf624d0349af98025f7de2a94a"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/resampler/README.md",
+      "upstreamSha256": "f18bad98383b8428e2ae2f5f0e45cbe0974fe4144d7b8bdd175dc99ed60e6bf5",
+      "vendoredSha256": "f18bad98383b8428e2ae2f5f0e45cbe0974fe4144d7b8bdd175dc99ed60e6bf5"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/resampler/ResamplerDefinitions.h",
+      "upstreamSha256": "995c3ac68c21d450fc7e7038a417dd559e6e4a65cde3c0eea0a1d6de2a7a4938",
+      "vendoredSha256": "995c3ac68c21d450fc7e7038a417dd559e6e4a65cde3c0eea0a1d6de2a7a4938"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/resampler/SincResampler.cpp",
+      "upstreamSha256": "4f21dd7945593c1c94f2a79262b52616f99f4582c57cd4b32609a240f1290971",
+      "vendoredSha256": "4f21dd7945593c1c94f2a79262b52616f99f4582c57cd4b32609a240f1290971"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/resampler/SincResampler.h",
+      "upstreamSha256": "54f478b090cb22ef648277e2996636776f15335d370cf5a6cad67789c7c90362",
+      "vendoredSha256": "54f478b090cb22ef648277e2996636776f15335d370cf5a6cad67789c7c90362"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/resampler/SincResamplerStereo.cpp",
+      "upstreamSha256": "777071ca879dfc7d202bd22d250cc3bb364d51d253ac9eada632c6fe858f5857",
+      "vendoredSha256": "777071ca879dfc7d202bd22d250cc3bb364d51d253ac9eada632c6fe858f5857"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/flowgraph/resampler/SincResamplerStereo.h",
+      "upstreamSha256": "b57762e5ff6662eefdffb3e62cdbe337f26b723078e76bba7aab0b042f0ae60a",
+      "vendoredSha256": "b57762e5ff6662eefdffb3e62cdbe337f26b723078e76bba7aab0b042f0ae60a"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/opensles/AudioInputStreamOpenSLES.cpp",
+      "upstreamSha256": "504f54594fbf462e891326857aed73b01969cdfba069626c1043f65c25ff0691",
+      "vendoredSha256": "504f54594fbf462e891326857aed73b01969cdfba069626c1043f65c25ff0691"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/opensles/AudioInputStreamOpenSLES.h",
+      "upstreamSha256": "18539fb55f16243df1640ecf586ece9c3e587d64e1ef920e6a32a94d83746b99",
+      "vendoredSha256": "18539fb55f16243df1640ecf586ece9c3e587d64e1ef920e6a32a94d83746b99"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/opensles/AudioOutputStreamOpenSLES.cpp",
+      "upstreamSha256": "0fd7c1fe1e047def43071be1069fd595f8b1fb1c0c379006fbf5f1f8c6fe0027",
+      "vendoredSha256": "0fd7c1fe1e047def43071be1069fd595f8b1fb1c0c379006fbf5f1f8c6fe0027"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/opensles/AudioOutputStreamOpenSLES.h",
+      "upstreamSha256": "4ce34e52e4fa280660dd3ff6c8a791d296a0697718243c68f0ff3b274e0f34f9",
+      "vendoredSha256": "4ce34e52e4fa280660dd3ff6c8a791d296a0697718243c68f0ff3b274e0f34f9"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/opensles/AudioStreamBuffered.cpp",
+      "upstreamSha256": "b4db42a692742789f675dfab6a62348d984596d1335f18097f86d48e32886b44",
+      "vendoredSha256": "b4db42a692742789f675dfab6a62348d984596d1335f18097f86d48e32886b44"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/opensles/AudioStreamBuffered.h",
+      "upstreamSha256": "592fee0bf79a7f0188a46db28e6f6826b4efcc66beced65bffce54309fc01d4e",
+      "vendoredSha256": "592fee0bf79a7f0188a46db28e6f6826b4efcc66beced65bffce54309fc01d4e"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/opensles/AudioStreamOpenSLES.cpp",
+      "upstreamSha256": "5bb08066bb7b16b9373100b4fe67641c33b9aebda894f3cc62e80d1560954e0d",
+      "vendoredSha256": "5bb08066bb7b16b9373100b4fe67641c33b9aebda894f3cc62e80d1560954e0d"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/opensles/AudioStreamOpenSLES.h",
+      "upstreamSha256": "0573785c53e3f6128fac1f120cc531833838f7eb5c39b633b2adbf0afe53fb82",
+      "vendoredSha256": "0573785c53e3f6128fac1f120cc531833838f7eb5c39b633b2adbf0afe53fb82"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/opensles/EngineOpenSLES.cpp",
+      "upstreamSha256": "d3486b86622b8ca6337e90248d899b83a63d21817e8f2dad3eefcb72f9c64b7c",
+      "vendoredSha256": "d3486b86622b8ca6337e90248d899b83a63d21817e8f2dad3eefcb72f9c64b7c"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/opensles/EngineOpenSLES.h",
+      "upstreamSha256": "65d435c8dde1d449d78884be04c532d8498f6296eb3c8235571c6ec3bc56283c",
+      "vendoredSha256": "65d435c8dde1d449d78884be04c532d8498f6296eb3c8235571c6ec3bc56283c"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/opensles/OpenSLESUtilities.cpp",
+      "upstreamSha256": "ae9f3d04c3a2262dcf0412d8b378f38fc3ccded3ff658dab9eeae244192ac14f",
+      "vendoredSha256": "ae9f3d04c3a2262dcf0412d8b378f38fc3ccded3ff658dab9eeae244192ac14f"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/opensles/OpenSLESUtilities.h",
+      "upstreamSha256": "36dc589ebc183a4d10a69cf046ca9b9c7a432762eac876cc9efbee3db66d6e0f",
+      "vendoredSha256": "36dc589ebc183a4d10a69cf046ca9b9c7a432762eac876cc9efbee3db66d6e0f"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/opensles/OutputMixerOpenSLES.cpp",
+      "upstreamSha256": "b984c0ba70058dbf9719f22b2f5a760812af3a95f4a45565c479e15819b25c39",
+      "vendoredSha256": "b984c0ba70058dbf9719f22b2f5a760812af3a95f4a45565c479e15819b25c39"
+    },
+    {
+      "path": "src/main/cpp/oboe/src/opensles/OutputMixerOpenSLES.h",
+      "upstreamSha256": "c649ec9f19fd7bd0194119be98a43fac165049c2445c7e12b849c5645144c2a7",
+      "vendoredSha256": "c649ec9f19fd7bd0194119be98a43fac165049c2445c7e12b849c5645144c2a7"
+    },
+    {
+      "path": "src/main/cpp/renderers/es2/imagerendereres2.cpp",
+      "upstreamSha256": "f33c12ec44248f63d1cb12af307874003a78588a15cec072635b17c8ff345630",
+      "vendoredSha256": "f33c12ec44248f63d1cb12af307874003a78588a15cec072635b17c8ff345630"
+    },
+    {
+      "path": "src/main/cpp/renderers/es2/imagerendereres2.h",
+      "upstreamSha256": "742374388eec732b29b646b494d192ece691bc98c46e64ec3056f5c7c58739ed",
+      "vendoredSha256": "742374388eec732b29b646b494d192ece691bc98c46e64ec3056f5c7c58739ed"
+    },
+    {
+      "path": "src/main/cpp/renderers/es3/es3utils.cpp",
+      "upstreamSha256": "432655a6ad07786dbd7cc537024126f5039309d861ef309697083e21f6fdb8d8",
+      "vendoredSha256": "432655a6ad07786dbd7cc537024126f5039309d861ef309697083e21f6fdb8d8"
+    },
+    {
+      "path": "src/main/cpp/renderers/es3/es3utils.h",
+      "upstreamSha256": "77a6ed3c3ba9e2039be8f7d4c17c873523ffa267bd7296d336f8ba3c36cebaa8",
+      "vendoredSha256": "77a6ed3c3ba9e2039be8f7d4c17c873523ffa267bd7296d336f8ba3c36cebaa8"
+    },
+    {
+      "path": "src/main/cpp/renderers/es3/framebufferrenderer.cpp",
+      "upstreamSha256": "72c40a314df23d36c291e79528cbcf65c61f386ad8d91d1cf7d26cc7b9c50a39",
+      "vendoredSha256": "72c40a314df23d36c291e79528cbcf65c61f386ad8d91d1cf7d26cc7b9c50a39"
+    },
+    {
+      "path": "src/main/cpp/renderers/es3/framebufferrenderer.h",
+      "upstreamSha256": "1da57da48b5fe1161ac12392c0fe0357acfb834d34aa13be35863b959cd91b30",
+      "vendoredSha256": "1da57da48b5fe1161ac12392c0fe0357acfb834d34aa13be35863b959cd91b30"
+    },
+    {
+      "path": "src/main/cpp/renderers/es3/imagerendereres3.cpp",
+      "upstreamSha256": "cc2c6b2c6cb2ec1a9b0d952be8a9efdda56617f358c558d1c69f4e1268e8085e",
+      "vendoredSha256": "cc2c6b2c6cb2ec1a9b0d952be8a9efdda56617f358c558d1c69f4e1268e8085e"
+    },
+    {
+      "path": "src/main/cpp/renderers/es3/imagerendereres3.h",
+      "upstreamSha256": "92271af0052e848628430ca4b456011b6509629c608920660f9c4983f17cec08",
+      "vendoredSha256": "92271af0052e848628430ca4b456011b6509629c608920660f9c4983f17cec08"
+    },
+    {
+      "path": "src/main/cpp/renderers/renderer.cpp",
+      "upstreamSha256": "a80902b9694fabd92f1783d7b20b1e94a6be6a072b7bfd7773f89db4f9372470",
+      "vendoredSha256": "a80902b9694fabd92f1783d7b20b1e94a6be6a072b7bfd7773f89db4f9372470"
+    },
+    {
+      "path": "src/main/cpp/renderers/renderer.h",
+      "upstreamSha256": "833f5a65b2c7717d00750c1926da82edbbcf724b23d6e8a54041a8b49c242da0",
+      "vendoredSha256": "833f5a65b2c7717d00750c1926da82edbbcf724b23d6e8a54041a8b49c242da0"
+    },
+    {
+      "path": "src/main/cpp/resamplers/linearresampler.cpp",
+      "upstreamSha256": "b1a9fbfac5b298f7718b26b21f9ad671d713ef7bc1e0cd79e15fc4753057997f",
+      "vendoredSha256": "b1a9fbfac5b298f7718b26b21f9ad671d713ef7bc1e0cd79e15fc4753057997f"
+    },
+    {
+      "path": "src/main/cpp/resamplers/linearresampler.h",
+      "upstreamSha256": "5de6e1a5051c61fbca5d1ebc86d28a390b0ec1102ba469405732c7eb27c2930c",
+      "vendoredSha256": "5de6e1a5051c61fbca5d1ebc86d28a390b0ec1102ba469405732c7eb27c2930c"
+    },
+    {
+      "path": "src/main/cpp/resamplers/resampler.h",
+      "upstreamSha256": "4d4741aa56b6c6a9751ea179df15674e9ea00ec799769b1ad408293170856bdf",
+      "vendoredSha256": "4d4741aa56b6c6a9751ea179df15674e9ea00ec799769b1ad408293170856bdf"
+    },
+    {
+      "path": "src/main/cpp/resamplers/sincresampler.cpp",
+      "upstreamSha256": "c93bd32f40beddcc976bb8c03a9fdfc80bc210a125b371b2327811cc76af5c33",
+      "vendoredSha256": "c93bd32f40beddcc976bb8c03a9fdfc80bc210a125b371b2327811cc76af5c33"
+    },
+    {
+      "path": "src/main/cpp/resamplers/sincresampler.h",
+      "upstreamSha256": "6486c87202c9d1fc854949af705b474abcdc0a004216601ca0686e51c9017897",
+      "vendoredSha256": "6486c87202c9d1fc854949af705b474abcdc0a004216601ca0686e51c9017897"
+    },
+    {
+      "path": "src/main/cpp/rumble.cpp",
+      "upstreamSha256": "701bd5863e464bf1ef67690b310d08fe448d2aaf388e7bbd0c9684f5fc90896b",
+      "vendoredSha256": "701bd5863e464bf1ef67690b310d08fe448d2aaf388e7bbd0c9684f5fc90896b"
+    },
+    {
+      "path": "src/main/cpp/rumble.h",
+      "upstreamSha256": "b2e7f12cf6b738c0e3ec7a48da025bf96d7c256513d100a4c50f3c35ee828ad6",
+      "vendoredSha256": "a770f5fc4ddfb98267ed7c42a62be262095b95d8d73e1addd9925717a733dbec"
+    },
+    {
+      "path": "src/main/cpp/rumblestate.cpp",
+      "upstreamSha256": "90381e38cec177dfad46da17646ca64d91ff1cb30de7cf4e4e5ae6fa2673e59c",
+      "vendoredSha256": "90381e38cec177dfad46da17646ca64d91ff1cb30de7cf4e4e5ae6fa2673e59c"
+    },
+    {
+      "path": "src/main/cpp/rumblestate.h",
+      "upstreamSha256": "855d21ed4777c49651dd7e017038506cc26c2c4d22a0a6f5890804309980fa70",
+      "vendoredSha256": "855d21ed4777c49651dd7e017038506cc26c2c4d22a0a6f5890804309980fa70"
+    },
+    {
+      "path": "src/main/cpp/shadermanager.cpp",
+      "upstreamSha256": "5952aa3bf4a9aa9b9eaa9a5ca22124aff9a792624fb9f4cb4f62ec23e5d52370",
+      "vendoredSha256": "5952aa3bf4a9aa9b9eaa9a5ca22124aff9a792624fb9f4cb4f62ec23e5d52370"
+    },
+    {
+      "path": "src/main/cpp/shadermanager.h",
+      "upstreamSha256": "30ee9e9f32d1d8f0d86dc56a7fbc319e98633a6cb33086973c1d6574043ab244",
+      "vendoredSha256": "30ee9e9f32d1d8f0d86dc56a7fbc319e98633a6cb33086973c1d6574043ab244"
+    },
+    {
+      "path": "src/main/cpp/utils/javautils.cpp",
+      "upstreamSha256": "0323a76db09b0c65a780a00f8cb27e14a8c4daa3571d1e90102fcba7d5f59fff",
+      "vendoredSha256": "0323a76db09b0c65a780a00f8cb27e14a8c4daa3571d1e90102fcba7d5f59fff"
+    },
+    {
+      "path": "src/main/cpp/utils/javautils.h",
+      "upstreamSha256": "c3a80b36c6a4c2ef57d25a098e0bc0eeb8794c6ca1a99e731b6a8c530416c284",
+      "vendoredSha256": "cccec7de1a662978129e417be3a42508df00165e312f8b35d405632b4220556e"
+    },
+    {
+      "path": "src/main/cpp/utils/jnistring.cpp",
+      "upstreamSha256": "8034f2fb5e3f95a06ba16fba2889809d082d739ce7373120fa66109a24667bc2",
+      "vendoredSha256": "8034f2fb5e3f95a06ba16fba2889809d082d739ce7373120fa66109a24667bc2"
+    },
+    {
+      "path": "src/main/cpp/utils/jnistring.h",
+      "upstreamSha256": "9b3491fb326a69220dc38e0310f09399e45f31bd57f05b3eab4f44f3ef35d832",
+      "vendoredSha256": "9b3491fb326a69220dc38e0310f09399e45f31bd57f05b3eab4f44f3ef35d832"
+    },
+    {
+      "path": "src/main/cpp/utils/libretrodroidexception.cpp",
+      "upstreamSha256": "e80df060431bd9a6682cdeabc8fe7dae2efe0d05e0aff0e96a7037d9b79de655",
+      "vendoredSha256": "e80df060431bd9a6682cdeabc8fe7dae2efe0d05e0aff0e96a7037d9b79de655"
+    },
+    {
+      "path": "src/main/cpp/utils/libretrodroidexception.h",
+      "upstreamSha256": "ed443aa3bb2859fc73bb644368df28a9e313a5987f32a67b9f65467913239217",
+      "vendoredSha256": "ed443aa3bb2859fc73bb644368df28a9e313a5987f32a67b9f65467913239217"
+    },
+    {
+      "path": "src/main/cpp/utils/rect.cpp",
+      "upstreamSha256": "8f7928b610441b04b19953b8bb9051e4e1c8f40aa36b4a7cc6ec294e169de09f",
+      "vendoredSha256": "8f7928b610441b04b19953b8bb9051e4e1c8f40aa36b4a7cc6ec294e169de09f"
+    },
+    {
+      "path": "src/main/cpp/utils/rect.h",
+      "upstreamSha256": "a0e2086799efb1ae923c704b8f0ea815e7d93fd56a60dbf92bb62aa6c5a96e3f",
+      "vendoredSha256": "a0e2086799efb1ae923c704b8f0ea815e7d93fd56a60dbf92bb62aa6c5a96e3f"
+    },
+    {
+      "path": "src/main/cpp/utils/utils.cpp",
+      "upstreamSha256": "4874b78cc0b78589a89c489a694cb4e8b81221f0e37ec8ce11b7c8f29ec50c84",
+      "vendoredSha256": "4874b78cc0b78589a89c489a694cb4e8b81221f0e37ec8ce11b7c8f29ec50c84"
+    },
+    {
+      "path": "src/main/cpp/utils/utils.h",
+      "upstreamSha256": "111638c914f6e6d0007a7f44ae0af83008b2532ab7a25aa75dfacb626fb6c409",
+      "vendoredSha256": "111638c914f6e6d0007a7f44ae0af83008b2532ab7a25aa75dfacb626fb6c409"
+    },
+    {
+      "path": "src/main/cpp/vfs/fdwrapper.cpp",
+      "upstreamSha256": "5655627914fbb6e998898507969847b71c5b5864cac05808584a113be40b5608",
+      "vendoredSha256": "5655627914fbb6e998898507969847b71c5b5864cac05808584a113be40b5608"
+    },
+    {
+      "path": "src/main/cpp/vfs/fdwrapper.h",
+      "upstreamSha256": "c5a148a287a2b0a83476d920c35261eae60bd66674b8e68678f90f01d6445f84",
+      "vendoredSha256": "c5a148a287a2b0a83476d920c35261eae60bd66674b8e68678f90f01d6445f84"
+    },
+    {
+      "path": "src/main/cpp/vfs/vfs.cpp",
+      "upstreamSha256": "51808ec9eb66a64a4ce94de9d2219482d4ad7d06419be90bdf47b2d1d0abaae1",
+      "vendoredSha256": "51808ec9eb66a64a4ce94de9d2219482d4ad7d06419be90bdf47b2d1d0abaae1"
+    },
+    {
+      "path": "src/main/cpp/vfs/vfs.h",
+      "upstreamSha256": "b9de999cdfecb41bd292735359fafeb3fe4d073c5b380608464680115cd458ae",
+      "vendoredSha256": "b9de999cdfecb41bd292735359fafeb3fe4d073c5b380608464680115cd458ae"
+    },
+    {
+      "path": "src/main/cpp/vfs/vfsfile.cpp",
+      "upstreamSha256": "34878dae62b68a09fc6f2992a3985775d770f002f76ebd117472b269e98aedf4",
+      "vendoredSha256": "34878dae62b68a09fc6f2992a3985775d770f002f76ebd117472b269e98aedf4"
+    },
+    {
+      "path": "src/main/cpp/vfs/vfsfile.h",
+      "upstreamSha256": "56be2c41eda85aef08e111575c9fa2cce861ab9d1c9c0724846f146e92dec557",
+      "vendoredSha256": "56be2c41eda85aef08e111575c9fa2cce861ab9d1c9c0724846f146e92dec557"
+    },
+    {
+      "path": "src/main/cpp/video.cpp",
+      "upstreamSha256": "ea2ae4f1ac482abc06f401a41d6e064b4c818a257a108aceed7a6e211b8cd96c",
+      "vendoredSha256": "ea2ae4f1ac482abc06f401a41d6e064b4c818a257a108aceed7a6e211b8cd96c"
+    },
+    {
+      "path": "src/main/cpp/video.h",
+      "upstreamSha256": "bfac01bfaea6ca0972d893bfe48a7516d90e310d312e5a3ee7c60af068ca80db",
+      "vendoredSha256": "bfac01bfaea6ca0972d893bfe48a7516d90e310d312e5a3ee7c60af068ca80db"
+    },
+    {
+      "path": "src/main/cpp/videolayout.cpp",
+      "upstreamSha256": "5b23039d71bf8ba565b9266db727b5c40312dc1626f8d8d092fd4c2ce88d1970",
+      "vendoredSha256": "5b23039d71bf8ba565b9266db727b5c40312dc1626f8d8d092fd4c2ce88d1970"
+    },
+    {
+      "path": "src/main/cpp/videolayout.h",
+      "upstreamSha256": "003f8abf9e64f053aa375244f1280c8ae874795e21a8528c78227107a79f393e",
+      "vendoredSha256": "003f8abf9e64f053aa375244f1280c8ae874795e21a8528c78227107a79f393e"
+    },
+    {
+      "path": "src/main/java/com/swordfish/libretrodroid/Controller.kt",
+      "upstreamSha256": "29353ac7a3cf15c0261b0585269d7c7e57a08e0ed6c2662da680374071e685dc",
+      "vendoredSha256": "29353ac7a3cf15c0261b0585269d7c7e57a08e0ed6c2662da680374071e685dc"
+    },
+    {
+      "path": "src/main/java/com/swordfish/libretrodroid/DetachedVirtualFile.kt",
+      "upstreamSha256": "72c670ce89468a97f10c08461edff8446d0d50db72d60f1bce3d7c6fd81a3fb9",
+      "vendoredSha256": "72c670ce89468a97f10c08461edff8446d0d50db72d60f1bce3d7c6fd81a3fb9"
+    },
+    {
+      "path": "src/main/java/com/swordfish/libretrodroid/GLRetroShader.kt",
+      "upstreamSha256": "b7e407f74165d2f8df8358dce08979bbd6f5ce7fe15b8bb133401b148d737fa4",
+      "vendoredSha256": "b7e407f74165d2f8df8358dce08979bbd6f5ce7fe15b8bb133401b148d737fa4"
+    },
+    {
+      "path": "src/main/java/com/swordfish/libretrodroid/GLRetroView.kt",
+      "upstreamSha256": "e7c5285871825c73e83ff09d97c52d8ba807a6d6eabf3f0d92e6306c64d277ad",
+      "vendoredSha256": "c34eca76c32b96fab4b953ac8468b7194c4fd053ec76768df3fc57d7b761bd7c"
+    },
+    {
+      "path": "src/main/java/com/swordfish/libretrodroid/GLRetroViewData.kt",
+      "upstreamSha256": "5e6b816fdbd568b8f6c39e2ad0a9826f8dd6ee3e3c1a8c3133e6855a4204be71",
+      "vendoredSha256": "5e6b816fdbd568b8f6c39e2ad0a9826f8dd6ee3e3c1a8c3133e6855a4204be71"
+    },
+    {
+      "path": "src/main/java/com/swordfish/libretrodroid/ImmersiveMode.kt",
+      "upstreamSha256": "cf6dce2872bc29a4062f6f022a0e2c09b4d97ad81a75d47de4cb1e577cb2ce98",
+      "vendoredSha256": "cf6dce2872bc29a4062f6f022a0e2c09b4d97ad81a75d47de4cb1e577cb2ce98"
+    },
+    {
+      "path": "src/main/java/com/swordfish/libretrodroid/KtUtils.kt",
+      "upstreamSha256": "b1df99897ca863ea068e472ad45031879a884c90cd7ddac63629e71aa6f0b8ae",
+      "vendoredSha256": "b1df99897ca863ea068e472ad45031879a884c90cd7ddac63629e71aa6f0b8ae"
+    },
+    {
+      "path": "src/main/java/com/swordfish/libretrodroid/LibretroDroid.java",
+      "upstreamSha256": "b31dd169acf235c82b55f47df92697f19b7205569c4b3672fc1b23210c656a20",
+      "vendoredSha256": "ecd761f04b558f0b2d45a4cb822c99a099189126f7816b0c650963a9d30a747a"
+    },
+    {
+      "path": "src/main/java/com/swordfish/libretrodroid/RetroException.kt",
+      "upstreamSha256": "9bf53ab15aeb7da977a8c38f4204b4320259beb6308c25ec92f2241a2c11785a",
+      "vendoredSha256": "9bf53ab15aeb7da977a8c38f4204b4320259beb6308c25ec92f2241a2c11785a"
+    },
+    {
+      "path": "src/main/java/com/swordfish/libretrodroid/RumbleEvent.kt",
+      "upstreamSha256": "426d7a57f7233f9e62bff1a9cd3f784d511fe0514dd750ab39615351883ed577",
+      "vendoredSha256": "426d7a57f7233f9e62bff1a9cd3f784d511fe0514dd750ab39615351883ed577"
+    },
+    {
+      "path": "src/main/java/com/swordfish/libretrodroid/ShaderConfig.kt",
+      "upstreamSha256": "f816543294bc367df7ea7ef6c32b2f6c3ec499267fe868176ef3171bf1b8fb19",
+      "vendoredSha256": "f816543294bc367df7ea7ef6c32b2f6c3ec499267fe868176ef3171bf1b8fb19"
+    },
+    {
+      "path": "src/main/java/com/swordfish/libretrodroid/Variable.kt",
+      "upstreamSha256": "22d30b5111fab8d8c63e91f5ba9f51b16920ca6960b2a4bb4a4c62f1ce351608",
+      "vendoredSha256": "22d30b5111fab8d8c63e91f5ba9f51b16920ca6960b2a4bb4a4c62f1ce351608"
+    },
+    {
+      "path": "src/main/java/com/swordfish/libretrodroid/VirtualFile.kt",
+      "upstreamSha256": "125363b5b109a9e74fadf250ca8e43e28993b8b79052a1ff0886e1188b115239",
+      "vendoredSha256": "125363b5b109a9e74fadf250ca8e43e28993b8b79052a1ff0886e1188b115239"
+    },
+    {
+      "path": "src/main/java/com/swordfish/libretrodroid/gamepad/GamepadsManager.kt",
+      "upstreamSha256": "14bfddc505a861b1484c15bed8cd7494831779857e46451fc2a6593d82b1d1cb",
+      "vendoredSha256": "14bfddc505a861b1484c15bed8cd7494831779857e46451fc2a6593d82b1d1cb"
+    },
+    {
+      "path": "src/main/res/values/strings.xml",
+      "upstreamSha256": "6e6bd9668ef40afd0392f7354fc0d33d91cf9beb865935f54a37fea5d23ee01b",
+      "vendoredSha256": "6e6bd9668ef40afd0392f7354fc0d33d91cf9beb865935f54a37fea5d23ee01b"
+    }
+  ]
+}

@@ -128,7 +128,7 @@ fun MigrationImportContent(
                 repository.inspectMigrationBundle(uri)
             }.fold(
                 onSuccess = { bundleInspection ->
-                    if (bundleInspection.requiresReplace) {
+                    if (bundleInspection.requiresReplace || bundleInspection.progressArtifactIssues > 0) {
                         pendingUri = uri
                         inspection = bundleInspection
                     } else {
@@ -165,6 +165,7 @@ fun MigrationImportContent(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            ProgressTransferSummary(summary.progressCheckpointCount, summary.progressBytes, summary.progressArtifactIssues)
             if (onContinueAfterSuccess != null) {
                 OutlinedButton(
                     onClick = onContinueAfterSuccess,
@@ -190,12 +191,14 @@ fun MigrationImportContent(
                 pendingUri = null
             },
             title = {
-                Text("Replace local app data?")
+                Text(if (bundleInspection.requiresReplace) "Replace local app data?" else "Import recovery data?")
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "This device already has local Rommio data. Importing this bundle will replace installed ROM metadata, profiles, sync journals, control profiles, and the managed library root.",
+                        text = if (bundleInspection.requiresReplace)
+                            "Importing replaces this device's library, profiles, controls, saved progress, and pending sync work. Previous data is retained for recovery."
+                        else "This backup contains progress that needs repair. Available files will be preserved.",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(
@@ -213,16 +216,17 @@ fun MigrationImportContent(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    ProgressTransferSummary(bundleInspection.progressCheckpointCount, bundleInspection.progressBytes, bundleInspection.progressArtifactIssues)
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
                         val uri = pendingUri ?: return@Button
-                        launchImport(uri, replaceExisting = true)
+                        launchImport(uri, replaceExisting = bundleInspection.requiresReplace)
                     },
                 ) {
-                    Text("Replace local data")
+                    Text(if (bundleInspection.requiresReplace) "Replace local data" else "Import available data")
                 }
             },
             dismissButton = {
@@ -237,4 +241,17 @@ fun MigrationImportContent(
             },
         )
     }
+}
+
+@Composable
+private fun ProgressTransferSummary(checkpoints: Int, bytes: Long, issues: Int) {
+    if (checkpoints > 0 || bytes > 0) Text(
+        text = "$checkpoints progress checkpoints · ${formatBytes(bytes)} of progress and recovery files",
+        style = MaterialTheme.typography.bodySmall,
+    )
+    if (issues > 0) Text(
+        text = "$issues checkpoint files are missing or damaged. Affected checkpoints need repair before use.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.error,
+    )
 }

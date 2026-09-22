@@ -20,8 +20,8 @@ final class PlayerControlsRepositoryTests: XCTestCase {
 
         let psp = resolver.resolve(platformSlug: "psp")
         XCTAssertEqual(psp.familyID, "psp")
-        XCTAssertEqual(psp.supportTier, .controllerSupported)
-        XCTAssertEqual(psp.touchSupportMode, .controllerFirst)
+        XCTAssertEqual(psp.supportTier, .touchSupported)
+        XCTAssertEqual(psp.touchSupportMode, .full)
     }
 
     func testRepositoryUsesAndroidDefaultPreferencesAndPersistsTuning() async throws {
@@ -117,7 +117,7 @@ final class PlayerControlsRepositoryTests: XCTestCase {
                 preferences: preferences,
                 controllerConnected: false
             ),
-            .controllerRequired
+            .touch
         )
     }
 }

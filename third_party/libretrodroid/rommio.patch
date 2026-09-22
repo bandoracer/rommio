@@ -1,0 +1,605 @@
+--- a/src/main/AndroidManifest.xml
++++ b/src/main/AndroidManifest.xml
+@@ -1,4 +1,3 @@
+-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+-    package="com.swordfish.libretrodroid">
++<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+     <uses-feature android:glEsVersion="0x00020000" android:required="true" />
+ </manifest>
+--- a/src/main/cpp/core.cpp
++++ b/src/main/cpp/core.cpp
+@@ -23,7 +23,8 @@
+ namespace libretrodroid {
+ 
+ Core::Core(const std::string& soCorePath) {
+-    open(soCorePath);
++    try { open(soCorePath); }
++    catch (...) { close(); throw; }
+ }
+ 
+ void* get_symbol(void* handle, const char* symbol) {
+@@ -56,6 +57,9 @@
+     retro_unserialize = (bool (*)(const void*, size_t)) get_symbol(libHandle, "retro_unserialize");
+     retro_get_memory_size = (size_t (*)(unsigned)) get_symbol(libHandle, "retro_get_memory_size");
+     retro_get_memory_data = (void* (*)(unsigned)) get_symbol(libHandle, "retro_get_memory_data");
++    retro_rommio_prepare_restore = (bool (*)(size_t)) dlsym(libHandle, "retro_rommio_prepare_restore");
++    retro_rommio_memory_restored = (bool (*)()) dlsym(libHandle, "retro_rommio_memory_restored");
++    retro_rommio_persistence_descriptor = (const char* (*)()) dlsym(libHandle, "retro_rommio_persistence_descriptor");
+     retro_load_game = (bool (*)(const struct retro_game_info*)) get_symbol(libHandle, "retro_load_game");
+     retro_unload_game = (void (*)()) get_symbol(libHandle, "retro_unload_game");
+     retro_set_video_refresh = (void (*)(retro_video_refresh_t)) get_symbol(libHandle, "retro_set_video_refresh");
+--- a/src/main/cpp/core.h
++++ b/src/main/cpp/core.h
+@@ -41,6 +41,9 @@
+     bool (*retro_unserialize)(const void *data, size_t size);
+     size_t (*retro_get_memory_size)(unsigned id);
+     void* (*retro_get_memory_data)(unsigned id);
++    bool (*retro_rommio_memory_restored)(void) = nullptr;
++    bool (*retro_rommio_prepare_restore)(size_t) = nullptr;
++    const char* (*retro_rommio_persistence_descriptor)(void) = nullptr;
+     bool (*retro_load_game)(const struct retro_game_info *game);
+     void (*retro_unload_game)(void);
+     void (*retro_set_video_refresh)(retro_video_refresh_t);
+--- a/src/main/cpp/environment.cpp
++++ b/src/main/cpp/environment.cpp
+@@ -36,6 +36,8 @@
+     const std::string &requiredSavesDirectory,
+     retro_hw_get_current_framebuffer_t required_callback_get_current_framebuffer
+ ) {
++    // Rommio: a failed prior load must not leak callbacks/options into this session.
++    deinitialize();
+     callback_get_current_framebuffer = required_callback_get_current_framebuffer;
+     systemDirectory = requiredSystemDirectory;
+     savesDirectory = requiredSavesDirectory;
+@@ -52,7 +54,13 @@
+     systemDirectory = std::string();
+     language = RETRO_LANGUAGE_ENGLISH;
+ 
+-    pixelFormat = RETRO_PIXEL_FORMAT_RGB565;
++    useVirtualFileSystem = false;
++    enableMicrophone = false;
++    variables.clear();
++    dirtyVariables = false;
++    controllers.clear();
++    screenRotationUpdated = false;
++    pixelFormat = RETRO_PIXEL_FORMAT_0RGB1555;
+     useHWAcceleration = false;
+     useDepth = false;
+     useStencil = false;
+--- a/src/main/cpp/environment.h
++++ b/src/main/cpp/environment.h
+@@ -128,7 +128,7 @@
+     bool useVirtualFileSystem = false;
+     bool enableMicrophone = false;
+ 
+-    int pixelFormat = RETRO_PIXEL_FORMAT_RGB565;
++    int pixelFormat = RETRO_PIXEL_FORMAT_0RGB1555;
+     bool useHWAcceleration = false;
+     bool useDepth = false;
+     bool useStencil = false;
+--- a/src/main/cpp/libretrodroid.cpp
++++ b/src/main/cpp/libretrodroid.cpp
+@@ -147,6 +147,7 @@
+ bool LibretroDroid::unserializeState(int8_t *data, size_t size) {
+     std::lock_guard<std::mutex> lock(coreLock);
+ 
++    if (!core || !gameLoaded || data == nullptr || size == 0 || size > 256u * 1024u * 1024u) return false;
+     return core->retro_unserialize(data, size);
+ }
+ 
+@@ -156,12 +157,13 @@
+     size_t sramSize = core->retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
+     void *sramState = core->retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
+ 
++    if (size == 0 && sramSize == 0) return true;
+     if (sramState == nullptr) {
+         LOGE("Cannot load SRAM: nullptr in retro_get_memory_data");
+         return false;
+     }
+ 
+-    if (size > sramSize) {
++    if (size != sramSize) {
+         LOGE("Cannot load SRAM: size mismatch");
+         return false;
+     }
+@@ -171,14 +173,87 @@
+     return true;
+ }
+ 
++namespace {
++    bool persistentMemoryId(unsigned id) {
++        // Private IDs require the app's exact-artifact qualification before invocation.
++        return id == RETRO_MEMORY_SAVE_RAM || id == RETRO_MEMORY_RTC ||
++               id == 0x100 || id == 0x200 || id == 0x300;
++    }
++}
++
++bool LibretroDroid::unserializePersistentMemory(const int8_t* sram, size_t sramSize,
++                                                const int8_t* rtc, size_t rtcSize) {
++    return unserializeMemoryRegions({{RETRO_MEMORY_SAVE_RAM, sram, sramSize}, {RETRO_MEMORY_RTC, rtc, rtcSize}});
++}
++
++bool LibretroDroid::unserializeMemoryRegions(const std::vector<MemoryRegion>& regions) {
++    std::lock_guard<std::mutex> lock(coreLock);
++    if (!core || !gameLoaded || regions.empty() || regions.size() > 5) return false;
++    std::unordered_set<unsigned> ids;
++    size_t total = 0;
++    bool extended = false;
++    // Validate every ID before querying a core. Duplicate regions cannot alias a write.
++    for (const auto& region : regions) {
++        if (!persistentMemoryId(region.id) || !ids.insert(region.id).second ||
++            region.size > 256u * 1024u * 1024u) return false;
++        extended = extended || region.id >= 0x100;
++        total += region.size;
++        if (total > 256u * 1024u * 1024u) return false;
++    }
++    if (extended && core->retro_rommio_memory_restored == nullptr) return false;
++    if (core->retro_rommio_prepare_restore) {
++        if (regions.size() != 2 || ids.count(0) != 1 || ids.count(1) != 1) return false;
++        for (const auto& region : regions) {
++            if (region.id == 1 && region.size != 0) return false;
++            if (region.id == 0 && (region.size < 12 || region.size > 64u * 1024u * 1024u ||
++                                   !core->retro_rommio_prepare_restore(region.size))) return false;
++        }
++    }
++    std::vector<void*> destinations;
++    for (const auto& region : regions) {
++        if (region.size != core->retro_get_memory_size(region.id)) return false;
++        void* destination = core->retro_get_memory_data(region.id);
++        if (region.size > 0 && (region.data == nullptr || destination == nullptr)) return false;
++        destinations.push_back(destination);
++    }
++    // All destinations and sizes are checked before any copy, including extra battery banks.
++    for (size_t i = 0; i < regions.size(); ++i) {
++        if (regions[i].size > 0) memcpy(destinations[i], regions[i].data, regions[i].size);
++    }
++    return core->retro_rommio_memory_restored == nullptr || core->retro_rommio_memory_restored();
++}
++
++std::optional<std::string> LibretroDroid::getPersistenceDescriptor() {
++    std::lock_guard<std::mutex> lock(coreLock);
++    if (!core || !gameLoaded) throw LibretroDroidError("Core is not ready", ERROR_SERIALIZATION);
++    if (core->retro_rommio_persistence_descriptor == nullptr) return std::nullopt;
++    const char* descriptor = core->retro_rommio_persistence_descriptor();
++    if (descriptor == nullptr) return std::nullopt;
++    const size_t length = strnlen(descriptor, 129);
++    if (length == 0 || length > 128) throw LibretroDroidError("Invalid persistence descriptor", ERROR_SERIALIZATION);
++    for (size_t i = 0; i < length; ++i) {
++        if (descriptor[i] < 32 || descriptor[i] > 126) throw LibretroDroidError("Non-ASCII persistence descriptor", ERROR_SERIALIZATION);
++    }
++    return std::string(descriptor, length);
++}
++
+ std::pair<int8_t*, size_t> LibretroDroid::serializeSRAM() {
+-    std::lock_guard<std::mutex> lock(coreLock);
+-
+-    size_t size = core->retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
+-    auto* data = new int8_t[size];
+-    memcpy(data, (int8_t*) core->retro_get_memory_data(RETRO_MEMORY_SAVE_RAM), size);
+-
+-    return std::pair(data, size);
++    return serializeMemory(RETRO_MEMORY_SAVE_RAM);
++}
++
++std::pair<int8_t*, size_t> LibretroDroid::serializeMemory(unsigned id) {
++    std::lock_guard<std::mutex> lock(coreLock);
++
++    if (!core || !gameLoaded) throw LibretroDroidError("Core is not ready", ERROR_SERIALIZATION);
++    if (!persistentMemoryId(id))
++        throw LibretroDroidError("Unsupported persistent memory region", ERROR_SERIALIZATION);
++    const size_t size = core->retro_get_memory_size(id);
++    if (size > 256u * 1024u * 1024u) throw LibretroDroidError("Unsupported memory size", ERROR_SERIALIZATION);
++    auto source = core->retro_get_memory_data(id);
++    if (size > 0 && source == nullptr) throw LibretroDroidError("Missing memory buffer", ERROR_SERIALIZATION);
++    auto data = std::make_unique<int8_t[]>(size);
++    if (size > 0) memcpy(data.get(), source, size);
++    return std::pair(data.release(), size);
+ }
+ 
+ void LibretroDroid::onSurfaceChanged(unsigned int width, unsigned int height) {
+@@ -187,6 +262,7 @@
+ }
+ 
+ void LibretroDroid::onSurfaceCreated() {
++    std::lock_guard<std::mutex> lock(coreLock);
+     LOGD("Performing libretrodroid onSurfaceCreated");
+ 
+     struct retro_system_av_info system_av_info {};
+@@ -219,6 +295,7 @@
+ 
+     if (Environment::getInstance().getHwContextReset() != nullptr) {
+         Environment::getInstance().getHwContextReset()();
++        hardwareContextReady = true;
+     }
+ }
+ 
+@@ -266,7 +343,8 @@
+ ) {
+     LOGD("Performing libretrodroid create");
+ 
+-    resetGlobalVariables();
++    // Rommio: idempotent cleanup also covers partial and failed initialization.
++    destroy();
+ 
+     Environment::getInstance().initialize(systemDir, savesDir, &callback_get_current_framebuffer);
+     Environment::getInstance().setLanguage(language);
+@@ -295,6 +373,7 @@
+     });
+ 
+     core->retro_init();
++    coreInitialized = true;
+ 
+     preferLowLatencyAudio = lowLatencyAudio;
+ 
+@@ -332,6 +411,7 @@
+         throw std::runtime_error("Cannot load game");
+     }
+ 
++    gameLoaded = true;
+     afterGameLoad();
+ }
+ 
+@@ -359,6 +439,7 @@
+         throw std::runtime_error("Cannot load game");
+     }
+ 
++    gameLoaded = true;
+     afterGameLoad();
+ }
+ 
+@@ -400,6 +481,7 @@
+         throw std::runtime_error("Cannot load game");
+     }
+ 
++    gameLoaded = true;
+     afterGameLoad();
+ }
+ 
+@@ -408,19 +490,28 @@
+ 
+     LOGD("Performing libretrodroid destroy");
+ 
+-    if (Environment::getInstance().getHwContextDestroy() != nullptr) {
++    if (hardwareContextReady && Environment::getInstance().getHwContextDestroy() != nullptr) {
+         Environment::getInstance().getHwContextDestroy()();
+     }
+-
+-    core->retro_unload_game();
+-    core->retro_deinit();
+-
+-    video = nullptr;
+-    core = nullptr;
+-    rumble = nullptr;
+-    fpsSync = nullptr;
+-    audio = nullptr;
+-
++    hardwareContextReady = false;
++    if (core && gameLoaded) core->retro_unload_game();
++    gameLoaded = false;
++    if (core && coreInitialized) core->retro_deinit();
++    coreInitialized = false;
++    resetGlobalVariables();
++    frameSpeed = 1;
++    audioEnabled = true;
++    preferLowLatencyAudio = false;
++    rumbleEnabled = false;
++    viewportRect = Rect(0.0F, 0.0F, 1.0F, 1.0F);
++    defaultAspectRatio = 1.0F;
++    dirtyVideo = false;
++    fragmentShaderConfig = ShaderManager::Config { ShaderManager::Type::SHADER_DEFAULT, {} };
++    immersiveModeConfig = ImmersiveMode::Config{};
++    immersiveModeEnabled = false;
++    skipDuplicateFrames = false;
++    screenRefreshRate = 60.0F;
++    openglESVersion = 2;
+     Environment::getInstance().deinitialize();
+     VFS::getInstance().deinitialize();
+ }
+@@ -572,12 +663,16 @@
+ std::pair<int8_t*, size_t> LibretroDroid::serializeState() {
+     std::lock_guard<std::mutex> lock(coreLock);
+ 
+-    size_t size = core->retro_serialize_size();
+-    auto data = new int8_t[size];
+-
+-    core->retro_serialize(data, size);
+-
+-    return std::pair(data, size);
++    if (!core || !gameLoaded) throw LibretroDroidError("Core is not ready", ERROR_SERIALIZATION);
++    const size_t size = core->retro_serialize_size();
++    if (size == 0 || size > 256u * 1024u * 1024u) {
++        throw LibretroDroidError("Unsupported save-state size", ERROR_SERIALIZATION);
++    }
++    auto data = std::make_unique<int8_t[]>(size);
++    if (!core->retro_serialize(data.get(), size)) {
++        throw LibretroDroidError("Core rejected save-state capture", ERROR_SERIALIZATION);
++    }
++    return std::pair(data.release(), size);
+ }
+ 
+ void LibretroDroid::resetCheat() {
+--- a/src/main/cpp/libretrodroid.h
++++ b/src/main/cpp/libretrodroid.h
+@@ -71,6 +71,11 @@
+     bool unserializeState(int8_t *data, size_t size);
+ 
+     std::pair<int8_t *, size_t> serializeSRAM();
++    std::pair<int8_t *, size_t> serializeMemory(unsigned id);
++    std::optional<std::string> getPersistenceDescriptor();
++    struct MemoryRegion { unsigned id; const int8_t* data; size_t size; };
++    bool unserializeMemoryRegions(const std::vector<MemoryRegion>& regions);
++    bool unserializePersistentMemory(const int8_t* sram, size_t sramSize, const int8_t* rtc, size_t rtcSize);
+     jboolean unserializeSRAM(int8_t *data, size_t size);
+ 
+     void onSurfaceCreated();
+@@ -175,6 +180,9 @@
+ 
+     std::mutex coreLock;
+ 
++    bool coreInitialized = false;
++    bool gameLoaded = false;
++    bool hardwareContextReady = false;
+     std::unique_ptr<Core> core;
+     std::unique_ptr<Audio> audio;
+     std::unique_ptr<Video> video;
+--- a/src/main/cpp/libretrodroidjni.cpp
++++ b/src/main/cpp/libretrodroidjni.cpp
+@@ -174,17 +174,14 @@
+     jclass obj,
+     jbyteArray state
+ ) {
+-    try {
+-        jboolean isCopy = JNI_FALSE;
+-        jbyte* data = env->GetByteArrayElements(state, &isCopy);
+-        jsize size = env->GetArrayLength(state);
+-
+-        bool result = LibretroDroid::getInstance().unserializeState(data, size);
++    jbyte* data = env->GetByteArrayElements(state, nullptr);
++    if (data == nullptr) return JNI_FALSE;
++    try {
++        const bool result = LibretroDroid::getInstance().unserializeState(data, env->GetArrayLength(state));
+         env->ReleaseByteArrayElements(state, data, JNI_ABORT);
+-
+         return result ? JNI_TRUE : JNI_FALSE;
+-
+-    } catch (std::exception &exception) {
++    } catch (std::exception &exception) {
++        env->ReleaseByteArrayElements(state, data, JNI_ABORT);
+         LOGE("Error in unserializeState: %s", exception.what());
+         JavaUtils::throwRetroException(env, ERROR_SERIALIZATION);
+         return JNI_FALSE;
+@@ -197,8 +194,10 @@
+ ) {
+     try {
+         auto [data, size] = LibretroDroid::getInstance().serializeState();
++        std::unique_ptr<int8_t[]> owner(data);
+ 
+         jbyteArray result = env->NewByteArray(size);
++        if (result == nullptr) return nullptr;
+         env->SetByteArrayRegion(result, 0, size, data);
+ 
+         return result;
+@@ -244,22 +243,19 @@
+     jclass obj,
+     jbyteArray sram
+ ) {
+-    try {
+-        jboolean isCopy = JNI_FALSE;
+-        jbyte* data = env->GetByteArrayElements(sram, &isCopy);
+-        jsize size = env->GetArrayLength(sram);
+-
+-        LibretroDroid::getInstance().unserializeSRAM(data, size);
+-
++    jbyte* data = env->GetByteArrayElements(sram, nullptr);
++    if (data == nullptr) return JNI_FALSE;
++    try {
++        const jsize size = env->GetArrayLength(sram);
++        const bool result = LibretroDroid::getInstance().unserializeSRAM(data, size);
+         env->ReleaseByteArrayElements(sram, data, JNI_ABORT);
+-
+-    } catch (std::exception &exception) {
++        return result ? JNI_TRUE : JNI_FALSE;
++    } catch (std::exception &exception) {
++        env->ReleaseByteArrayElements(sram, data, JNI_ABORT);
+         LOGE("Error in unserializeSRAM: %s", exception.what());
+         JavaUtils::throwRetroException(env, ERROR_SERIALIZATION);
+         return JNI_FALSE;
+     }
+-
+-    return JNI_TRUE;
+ }
+ 
+ JNIEXPORT jbyteArray JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_serializeSRAM(
+@@ -268,8 +264,10 @@
+ ) {
+     try {
+         auto [data, size] = LibretroDroid::getInstance().serializeSRAM();
++        std::unique_ptr<int8_t[]> owner(data);
+ 
+         jbyteArray result = env->NewByteArray(size);
++        if (result == nullptr) return nullptr;
+         env->SetByteArrayRegion(result, 0, size, (jbyte *) data);
+ 
+         return result;
+@@ -280,6 +278,90 @@
+     }
+ 
+     return nullptr;
++}
++
++JNIEXPORT jbyteArray JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_serializeMemory(
++    JNIEnv* env, jclass obj, jint id
++) {
++    try {
++        auto [data, size] = LibretroDroid::getInstance().serializeMemory(id);
++        std::unique_ptr<int8_t[]> owner(data);
++        jbyteArray result = env->NewByteArray(size);
++        if (result == nullptr) return nullptr;
++        env->SetByteArrayRegion(result, 0, size, (jbyte*)data);
++        return result;
++    } catch (std::exception &exception) {
++        LOGE("Error in serializeMemory: %s", exception.what());
++        JavaUtils::throwRetroException(env, ERROR_SERIALIZATION);
++        return nullptr;
++    }
++}
++
++JNIEXPORT jboolean JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_unserializePersistentMemory(
++    JNIEnv* env, jclass obj, jbyteArray sram, jbyteArray rtc
++) {
++    jbyte* sramData = env->GetByteArrayElements(sram, nullptr);
++    if (sramData == nullptr) return JNI_FALSE;
++    jbyte* rtcData = env->GetByteArrayElements(rtc, nullptr);
++    if (rtcData == nullptr) { env->ReleaseByteArrayElements(sram, sramData, JNI_ABORT); return JNI_FALSE; }
++    bool result = false;
++    try {
++        result = LibretroDroid::getInstance().unserializePersistentMemory(sramData, env->GetArrayLength(sram), rtcData, env->GetArrayLength(rtc));
++    } catch (std::exception &exception) {
++        LOGE("Error in unserializePersistentMemory: %s", exception.what());
++        JavaUtils::throwRetroException(env, ERROR_SERIALIZATION);
++    }
++    env->ReleaseByteArrayElements(sram, sramData, JNI_ABORT);
++    env->ReleaseByteArrayElements(rtc, rtcData, JNI_ABORT);
++    return result ? JNI_TRUE : JNI_FALSE;
++}
++
++JNIEXPORT jstring JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_getPersistenceDescriptor(
++    JNIEnv* env, jclass obj
++) {
++    try {
++        auto descriptor = LibretroDroid::getInstance().getPersistenceDescriptor();
++        return descriptor ? env->NewStringUTF(descriptor->c_str()) : nullptr;
++    } catch (std::exception &exception) {
++        LOGE("Error in getPersistenceDescriptor: %s", exception.what());
++        JavaUtils::throwRetroException(env, ERROR_SERIALIZATION);
++        return nullptr;
++    }
++}
++
++JNIEXPORT jboolean JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_unserializeMemoryRegions(
++    JNIEnv* env, jclass obj, jintArray ids, jobjectArray regions
++) {
++    if (ids == nullptr || regions == nullptr) return JNI_FALSE;
++    const jsize count = env->GetArrayLength(ids);
++    if (count < 1 || count > 5 || env->GetArrayLength(regions) != count) return JNI_FALSE;
++    jint values[5];
++    env->GetIntArrayRegion(ids, 0, count, values);
++    if (env->ExceptionCheck()) return JNI_FALSE;
++    try {
++        std::vector<std::vector<int8_t>> buffers;
++        std::vector<LibretroDroid::MemoryRegion> nativeRegions;
++        buffers.reserve(count);
++        nativeRegions.reserve(count);
++        size_t total = 0;
++        for (jsize i = 0; i < count; ++i) {
++            auto array = static_cast<jbyteArray>(env->GetObjectArrayElement(regions, i));
++            if (env->ExceptionCheck() || array == nullptr) return JNI_FALSE;
++            const jsize size = env->GetArrayLength(array);
++            total += size;
++            if (total > 256u * 1024u * 1024u) { env->DeleteLocalRef(array); return JNI_FALSE; }
++            buffers.emplace_back(size);
++            if (size > 0) env->GetByteArrayRegion(array, 0, size, buffers.back().data());
++            env->DeleteLocalRef(array);
++            if (env->ExceptionCheck()) return JNI_FALSE;
++            nativeRegions.push_back({static_cast<unsigned>(values[i]), buffers.back().data(), static_cast<size_t>(size)});
++        }
++        return LibretroDroid::getInstance().unserializeMemoryRegions(nativeRegions) ? JNI_TRUE : JNI_FALSE;
++    } catch (std::exception &exception) {
++        LOGE("Error in unserializeMemoryRegions: %s", exception.what());
++        if (!env->ExceptionCheck()) JavaUtils::throwRetroException(env, ERROR_SERIALIZATION);
++        return JNI_FALSE;
++    }
+ }
+ 
+ JNIEXPORT void JNICALL Java_com_swordfish_libretrodroid_LibretroDroid_reset(
+--- a/src/main/cpp/rumble.h
++++ b/src/main/cpp/rumble.h
+@@ -18,6 +18,7 @@
+ #ifndef LIBRETRODROID_RUMBLE_H
+ #define LIBRETRODROID_RUMBLE_H
+ 
++#include <functional>
+ #include <array>
+ 
+ #include "rumblestate.h"
+--- a/src/main/cpp/utils/javautils.h
++++ b/src/main/cpp/utils/javautils.h
+@@ -18,6 +18,7 @@
+ #ifndef LIBRETRODROID_JAVAUTILS_H
+ #define LIBRETRODROID_JAVAUTILS_H
+ 
++#include <functional>
+ #include "unordered_map"
+ #include "string"
+ 
+--- a/src/main/java/com/swordfish/libretrodroid/GLRetroView.kt
++++ b/src/main/java/com/swordfish/libretrodroid/GLRetroView.kt
+@@ -110,9 +110,10 @@
+     }
+ 
+     @OnLifecycleEvent(Lifecycle.Event.ON_DESTROY)
+-    fun onDestroy() = catchExceptions {
+-        LibretroDroid.destroy()
+-        lifecycle = null
++    fun onDestroy() {
++        // Rommio: cleanup must run even when a prior load set isAborted.
++        try { LibretroDroid.destroy() }
++        finally { lifecycle = null; isAborted = true }
+     }
+ 
+     private fun getDeviceLanguage() = Locale.getDefault().language
+@@ -337,14 +338,19 @@
+ 
+     // These functions are called from the GL thread.
+     private fun initializeCore() = catchExceptions {
+-        if (isGameLoaded) return@catchExceptions
++        if (isGameLoaded) {
++            // A retained game can outlive its EGL surface. Rebuild display resources without
++            // reloading content, reseeding SRAM, or registering duplicate lifecycle observers.
++            LibretroDroid.onSurfaceCreated()
++            return@catchExceptions
++        }
+         when {
+             data.gameFilePath != null -> loadGameFromPath(data.gameFilePath!!)
+             data.gameFileBytes != null -> loadGameFromBytes(data.gameFileBytes!!)
+             data.gameVirtualFiles.isNotEmpty() -> loadGameFromVirtualFiles(data.gameVirtualFiles)
+         }
+         data.saveRAMState?.let {
+-            LibretroDroid.unserializeSRAM(data.saveRAMState)
++            if (!LibretroDroid.unserializeSRAM(data.saveRAMState)) throw RetroException(ERROR_SERIALIZATION)
+             data.saveRAMState = null
+         }
+         LibretroDroid.onSurfaceCreated()
+@@ -392,14 +398,14 @@
+         }
+ 
+         val latch = CountDownLatch(1)
+-        var result: T? = null
++        var result: Result<T>? = null
+         queueEvent {
+-            result = block()
+-            latch.countDown()
++            try { result = runCatching(block) }
++            finally { latch.countDown() }
+         }
+ 
+         latch.awaitUninterruptibly()
+-        return result!!
++        return requireNotNull(result).getOrThrow()
+     }
+ 
+     private fun buildShader(config: ShaderConfig): GLRetroShader {
+--- a/src/main/java/com/swordfish/libretrodroid/LibretroDroid.java
++++ b/src/main/java/com/swordfish/libretrodroid/LibretroDroid.java
+@@ -122,6 +122,11 @@
+     public static native void resetCheat();
+ 
+     public static native byte[] serializeSRAM();
++    /** Standard IDs are SRAM (0), RTC (1); private bank IDs require exact-core qualification. */
++    public static native byte[] serializeMemory(int id);
++    public static native String getPersistenceDescriptor();
++    public static native boolean unserializePersistentMemory(byte[] sram, byte[] rtc);
++    public static native boolean unserializeMemoryRegions(int[] ids, byte[][] regions);
+     public static native boolean unserializeSRAM(byte[] sram);
+ 
+     public static native void updateVariable(Variable variable);

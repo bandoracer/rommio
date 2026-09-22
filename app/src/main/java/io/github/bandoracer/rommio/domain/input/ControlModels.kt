@@ -136,7 +136,7 @@ data class PlayerControlsPreferences(
     val autoHideTouchOnController: Boolean = true,
     val rumbleToDeviceEnabled: Boolean = true,
     val oledBlackModeEnabled: Boolean = false,
-    val consoleColorsEnabled: Boolean = false,
+    val consoleColorsEnabled: Boolean = true,
 )
 
 data class PlayerControlsState(

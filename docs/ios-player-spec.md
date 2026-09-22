@@ -2,6 +2,8 @@
 
 This document is the iOS player appendix for Rommio. It describes how the embedded player behaves on iPhone and iPad, how overlays work, and how each supported platform family is expected to present its window and controls.
 
+The [save, sync, and session architecture](save-sync-spec.md) defines the shared target behavior for persistence, session ordering, recovery, and conflicts. It takes precedence over save/sync behavior described here; its requirements are not a claim of current implementation.
+
 The runtime catalog and support-status source of truth remain:
 
 - [core-matrix.md](core-matrix.md)
@@ -296,16 +298,39 @@ Shipping behavior:
 
 ### Special notes
 
-This family is the main exception to the controller-first handheld rule on iOS. It is touch-supported because the iOS player already treats it as a portrait handheld rather than a controller-dependent console.
+This family is touch-supported with a portrait handheld layout. PSP has a separate landscape touch layout.
 
 Near-term direction should remain conservative: keep `DS / DSi-enhanced` within one family unless a future runtime or UI need truly requires splitting them apart.
+
+## Expanded console controls
+
+Genesis/Mega Drive, Sega CD, Master System, Game Gear, PlayStation, N64, and PSP
+have landscape touch controls on Android and iOS. The authoritative button/axis
+and geometry contract is [player-controls.json](player-controls.json); run
+`python3 scripts/cores/generate_player_controls.py` after changing it.
+
+- Genesis/Sega CD use A/B/C, X/Y/Z, Mode, Start and the six-button device type.
+- Master System uses 1/2 and console Pause; Game Gear uses 1/2 and Start.
+- PlayStation exposes four symbol buttons, L1/R1/L2/R2, Select/Start, both sticks,
+  L3/R3 and Analog (the core's L1+R1+Select toggle). Default device is DualShock;
+  the existing controller-type selector can choose the digital pad for compatibility.
+- N64 exposes D-pad, analog stick, A/B, L/R/Z, Start and independent C directions.
+  C directions combine into the core's right analog axes without consuming A/B.
+- PSP exposes D-pad, analog stick, four symbol buttons, L/R and Select/Start.
+
+Menu remains reachable when gameplay controls are hidden. Pause, cancelled touches,
+and disappearing overlays must release held buttons and recenter sticks. The iOS
+native surface and its controls share full-window coordinates; safe areas are
+applied once. Mirroring swaps control rails without reversing their internal order.
+Both game-save history and snapshot history remain independently accessible.
+
+See [player-controls-validation.md](player-controls-validation.md) for platform-specific
+qualification; a touch layout does not establish disc/BIOS or physical-device qualification.
 
 ## Controller-First Families
 
 ### Family scope
 
-- `N64`
-- `PSP`
 - `Dreamcast / NAOMI`
 - `3DO`
 - `Virtual Boy`

@@ -1,0 +1,42 @@
+{
+  "gambatte": {
+    "repository": "https://github.com/libretro/gambatte-libretro.git",
+    "revision": "d9d6cd06382d1ced30de34d56d3609452323dab1",
+    "persistenceExtension": "rommio-cart-v1"
+  },
+  "mgba": {
+    "repository": "https://github.com/libretro/mgba.git",
+    "revision": "7a12d6d4b9acb14c0ae62c9166b6a2f3d08007f6",
+    "persistenceExtension": "rommio-cart-v1"
+  },
+  "snes9x": {
+    "repository": "https://github.com/libretro/snes9x.git",
+    "revision": "fae2fea08f74180759ef540ee94259213f503480",
+    "persistenceExtension": "rommio-cart-v1"
+  },
+  "melonds_ds": {
+    "repository": "https://github.com/JesseTG/melonds-ds.git",
+    "revision": "bc4e4b67d2d470d7c682810a1e892cafd6f9082b",
+    "persistenceExtension": "rommio-cart-v1"
+  },
+  "genesis_plus_gx": {
+    "repository": "https://github.com/libretro/Genesis-Plus-GX.git",
+    "revision": "c2838c7dc4236fc2fe94e5dbd08b41486067918e",
+    "persistenceExtension": "rommio-cart-v1"
+  },
+  "pcsx_rearmed": {
+    "repository": "https://github.com/libretro/pcsx_rearmed.git",
+    "revision": "8625c395a24411f8c77e69802b516df9c613a712",
+    "persistenceExtension": "rommio-cart-v1"
+  },
+  "mupen64plus_next_gles3": {
+    "repository": "https://github.com/libretro/mupen64plus-libretro-nx.git",
+    "revision": "6752836de8b224febfd5708444755b77712ac939",
+    "persistenceExtension": "rommio-cart-v1"
+  },
+  "ppsspp": {
+    "repository": "https://github.com/hrydgard/ppsspp.git",
+    "revision": "ab6ccbd08c45288b52e517163e196a3569137ed1",
+    "persistenceExtension": "rommio-files-v1"
+  }
+}

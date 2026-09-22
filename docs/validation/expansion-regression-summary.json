@@ -1,0 +1,28 @@
+{
+  "swift": {
+    "tests": 167,
+    "skipped": 3,
+    "failures": 0,
+    "nativeExpansionFixtures": 6
+  },
+  "androidUnit": {
+    "tests": 122,
+    "skipped": 0,
+    "failures": 0
+  },
+  "androidExistingNativeAndPlayer": {
+    "tests": 32,
+    "skipped": 1,
+    "failures": 0,
+    "skip": "external force-stop scenario requires its separate orchestrator"
+  },
+  "standaloneFileBundle": {
+    "status": "passed",
+    "compilerFlags": [
+      "-std=c++17",
+      "-Wall",
+      "-Wextra",
+      "-Werror"
+    ]
+  }
+}

@@ -1,7 +1,7 @@
 package io.github.bandoracer.rommio.ui.screen.auth
 
 import android.graphics.Bitmap
-import android.webkit.CookieManager
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -19,7 +19,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
+import io.github.bandoracer.rommio.domain.storage.StorageAccess
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,6 +48,10 @@ fun InteractiveAuthScreen(
     onEdgeFinished: () -> Unit,
     onOriginFinished: () -> Unit,
 ) {
+    DisposableEffect(Unit) {
+        val lease = StorageAccess.session()
+        onDispose { lease.close() }
+    }
     val scope = rememberCoroutineScope()
     val activeProfile by container.repository.activeProfileFlow().collectAsStateWithLifecycle(initialValue = null)
     var config by remember { mutableStateOf<InteractiveSessionConfig?>(null) }
@@ -84,6 +91,7 @@ fun InteractiveAuthScreen(
         scope.launch {
             isCompleting = true
             runCatching {
+                container.authManager.profileCookies.requireCurrent(requireNotNull(loadedConfig.cookieContext))
                 container.repository.completeEdgeAccessAttempt(loadedConfig.profileId)
             }.fold(
                 onSuccess = { onEdgeFinished() },
@@ -99,6 +107,7 @@ fun InteractiveAuthScreen(
         scope.launch {
             isCompleting = true
             runCatching {
+                container.authManager.profileCookies.requireCurrent(requireNotNull(loadedConfig.cookieContext))
                 container.repository.completeInteractiveLogin(loadedConfig.profileId, provider)
             }.fold(
                 onSuccess = { status ->
@@ -190,43 +199,51 @@ fun InteractiveAuthScreen(
                     Text(if (provider == InteractiveSessionProvider.EDGE) "Return to access test" else "Done")
                 }
             }
-            AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { context ->
-                    WebView(context).apply {
-                        CookieManager.getInstance().setAcceptCookie(true)
-                        CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                        settings.javaScriptEnabled = true
-                        settings.domStorageEnabled = true
-                        webChromeClient = WebChromeClient()
-                        webViewClient = object : WebViewClient() {
-                            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                                if (url == null) return
-                                if (provider == InteractiveSessionProvider.ORIGIN && isInteractiveOriginSuccess(url, loadedConfig)) {
-                                    finishOrigin()
-                                }
+            key(loadedConfig.cookieContext?.storeName) {
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    onRelease = { it.stopLoading(); it.destroy() },
+                    factory = { context ->
+                        WebView(context).apply {
+                            val attached = runCatching {
+                                container.authManager.profileCookies.attach(this, requireNotNull(loadedConfig.cookieContext))
                             }
+                            if (attached.isFailure) {
+                                errorMessage = attached.exceptionOrNull()?.message ?: "Start sign-in again."
+                                return@apply
+                            }
+                            settings.javaScriptEnabled = true
+                            settings.domStorageEnabled = true
+                            webChromeClient = WebChromeClient()
+                            webViewClient = object : WebViewClient() {
+                                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                    if (url == null) return
+                                    if (provider == InteractiveSessionProvider.ORIGIN && isInteractiveOriginSuccess(url, loadedConfig)) {
+                                        finishOrigin()
+                                    }
+                                }
 
-                            override fun onPageFinished(view: WebView?, url: String?) {
-                                if (url == null) return
-                                if (provider == InteractiveSessionProvider.ORIGIN && isInteractiveOriginSuccess(url, loadedConfig)) {
-                                    finishOrigin()
+                                override fun onPageFinished(view: WebView?, url: String?) {
+                                    if (url == null) return
+                                    if (provider == InteractiveSessionProvider.ORIGIN && isInteractiveOriginSuccess(url, loadedConfig)) {
+                                        finishOrigin()
+                                    }
                                 }
                             }
+                            loadUrl(loadedConfig.startUrl)
                         }
-                        loadUrl(loadedConfig.startUrl)
-                    }
-                },
-            )
+                    },
+                )
+            }
         }
     }
 }
 
 private fun isInteractiveOriginSuccess(url: String, config: InteractiveSessionConfig): Boolean {
-    val cleanUrl = url.removeSuffix("/").lowercase()
-    val expectedBase = config.expectedBaseUrl.removeSuffix("/").lowercase()
-    return cleanUrl == expectedBase ||
-        (cleanUrl.startsWith(expectedBase) &&
+    val parsed = url.toHttpUrlOrNull() ?: return false
+    if (!io.github.bandoracer.rommio.data.network.CredentialScope(config.expectedBaseUrl).contains(parsed)) return false
+    val cleanUrl = parsed.encodedPath.lowercase()
+    return (
             !cleanUrl.contains("/api/login") &&
             !cleanUrl.contains("/api/oauth") &&
             !cleanUrl.contains("/auth/"))

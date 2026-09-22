@@ -35,6 +35,7 @@ data class OfflineState(
     val connectivity: ConnectivityState = ConnectivityState.ONLINE,
     val activeProfileId: String? = null,
     val catalogReady: Boolean = false,
+    val cachedContentAvailable: Boolean = false,
     val mediaReady: Boolean = false,
     val isRefreshing: Boolean = false,
     val lastFullSyncAtEpochMs: Long? = null,

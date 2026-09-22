@@ -1,8 +1,12 @@
+#include <mutex>
+#include <string>
+#include <vector>
 #import "RommioPlayerBridge/RMLLibretroBridge.h"
 
 #import <dlfcn.h>
 #import <math.h>
 #import <stdatomic.h>
+#import <stdarg.h>
 
 typedef bool (*retro_environment_t)(unsigned cmd, void *data);
 typedef void (*retro_video_refresh_t)(const void *data, unsigned width, unsigned height, size_t pitch);
@@ -53,6 +57,8 @@ struct retro_rumble_interface {
     bool (*set_rumble_state)(unsigned port, unsigned effect, uint16_t strength);
 };
 
+struct retro_log_callback { void (*log)(int level, const char *format, ...); };
+static constexpr unsigned RETRO_ENVIRONMENT_GET_LOG_INTERFACE = 27;
 static constexpr unsigned RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY = 9;
 static constexpr unsigned RETRO_ENVIRONMENT_SET_PIXEL_FORMAT = 10;
 static constexpr unsigned RETRO_ENVIRONMENT_GET_VARIABLE = 15;
@@ -61,6 +67,11 @@ static constexpr unsigned RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE = 17;
 static constexpr unsigned RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE = 23;
 static constexpr unsigned RETRO_ENVIRONMENT_GET_CORE_ASSETS_DIRECTORY = 30;
 static constexpr unsigned RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY = 31;
+static constexpr unsigned RETRO_ENVIRONMENT_GET_USERNAME = 38;
+
+// Cores keep the returned pointer, so the name lives in stable storage.
+static std::mutex frontend_username_mutex;
+static std::string frontend_username;
 
 static constexpr unsigned RETRO_DEVICE_JOYPAD = 1;
 static constexpr unsigned RETRO_DEVICE_ANALOG = 5;
@@ -78,6 +89,7 @@ static constexpr unsigned RETRO_PIXEL_FORMAT_0RGB1555 = 0;
 static constexpr unsigned RETRO_PIXEL_FORMAT_XRGB8888 = 1;
 static constexpr unsigned RETRO_PIXEL_FORMAT_RGB565 = 2;
 
+static void bridge_log_callback(int level, const char *format, ...);
 static bool bridge_environment_callback(unsigned cmd, void *data);
 static void bridge_video_callback(const void *data, unsigned width, unsigned height, size_t pitch);
 static void bridge_audio_sample_callback(int16_t left, int16_t right);
@@ -87,6 +99,7 @@ static int16_t bridge_input_state_callback(unsigned port, unsigned device, unsig
 static bool bridge_rumble_callback(unsigned port, unsigned effect, uint16_t strength);
 
 static RMLLibretroBridge *activeBridge = nil;
+static std::recursive_mutex coreMutex;
 
 @interface RMLVideoFrame ()
 
@@ -162,7 +175,11 @@ static RMLLibretroBridge *activeBridge = nil;
 
 @interface RMLLibretroBridge () {
     void *_libraryHandle;
+    const char *(*_persistenceDescriptor)(void);
+    bool (*_memoryRestored)(void);
+    bool (*_prepareFileRestore)(size_t);
     bool _initialized;
+    bool _paused;
     bool _variableUpdatePending;
     retro_environment_t _environmentCallback;
     retro_video_refresh_t _videoCallback;
@@ -203,20 +220,35 @@ static RMLLibretroBridge *activeBridge = nil;
 @property (nonatomic, readwrite) NSURL *systemDirectory;
 @property (nonatomic, readwrite) NSURL *savesDirectory;
 @property (nonatomic, readwrite) NSURL *romURL;
+@property (nonatomic, readwrite) NSData *romData;
 @property (nonatomic, readwrite) RMLLibretroPixelFormat pixelFormat;
 @property (nonatomic, readwrite) NSMutableArray<RMLAudioBatch *> *pendingAudioBatches;
 @property (nonatomic, readwrite) NSMutableArray<NSNumber *> *pendingRumbleMagnitudes;
 @property (nonatomic, readwrite) RMLVideoFrame *latestVideoFrame;
 @property (nonatomic, readwrite) NSMutableDictionary<NSNumber *, NSMutableDictionary<NSNumber *, NSNumber *> *> *digitalInputs;
+@property (nonatomic) NSMutableDictionary<NSNumber *, NSMutableSet<NSNumber *> *> *pendingDigitalPresses;
+@property (nonatomic, copy, nullable) NSString *lastCoreError;
 @property (nonatomic, readwrite) NSMutableDictionary<NSNumber *, NSDictionary<NSNumber *, NSNumber *> *> *analogInputs;
 @property (nonatomic, readwrite) NSMutableDictionary<NSNumber *, NSDictionary<NSNumber *, NSNumber *> *> *pointerInputs;
+@property (nonatomic) NSMutableDictionary<NSNumber *, NSDictionary<NSNumber *, NSNumber *> *> *pendingPointerPresses;
 
 @end
 
 @implementation RMLLibretroBridge
 
++ (NSString *)frontendUsername {
+    std::lock_guard<std::mutex> lock(frontend_username_mutex);
+    return frontend_username.empty() ? nil : [NSString stringWithUTF8String:frontend_username.c_str()];
+}
+
++ (void)setFrontendUsername:(NSString *)frontendUsername {
+    std::lock_guard<std::mutex> lock(frontend_username_mutex);
+    frontend_username = frontendUsername.length > 0 ? std::string(frontendUsername.UTF8String) : std::string();
+}
+
 - (nullable instancetype)initWithCoreURL:(NSURL *)coreURL
                                    error:(NSError * _Nullable __autoreleasing *)error {
+    std::lock_guard<std::recursive_mutex> guard(coreMutex);
     self = [super init];
     if (self == nil) {
         return nil;
@@ -227,17 +259,25 @@ static RMLLibretroBridge *activeBridge = nil;
     _pendingAudioBatches = [NSMutableArray array];
     _pendingRumbleMagnitudes = [NSMutableArray array];
     _digitalInputs = [NSMutableDictionary dictionary];
+    _pendingDigitalPresses = [NSMutableDictionary dictionary];
     _analogInputs = [NSMutableDictionary dictionary];
     _pointerInputs = [NSMutableDictionary dictionary];
-    _pixelFormat = RMLLibretroPixelFormatXRGB8888;
+    _pendingPointerPresses = [NSMutableDictionary dictionary];
+    _pixelFormat = RMLLibretroPixelFormat0RGB1555;
 
-    if (![self loadCore:error]) {
+    if (activeBridge != nil) {
+        [self populateError:error code:1110 description:@"Another native session already owns the core."];
         return nil;
     }
+    activeBridge = self;
+    BOOL loaded = [self loadCore:error];
+    activeBridge = nil;
+    if (!loaded) { return nil; }
     return self;
 }
 
 - (void)dealloc {
+    std::lock_guard<std::recursive_mutex> guard(coreMutex);
     [self stop];
     [self unloadLibrary];
 }
@@ -247,6 +287,7 @@ static RMLLibretroBridge *activeBridge = nil;
           savesDirectory:(NSURL *)savesDirectory
                variables:(NSDictionary<NSString *,NSString *> *)variables
                    error:(NSError * _Nullable __autoreleasing *)error {
+    std::lock_guard<std::recursive_mutex> guard(coreMutex);
     NSLog(@"[RMLLibretroBridge] prepareGame core=%@ rom=%@", self.coreURL.path, romURL.path);
     if (_retro_load_game == nullptr || _retro_get_system_av_info == nullptr) {
         return [self populateError:error
@@ -254,33 +295,47 @@ static RMLLibretroBridge *activeBridge = nil;
                        description:@"The libretro core is missing required entry points."];
     }
 
+    if (activeBridge != nil && activeBridge != self) {
+        return [self populateError:error code:1110 description:@"Another native session owns the core."];
+    }
     [self stop];
 
-    self.variables = variables;
+    NSMutableDictionary *effective = [self.variables mutableCopy];
+    [effective addEntriesFromDictionary:variables];
+    self.variables = effective;
     self.systemDirectory = systemDirectory;
     self.savesDirectory = savesDirectory;
     self.romURL = romURL;
     self.latestVideoFrame = nil;
     [self.pendingAudioBatches removeAllObjects];
     [self.pendingRumbleMagnitudes removeAllObjects];
-    self.pixelFormat = RMLLibretroPixelFormatXRGB8888;
+    self.pixelFormat = RMLLibretroPixelFormat0RGB1555;
     _variableUpdatePending = false;
 
+    self.lastCoreError = nil;
     activeBridge = self;
+    // Some cores cache directories during retro_set_environment, before init.
+    // Install the callback only after this session's owned paths are ready.
+    _retro_set_environment(&bridge_environment_callback);
     [self initializeCoreIfNeeded];
 
+    retro_system_info systemInfo = {};
+    _retro_get_system_info(&systemInfo);
+    self.romData = systemInfo.need_fullpath ? nil : [NSData dataWithContentsOfURL:romURL options:0 error:error];
+    if (!systemInfo.need_fullpath && self.romData == nil) { [self stop]; return NO; }
     retro_game_info gameInfo = {
         .path = romURL.fileSystemRepresentation,
-        .data = nullptr,
-        .size = 0,
+        .data = self.romData.bytes,
+        .size = self.romData.length,
         .meta = nullptr,
     };
 
     NSLog(@"[RMLLibretroBridge] calling retro_load_game");
     if (!_retro_load_game(&gameInfo)) {
+        [self stop];
         return [self populateError:error
                               code:1002
-                       description:@"The libretro core rejected the ROM image."];
+                       description:self.lastCoreError ?: @"The libretro core rejected the ROM image."];
     }
     NSLog(@"[RMLLibretroBridge] retro_load_game complete");
 
@@ -289,16 +344,19 @@ static RMLLibretroBridge *activeBridge = nil;
     self.nominalFramesPerSecond = avInfo.timing.fps > 0 ? avInfo.timing.fps : 60.0;
     self.sampleRate = avInfo.timing.sample_rate > 0 ? avInfo.timing.sample_rate : 48000.0;
     self.prepared = YES;
+    _paused = false;
     return YES;
 }
 
 - (BOOL)runFrame:(NSError * _Nullable __autoreleasing *)error {
+    std::lock_guard<std::recursive_mutex> guard(coreMutex);
     if (!self.prepared) {
         return [self populateError:error
                               code:1003
                        description:@"Prepare a libretro session before running frames."];
     }
 
+    if (_paused) { return YES; }
     activeBridge = self;
     self.running = YES;
     static atomic_uint_least32_t runCount = 0;
@@ -307,6 +365,8 @@ static RMLLibretroBridge *activeBridge = nil;
         NSLog(@"[RMLLibretroBridge] first retro_run");
     }
     _retro_run();
+    [self.pendingDigitalPresses removeAllObjects];
+    [self.pendingPointerPresses removeAllObjects];
     if (count == 0) {
         NSLog(@"[RMLLibretroBridge] first retro_run complete");
     }
@@ -337,6 +397,7 @@ static RMLLibretroBridge *activeBridge = nil;
 
 - (BOOL)updateVariables:(NSDictionary<NSString *,NSString *> *)variables
                   error:(NSError * _Nullable __autoreleasing *)error {
+    std::lock_guard<std::recursive_mutex> guard(coreMutex);
     if (!self.prepared) {
         return [self populateError:error
                               code:1004
@@ -349,6 +410,7 @@ static RMLLibretroBridge *activeBridge = nil;
 }
 
 - (nullable NSData *)serializeSaveRAM:(NSError * _Nullable __autoreleasing *)error {
+    std::lock_guard<std::recursive_mutex> guard(coreMutex);
     if (_retro_get_memory_data == nullptr || _retro_get_memory_size == nullptr) {
         [self populateError:error code:1005 description:@"The libretro core does not expose save RAM."];
         return nil;
@@ -364,6 +426,7 @@ static RMLLibretroBridge *activeBridge = nil;
 
 - (BOOL)restoreSaveRAM:(NSData *)saveRAMData
                  error:(NSError * _Nullable __autoreleasing *)error {
+    std::lock_guard<std::recursive_mutex> guard(coreMutex);
     if (_retro_get_memory_data == nullptr || _retro_get_memory_size == nullptr) {
         return [self populateError:error
                               code:1011
@@ -382,13 +445,14 @@ static RMLLibretroBridge *activeBridge = nil;
 }
 
 - (nullable NSData *)serializeState:(NSError * _Nullable __autoreleasing *)error {
+    std::lock_guard<std::recursive_mutex> guard(coreMutex);
     if (_retro_serialize_size == nullptr || _retro_serialize == nullptr) {
         [self populateError:error code:1006 description:@"The libretro core does not support save states."];
         return nil;
     }
 
     size_t size = _retro_serialize_size();
-    if (size == 0) {
+    if (size == 0 || size > 256 * 1024 * 1024) {
         [self populateError:error code:1007 description:@"The libretro core reported an empty save-state payload."];
         return nil;
     }
@@ -403,6 +467,7 @@ static RMLLibretroBridge *activeBridge = nil;
 
 - (BOOL)unserializeState:(NSData *)stateData
                    error:(NSError * _Nullable __autoreleasing *)error {
+    std::lock_guard<std::recursive_mutex> guard(coreMutex);
     if (_retro_unserialize == nullptr) {
         return [self populateError:error
                               code:1009
@@ -416,11 +481,95 @@ static RMLLibretroBridge *activeBridge = nil;
     return YES;
 }
 
+// The state and every qualified persistent region are read under one native barrier.
+- (nullable NSDictionary<NSString *, id> *)captureProgressIncludingState:(BOOL)includeState error:(NSError **)error {
+    std::lock_guard<std::recursive_mutex> guard(coreMutex);
+    if (!self.prepared || activeBridge != self || _persistenceDescriptor == nullptr || _memoryRestored == nullptr ||
+        _retro_get_memory_size == nullptr || _retro_get_memory_data == nullptr) {
+        [self populateError:error code:1120 description:@"This core has no qualified persistence interface."]; return nil;
+    }
+    const char *descriptor = _persistenceDescriptor();
+    const bool files = descriptor && strcmp(descriptor, "rommio-files-v1:ppsspp:psp") == 0;
+    const bool cartridge = files || (descriptor && strncmp(descriptor, "rommio-cart-v1:", 15) == 0);
+    const std::vector<unsigned> regions = cartridge ? std::vector<unsigned>{0u, 1u} : std::vector<unsigned>{0u, 1u, 0x100u, 0x200u, 0x300u};
+    NSMutableDictionary *result = [NSMutableDictionary dictionary];
+    if (includeState) {
+        NSError *stateError = nil;
+        NSData *state = [self serializeState:&stateError];
+        if (state != nil) { result[@"state"] = state; }
+        else { result[@"stateError"] = stateError.localizedDescription ?: @"Snapshot capture failed."; }
+    }
+    NSMutableDictionary *memory = [NSMutableDictionary dictionary];
+    size_t total = 0;
+    for (unsigned region : regions) {
+        size_t size = _retro_get_memory_size(region); void *data = _retro_get_memory_data(region);
+        if (size > 256 * 1024 * 1024 || (size && data == nullptr) || total > 256 * 1024 * 1024 - size) {
+            [self populateError:error code:1121 description:@"Invalid persistent memory inventory."]; return nil;
+        }
+        total += size;
+        memory[@(region)] = size ? [NSData dataWithBytes:data length:size] : [NSData data];
+    }
+    result[@"memory"] = memory;
+    result[@"variables"] = [self.variables copy];
+    result[@"descriptor"] = descriptor ? [NSString stringWithUTF8String:descriptor] : @"";
+    return result;
+}
+
+- (BOOL)restoreProgress:(NSDictionary<NSNumber *, NSData *> *)memory state:(nullable NSData *)state error:(NSError **)error {
+    std::lock_guard<std::recursive_mutex> guard(coreMutex);
+    if (!self.prepared || activeBridge != self || _memoryRestored == nullptr || _persistenceDescriptor == nullptr) {
+        return [self populateError:error code:1122 description:@"Unsupported restore."];
+    }
+    const char *descriptor = _persistenceDescriptor();
+    const bool files = descriptor && strcmp(descriptor, "rommio-files-v1:ppsspp:psp") == 0;
+    const bool cartridge = files || (descriptor && strncmp(descriptor, "rommio-cart-v1:", 15) == 0);
+    const std::vector<unsigned> regions = cartridge ? std::vector<unsigned>{0u, 1u} : std::vector<unsigned>{0u, 1u, 0x100u, 0x200u, 0x300u};
+    if (memory.count != regions.size()) {
+        return [self populateError:error code:1122 description:@"Incomplete or unsupported restore."];
+    }
+    if (files && (_prepareFileRestore == nullptr || memory[@1].length != 0 || memory[@0].length < 12 ||
+                  memory[@0].length > 64u * 1024u * 1024u || !_prepareFileRestore(memory[@0].length))) {
+        return [self populateError:error code:1123 description:@"Invalid memory-stick restore bundle."];
+    }
+    // Validate the complete inventory before unserialization can mutate anything.
+    for (unsigned region : regions) {
+        NSData *bytes = memory[@(region)]; size_t size = _retro_get_memory_size(region);
+        if (bytes == nil || bytes.length != size || (size && _retro_get_memory_data(region) == nullptr)) {
+            return [self populateError:error code:1123 description:@"Restore memory layout differs from the active cartridge."];
+        }
+    }
+    if (!files && state != nil && ![self unserializeState:state error:error]) { return NO; }
+    for (unsigned region : regions) {
+        if (memory[@(region)].length != _retro_get_memory_size(region) ||
+            (memory[@(region)].length && _retro_get_memory_data(region) == nullptr)) {
+            return [self populateError:error code:1123 description:@"State changed the persistent memory layout."];
+        }
+    }
+    for (unsigned region : regions) {
+        NSData *bytes = memory[@(region)];
+        if (bytes.length) { memcpy(_retro_get_memory_data(region), bytes.bytes, bytes.length); }
+    }
+    if (!_memoryRestored()) { return [self populateError:error code:1124 description:@"The core could not apply restored persistent memory."]; }
+    if (files && state != nil && ![self unserializeState:state error:error]) { return NO; }
+    [self.pendingAudioBatches removeAllObjects];
+    return YES;
+}
+
 - (void)setPaused:(BOOL)paused {
+    std::lock_guard<std::recursive_mutex> guard(coreMutex);
+    _paused = paused;
+    if (paused) {
+        [self.analogInputs removeAllObjects];
+        [self.pointerInputs removeAllObjects];
+        [self.digitalInputs removeAllObjects];
+        [self.pendingDigitalPresses removeAllObjects];
+        [self.pendingPointerPresses removeAllObjects];
+    }
     self.running = !paused;
 }
 
 - (void)reset {
+    std::lock_guard<std::recursive_mutex> guard(coreMutex);
     if (_retro_reset != nullptr) {
         _retro_reset();
     }
@@ -429,6 +578,7 @@ static RMLLibretroBridge *activeBridge = nil;
 - (void)setDigitalInputPressed:(BOOL)pressed
                        keyCode:(NSInteger)keyCode
                           port:(NSUInteger)port {
+    std::lock_guard<std::recursive_mutex> guard(coreMutex);
     NSNumber *portKey = @(port);
     NSMutableDictionary<NSNumber *, NSNumber *> *portInputs = self.digitalInputs[portKey];
     if (portInputs == nil) {
@@ -436,12 +586,30 @@ static RMLLibretroBridge *activeBridge = nil;
         self.digitalInputs[portKey] = portInputs;
     }
     portInputs[@(keyCode)] = @(pressed);
+    // SwiftUI can deliver a short tap's down/up in one run-loop iteration.
+    // Preserve the edge until the core has sampled one complete frame.
+    if (pressed) {
+        NSMutableSet<NSNumber *> *pending = self.pendingDigitalPresses[portKey];
+        if (pending == nil) {
+            pending = [NSMutableSet set];
+            self.pendingDigitalPresses[portKey] = pending;
+        }
+        [pending addObject:@(keyCode)];
+    }
+}
+
+- (void)setPointerX:(double)x y:(double)y pressed:(BOOL)pressed port:(NSUInteger)port {
+    std::lock_guard<std::recursive_mutex> guard(coreMutex);
+    NSDictionary *values = @{@0: @(x), @1: @(y), @2: @(pressed)};
+    self.pointerInputs[@(port)] = values;
+    if (pressed) { self.pendingPointerPresses[@(port)] = values; }
 }
 
 - (void)setMotionSource:(RMLMotionSource)motionSource
                       x:(double)x
                       y:(double)y
                     port:(NSUInteger)port {
+    std::lock_guard<std::recursive_mutex> guard(coreMutex);
     NSDictionary<NSNumber *, NSNumber *> *values = @{
         @0: @(x),
         @1: @(y),
@@ -467,10 +635,10 @@ static RMLLibretroBridge *activeBridge = nil;
                 portInputs = [NSMutableDictionary dictionary];
                 self.digitalInputs[portKey] = portInputs;
             }
-            portInputs[@0] = @(y < -0.5);
-            portInputs[@1] = @(y > 0.5);
-            portInputs[@2] = @(x < -0.5);
-            portInputs[@3] = @(x > 0.5);
+            portInputs[@4] = @(y < -0.5);
+            portInputs[@5] = @(y > 0.5);
+            portInputs[@6] = @(x < -0.5);
+            portInputs[@7] = @(x > 0.5);
             break;
         }
     }
@@ -488,17 +656,25 @@ static RMLLibretroBridge *activeBridge = nil;
 
 - (void)setControllerTypeIdentifier:(NSInteger)identifier
                             forPort:(NSUInteger)port {
+    std::lock_guard<std::recursive_mutex> guard(coreMutex);
     if (_retro_set_controller_port_device != nullptr) {
         _retro_set_controller_port_device((unsigned)port, (unsigned)identifier);
     }
 }
 
 - (void)stop {
+    std::lock_guard<std::recursive_mutex> guard(coreMutex);
     self.running = NO;
     if (self.prepared && _retro_unload_game != nullptr) {
         _retro_unload_game();
     }
     self.prepared = NO;
+    self.romData = nil;
+    [self.digitalInputs removeAllObjects];
+    [self.pendingDigitalPresses removeAllObjects];
+    [self.pendingPointerPresses removeAllObjects];
+    [self.analogInputs removeAllObjects];
+    [self.pointerInputs removeAllObjects];
     if (_initialized && _retro_deinit != nullptr) {
         _retro_deinit();
         _initialized = false;
@@ -546,13 +722,17 @@ static RMLLibretroBridge *activeBridge = nil;
     _retro_load_game = (bool (*)(const retro_game_info *))dlsym(_libraryHandle, "retro_load_game");
     _retro_unload_game = (void (*)(void))dlsym(_libraryHandle, "retro_unload_game");
 
-    if (_retro_set_environment == nullptr || _retro_init == nullptr || _retro_run == nullptr) {
+    _persistenceDescriptor = (const char *(*)(void))dlsym(_libraryHandle, "retro_rommio_persistence_descriptor");
+    _memoryRestored = (bool (*)(void))dlsym(_libraryHandle, "retro_rommio_memory_restored");
+    _prepareFileRestore = (bool (*)(size_t))dlsym(_libraryHandle, "retro_rommio_prepare_restore");
+    if (_retro_set_environment == nullptr || _retro_init == nullptr || _retro_run == nullptr ||
+        _retro_set_video_refresh == nullptr || _retro_set_audio_sample == nullptr || _retro_set_audio_sample_batch == nullptr ||
+        _retro_set_input_poll == nullptr || _retro_set_input_state == nullptr || _retro_get_system_info == nullptr) {
         return [self populateError:error
                               code:1102
                        description:@"The dynamic library does not export the required libretro entry points."];
     }
 
-    _retro_set_environment(&bridge_environment_callback);
     _retro_set_video_refresh(&bridge_video_callback);
     _retro_set_audio_sample(&bridge_audio_sample_callback);
     _retro_set_audio_sample_batch(&bridge_audio_sample_batch_callback);
@@ -583,6 +763,11 @@ static RMLLibretroBridge *activeBridge = nil;
     if (data == nullptr || width == 0 || height == 0 || pitch == 0) {
         return;
     }
+    const size_t bytesPerPixel = self.pixelFormat == RMLLibretroPixelFormatXRGB8888 ? 4 : 2;
+    if (self.pixelFormat == RMLLibretroPixelFormatUnknown ||
+        width > SIZE_MAX / bytesPerPixel || pitch < width * bytesPerPixel || height > SIZE_MAX / pitch) {
+        return;
+    }
     NSData *pixelData = [NSData dataWithBytes:data length:(NSUInteger)(pitch * height)];
     RMLVideoFrame *frame = [[RMLVideoFrame alloc] initWithPixelData:pixelData
                                                               width:width
@@ -609,10 +794,28 @@ static RMLLibretroBridge *activeBridge = nil;
 - (BOOL)handleEnvironmentCommand:(unsigned)cmd
                             data:(void *)data {
     switch (cmd) {
+        case RETRO_ENVIRONMENT_GET_LOG_INTERFACE: {
+            if (data == nullptr) { return false; }
+            static_cast<retro_log_callback *>(data)->log = &bridge_log_callback;
+            return true;
+        }
+        case 3: { // RETRO_ENVIRONMENT_GET_CAN_DUPE
+            if (data == nullptr) { return false; }
+            // A null video callback keeps latestVideoFrame unchanged.
+            *static_cast<bool *>(data) = true;
+            return true;
+        }
         case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY:
         case RETRO_ENVIRONMENT_GET_CORE_ASSETS_DIRECTORY: {
             const char **path = (const char **)data;
             *path = self.systemDirectory.fileSystemRepresentation;
+            return true;
+        }
+        case RETRO_ENVIRONMENT_GET_USERNAME: {
+            if (data == nullptr) { return false; }
+            std::lock_guard<std::mutex> lock(frontend_username_mutex);
+            if (frontend_username.empty()) { return false; }
+            *static_cast<const char **>(data) = frontend_username.c_str();
             return true;
         }
         case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY: {
@@ -633,8 +836,9 @@ static RMLLibretroBridge *activeBridge = nil;
                     self.pixelFormat = RMLLibretroPixelFormatRGB565;
                     return true;
                 case RETRO_PIXEL_FORMAT_0RGB1555:
+                    self.pixelFormat = RMLLibretroPixelFormat0RGB1555;
+                    return true;
                 default:
-                    self.pixelFormat = RMLLibretroPixelFormatUnknown;
                     return false;
             }
         }
@@ -648,8 +852,17 @@ static RMLLibretroBridge *activeBridge = nil;
             variable->value = value != nil ? [value UTF8String] : nullptr;
             return value != nil;
         }
-        case RETRO_ENVIRONMENT_SET_VARIABLES:
+        case RETRO_ENVIRONMENT_SET_VARIABLES: {
+            NSMutableDictionary *values = [self.variables mutableCopy];
+            for (const retro_variable *v = (const retro_variable *)data; v != nullptr && v->key != nullptr; ++v) {
+                NSString *key = [NSString stringWithUTF8String:v->key];
+                NSString *definition = v->value ? [NSString stringWithUTF8String:v->value] : @"";
+                NSArray *parts = [definition componentsSeparatedByString:@"; "];
+                if (values[key] == nil && parts.count == 2) { values[key] = [[parts[1] componentsSeparatedByString:@"|"] firstObject]; }
+            }
+            self.variables = values;
             return true;
+        }
         case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE: {
             if (data == nullptr) {
                 return false;
@@ -679,7 +892,7 @@ static RMLLibretroBridge *activeBridge = nil;
     switch (device) {
         case RETRO_DEVICE_JOYPAD: {
             NSNumber *value = self.digitalInputs[@(port)][@(identifier)];
-            return value.boolValue ? 1 : 0;
+            return (value.boolValue || [self.pendingDigitalPresses[@(port)] containsObject:@(identifier)]) ? 1 : 0;
         }
         case RETRO_DEVICE_ANALOG: {
             NSNumber *key = @((NSInteger)port * 10 + (NSInteger)index);
@@ -688,7 +901,7 @@ static RMLLibretroBridge *activeBridge = nil;
             return (int16_t)lrint(MAX(-1.0, MIN(1.0, coordinate)) * 32767.0);
         }
         case RETRO_DEVICE_POINTER: {
-            NSDictionary<NSNumber *, NSNumber *> *values = self.pointerInputs[@(port)];
+            NSDictionary<NSNumber *, NSNumber *> *values = self.pendingPointerPresses[@(port)] ?: self.pointerInputs[@(port)];
             if (identifier == RETRO_DEVICE_ID_POINTER_PRESSED) {
                 return [values[@(identifier)] boolValue] ? 1 : 0;
             }
@@ -718,6 +931,17 @@ static RMLLibretroBridge *activeBridge = nil;
 }
 
 @end
+
+static void bridge_log_callback(int level, const char *format, ...) {
+    if (format == nullptr) { return; }
+    va_list arguments;
+    va_start(arguments, format);
+    NSString *message = [[NSString alloc] initWithFormat:[NSString stringWithUTF8String:format] arguments:arguments];
+    va_end(arguments);
+    // Keep warnings/errors useful without emitting per-frame debug traffic.
+    if (level >= 2) { NSLog(@"[LibretroCore] %@", message); }
+    if (level >= 3) { activeBridge.lastCoreError = [message stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]; }
+}
 
 static bool bridge_environment_callback(unsigned cmd, void *data) {
     return activeBridge != nil ? [activeBridge handleEnvironmentCommand:cmd data:data] : false;
