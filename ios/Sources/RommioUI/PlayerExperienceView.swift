@@ -916,8 +916,7 @@ private struct DSPointerOverlay: View {
     var body: some View {
         let width = touchScreenFrame.width
         let height = touchScreenFrame.height
-        // libretro pointer coordinates cover the combined video frame. The DS
-        // touch screen is exactly its lower half, including all four edges.
+        // libretro pointer coordinates cover the combined video frame.
         Color.clear
             .frame(width: width, height: height)
             .contentShape(Rectangle())
@@ -928,12 +927,13 @@ private struct DSPointerOverlay: View {
             )
             .position(x: touchScreenFrame.midX, y: touchScreenFrame.midY)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Nintendo DS touch screen")
-            .accessibilityIdentifier("player.nds.pointer")
+            .accessibilityLabel(feature.isThreeDS ? "Nintendo 3DS touch screen" : "Nintendo DS touch screen")
+            .accessibilityIdentifier(feature.isThreeDS ? "player.3ds.pointer" : "player.nds.pointer")
     }
 
     private func send(_ point: CGPoint, width: CGFloat, height: CGFloat, pressed: Bool) {
-        let x = min(max(point.x / max(width, 1), 0), 1)
+        let localX = min(max(point.x / max(width, 1), 0), 1)
+        let x = feature.isThreeDS ? 0.1 + localX * 0.8 : localX
         let y = 0.5 + min(max(point.y / max(height, 1), 0), 1) / 2
         feature.enqueuePointer(normalizedX: x, normalizedY: y, pressed: pressed)
     }

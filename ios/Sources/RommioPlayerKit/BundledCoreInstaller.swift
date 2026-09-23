@@ -160,6 +160,14 @@ public struct BundledCoreInstaller: CoreInstalling, Sendable {
 
         do {
             _ = try licenseEntry(for: runtime, bundle: bundle)
+            if runtime.runtimeID == "fceumm" || PinnedAppleCore.cartridgeRuntimes.contains(runtime.runtimeID) || PinnedAppleCore.candidateRuntimes.contains(runtime.runtimeID) {
+                let manifestName = runtime.runtimeID == "fceumm" ? "FceummProvenance.json" : "\(runtime.runtimeID)Provenance.json"
+                _ = try PinnedAppleCore.verify(
+                    core: bundledCoreURL,
+                    manifest: bundle.bundleURL.appending(path: manifestName),
+                    runtimeID: runtime.runtimeID
+                )
+            }
             let fingerprint = try bundleFingerprint(for: bundledCoreURL)
             let receipt = BundledCoreInstallationReceipt(
                 runtimeID: runtime.runtimeID,
@@ -212,6 +220,14 @@ public struct BundledCoreInstaller: CoreInstalling, Sendable {
 
         do {
             _ = try licenseEntry(for: runtime, bundle: bundle)
+            if runtime.runtimeID == "fceumm" || PinnedAppleCore.cartridgeRuntimes.contains(runtime.runtimeID) || PinnedAppleCore.candidateRuntimes.contains(runtime.runtimeID) {
+                let manifestName = runtime.runtimeID == "fceumm" ? "FceummProvenance.json" : "\(runtime.runtimeID)Provenance.json"
+                _ = try PinnedAppleCore.verify(
+                    core: bundledCoreURL,
+                    manifest: bundle.bundleURL.appending(path: manifestName),
+                    runtimeID: runtime.runtimeID
+                )
+            }
         } catch {
             return CoreProvisioningInspection(
                 status: .failedCoreInstall,

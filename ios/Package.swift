@@ -17,6 +17,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
+        .package(url: "https://github.com/weichsel/ZIPFoundation.git", from: "0.9.20"),
     ],
     targets: [
         .target(
@@ -39,7 +40,7 @@ let package = Package(
         ),
         .target(
             name: "RommioPlayerKit",
-            dependencies: ["RommioContract", "RommioFoundation", "RommioPlayerBridge"]
+            dependencies: ["RommioContract", "RommioFoundation", "RommioPlayerBridge", "ZIPFoundation"]
         ),
         .target(
             name: "RommioUI",
@@ -64,7 +65,7 @@ let package = Package(
         ),
         .testTarget(
             name: "RommioPlayerKitTests",
-            dependencies: ["RommioPlayerKit", "RommioContract"]
+            dependencies: ["RommioPlayerKit", "RommioContract", "ZIPFoundation"]
         ),
     ]
 )

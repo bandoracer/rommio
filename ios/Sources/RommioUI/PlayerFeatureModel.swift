@@ -126,7 +126,8 @@ public final class PlayerFeatureModel: Identifiable {
     /// Width of a live side pane (controls editor or saved progress) beside the game.
     private(set) var sidePaneWidth: CGFloat = 0
 
-    var isDualScreen: Bool { controlsState?.platformProfile.familyID == "nds" }
+    var isDualScreen: Bool { ["nds", "3ds"].contains(controlsState?.platformProfile.familyID ?? "") }
+    var isThreeDS: Bool { controlsState?.platformProfile.familyID == "3ds" }
 
     /// Game on one half of a wide display and a full-size pad on the other.
     var prefersSplitPad: Bool = UserDefaults.standard.bool(forKey: "player.splitPad") {
@@ -148,10 +149,17 @@ public final class PlayerFeatureModel: Identifiable {
     }
 
     private func recomputeStage() {
+        #if canImport(UIKit)
+        let isPhoneFormFactor = UIDevice.current.userInterfaceIdiom == .phone
+        #else
+        let isPhoneFormFactor = false
+        #endif
         let next = PlayerStageContext(
             fold: windowFold,
             foldIsActive: windowFoldIsActive,
             dualScreen: isDualScreen,
+            threeDS: isThreeDS,
+            isPhoneFormFactor: isPhoneFormFactor,
             prefersPortrait: orientationPolicy == .auto ? nil : orientationPolicy == .portraitOnly,
             trailingPaneWidth: sidePaneWidth,
             leftHanded: controlsState?.touchLayout?.leftHanded ?? false,

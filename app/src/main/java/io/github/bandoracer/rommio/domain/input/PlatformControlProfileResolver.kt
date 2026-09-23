@@ -115,9 +115,9 @@ class PlatformControlProfileResolver : ControlProfileResolver {
         ),
 
         touchProfile(
-            familyId = "atari",
-            displayName = "Atari / Handheld Classics",
-            platformSlugs = setOf("atari2600", "atari7800", "lynx"),
+            familyId = "atari2600",
+            displayName = "Atari 2600",
+            platformSlugs = setOf("atari2600"),
             presets = listOf(
                 TouchLayoutPreset(
                     presetId = "standard",
@@ -125,12 +125,47 @@ class PlatformControlProfileResolver : ControlProfileResolver {
                     elements = listOf(
                         standardDpad(),
                         faceTwo(
-                            primaryLabel = "1",
-                            secondaryLabel = "2",
-                            primaryKey = KeyEvent.KEYCODE_BUTTON_A,
-                            secondaryKey = KeyEvent.KEYCODE_BUTTON_B,
+                            primaryLabel = "Fire",
+                            secondaryLabel = "Trigger",
+                            primaryKey = KeyEvent.KEYCODE_BUTTON_B,
+                            secondaryKey = KeyEvent.KEYCODE_BUTTON_A,
                         ),
-                        standardStartSelect(selectLabel = "Option", startLabel = "Start"),
+                        standardStartSelect(selectLabel = "Select", startLabel = "Reset"),
+                        standardShoulders(labels = "Difficulty A" to "Difficulty B", keyCodes = KeyEvent.KEYCODE_BUTTON_L1 to KeyEvent.KEYCODE_BUTTON_L2),
+                    ),
+                ),
+            ),
+        ),
+        touchProfile(
+            familyId = "atari7800",
+            displayName = "Atari 7800",
+            platformSlugs = setOf("atari7800"),
+            presets = listOf(
+                TouchLayoutPreset(
+                    presetId = "standard",
+                    displayName = "Standard",
+                    elements = listOf(
+                        standardDpad(),
+                        faceTwo(primaryLabel = "1", secondaryLabel = "2", primaryKey = KeyEvent.KEYCODE_BUTTON_B, secondaryKey = KeyEvent.KEYCODE_BUTTON_A),
+                        standardStartSelect(selectLabel = "Select", startLabel = "Pause"),
+                        standardShoulders(labels = "Reset" to "Difficulty", keyCodes = KeyEvent.KEYCODE_BUTTON_X to KeyEvent.KEYCODE_BUTTON_L1),
+                    ),
+                ),
+            ),
+        ),
+        touchProfile(
+            familyId = "lynx",
+            displayName = "Atari Lynx",
+            platformSlugs = setOf("lynx"),
+            presets = listOf(
+                TouchLayoutPreset(
+                    presetId = "standard",
+                    displayName = "Standard",
+                    elements = listOf(
+                        standardDpad(),
+                        faceTwo(primaryLabel = "A", secondaryLabel = "B", primaryKey = KeyEvent.KEYCODE_BUTTON_A, secondaryKey = KeyEvent.KEYCODE_BUTTON_B),
+                        standardStartSelect(selectLabel = "Rotate", startLabel = "Pause"),
+                        standardShoulders(labels = "Option 1" to "Option 2"),
                     ),
                 ),
             ),
@@ -269,7 +304,8 @@ class PlatformControlProfileResolver : ControlProfileResolver {
             touchSupportMode = TouchSupportMode.FULL,
             playerOrientationPolicy = orientationPolicy,
             preferredViewportAspectRatio = when (familyId) {
-                "nes", "snes", "sega16", "psx", "atari", "tg16", "arcade" -> 4f / 3f
+                "nes", "snes", "sega16", "psx", "atari2600", "atari7800", "tg16", "arcade" -> 4f / 3f
+                "lynx" -> 160f / 102f
                 "gb" -> 10f / 9f
                 "gba" -> 3f / 2f
                 "nds" -> 2f / 3f

@@ -86,8 +86,12 @@ private func consoleFaceColors(familyID: String?) -> [String: Color] {
         ["A": Color(hex: 0x7D70D6), "B": Color(hex: 0x9887E4)]
     case "tg16":
         ["I": Color(hex: 0x4479CF), "II": Color(hex: 0xE08C3E)]
-    case "atari":
+    case "atari2600":
+        ["Fire": Color(hex: 0xE08C3E), "Trigger": Color(hex: 0xD85E4B)]
+    case "atari7800":
         ["1": Color(hex: 0xE08C3E), "2": Color(hex: 0xD85E4B)]
+    case "lynx":
+        ["A": Color(hex: 0xE08C3E), "B": Color(hex: 0xD85E4B)]
     default:
         [:]
     }
@@ -115,7 +119,7 @@ private func consoleNeutralAccent(familyID: String?) -> Color {
         Color(hex: 0x7D70D6)
     case "tg16":
         Color(hex: 0x4479CF)
-    case "atari":
+    case "atari2600", "atari7800", "lynx":
         Color(hex: 0xE08C3E)
     default:
         Color(red: 0.20, green: 0.52, blue: 0.98)

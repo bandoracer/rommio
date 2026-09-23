@@ -56,6 +56,10 @@ def build(core, sdk, arch, ndk=None, cache=None):
         elif core in ('snes9x','genesis_plus_gx'):
             run(['make','-j8','-C',source/('libretro' if core=='snes9x' else '.'),*(['-f','Makefile.libretro'] if core=='genesis_plus_gx' else []),'platform=osx','CROSS_COMPILE=1',f'LIBRETRO_APPLE_PLATFORM={triple}',f'LIBRETRO_APPLE_ISYSROOT={sysroot}','CC=clang','CXX=clang++'])
             built=source/('libretro/snes9x_libretro.dylib' if core=='snes9x' else 'genesis_plus_gx_libretro.dylib')
+        elif core in ('stella','prosystem','handy'):
+            make_root = source/'src/os/libretro' if core=='stella' else source
+            run(['make','-j8','-C',make_root,'platform=osx','CROSS_COMPILE=1',f'LIBRETRO_APPLE_PLATFORM={triple}',f'LIBRETRO_APPLE_ISYSROOT={sysroot}','CC=clang','CXX=clang++'])
+            built=make_root/(('stella2023' if core=='stella' else core)+'_libretro.dylib')
         elif core=='pcsx_rearmed':
             run(['make','-j8','-C',source,'-f','Makefile.libretro','platform=osx',f'CC={cc}',f'CXX={cxx}','DYNAREC=0','BUILTIN_GPU=peops'])
             built=source/'pcsx_rearmed_libretro.dylib'
@@ -69,9 +73,9 @@ def build(core, sdk, arch, ndk=None, cache=None):
             triple={'arm64-v8a':'aarch64-linux-android','armeabi-v7a':'armv7a-linux-androideabi','x86':'i686-linux-android','x86_64':'x86_64-linux-android'}[arch]
             run(['make','-j8','-C',source,'platform=unix',f'ARCH={arch}',f'CC={llvm}/{triple}26-clang',f'CXX={llvm}/{triple}26-clang++','WITH_DYNAREC=','HAVE_PARALLEL_RSP=0','HAVE_PARALLEL_RDP=0','HAVE_THR_AL=1','HAVE_NEON=0','LLE=1','FORCE_GLES3=1','ANDROID=1','GL_LIB=-lGLESv3','CPUFLAGS=-DANDROID -DNO_ASM -DEGL_EGLEXT_PROTOTYPES','LDFLAGS=-shared -Wl,--version-script=libretro/link.T -Wl,--no-undefined -Wl,-z,max-page-size=16384 -llog -lm -lEGL'])
             built=source/'mupen64plus_next_libretro.so'
-        elif core in ('gambatte','snes9x','genesis_plus_gx','pcsx_rearmed'):
-            jni=source/('libgambatte/libretro/jni/Android.mk' if core=='gambatte' else 'jni/Android.mk' if core=='pcsx_rearmed' else 'libretro/jni/Android.mk')
-            run([ndk/'ndk-build','-j8','NDK_PROJECT_PATH=null',f'APP_BUILD_SCRIPT={jni}',f'APP_ABI={arch}','APP_PLATFORM=android-26','APP_OPTIM=release','APP_STL=c++_static',f'NDK_OUT={root}/objects',f'NDK_LIBS_OUT={root}/libs','APP_SUPPORT_FLEXIBLE_PAGE_SIZES=true'])
+        elif core in ('gambatte','snes9x','genesis_plus_gx','pcsx_rearmed','stella','prosystem','handy'):
+            jni=source/('libgambatte/libretro/jni/Android.mk' if core=='gambatte' else 'src/os/libretro/jni/Android.mk' if core=='stella' else 'jni/Android.mk' if core in ('pcsx_rearmed','prosystem','handy') else 'libretro/jni/Android.mk')
+            run([ndk/'ndk-build','-j8','NDK_PROJECT_PATH=null',f'APP_BUILD_SCRIPT={jni}',f'APP_ABI={arch}','APP_PLATFORM=android-26','APP_OPTIM=release','APP_STL=c++_static',f'NDK_OUT={root}/objects',f'NDK_LIBS_OUT={root}/libs','APP_SUPPORT_FLEXIBLE_PAGE_SIZES=true',*(['APP_CPPFLAGS=-fexceptions'] if core=='stella' else [])])
             built=next((root/'libs'/arch).glob('*.so'))
         else:
             platform_flags=[f'-DCMAKE_TOOLCHAIN_FILE={ndk}/build/cmake/android.toolchain.cmake',f'-DANDROID_ABI={arch}','-DANDROID_PLATFORM=android-26','-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON']
@@ -111,6 +115,9 @@ def build(core, sdk, arch, ndk=None, cache=None):
     if core=='mupen64plus_next_gles3': license_file=source/'LICENSE'
     if core=='ppsspp': license_file=source/'LICENSE.TXT'
     if core=='melonds_ds': license_file=next(build_dir.rglob('melondsds-LICENSE.txt'))
+    if core=='stella': license_file=source/'License.txt'
+    if core=='prosystem': license_file=source/'License.txt'
+    if core=='handy': license_file=source/'lynx/license.txt'
     shutil.copy2(license_file,out/'LICENSE.txt')
     record=dict(schemaVersion=1,runtimeId=core,sourceRevision=pin['revision'],sourceManifestSha256=sha(PINS.read_bytes()),patchSha256=sha(patch.read_bytes()),extensionSha256=sha(extension_bytes),recipeSha256=sha(RECIPE_BYTES),persistenceExtension=pin['persistenceExtension'],sdk=sdk,architecture=arch,sha256=sha(binary.read_bytes()),buildKey=build_key)
     manifest.write_text(json.dumps(record,indent=2)+'\n');return binary

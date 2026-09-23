@@ -91,6 +91,19 @@ final class PlayerLayoutParityTests: XCTestCase {
         XCTAssertGreaterThan(snapshot.menuCenter?.y ?? 0, snapshot.viewportFrame.maxY + 22)
     }
 
+    func testThreeDSUsesTouchControlsAndPointerOverlay() async throws {
+        let controls = try await controlsState(platformSlug: "3ds")
+        let snapshot = resolvePlayerOverlaySnapshot(
+            containerSize: CGSize(width: 430, height: 932),
+            safeAreaInsets: PlayerViewportSafeAreaInsets(top: 59, bottom: 34, left: 0, right: 0),
+            controlsState: controls,
+            stage: PlayerStageContext(dualScreen: true, threeDS: true)
+        )
+        XCTAssertTrue(snapshot.showsGameplayTouchControls)
+        XCTAssertTrue(snapshot.showsPointerOverlay)
+        XCTAssertNotNil(snapshot.touchScreenFrame)
+    }
+
     func testEveryTouchFamilyKeepsAllControlsOutsideVideoInBothOrientations() throws {
         let resolver = PlatformControlProfileResolver()
         for profile in resolver.supportedProfiles() where profile.supportTier == .touchSupported {

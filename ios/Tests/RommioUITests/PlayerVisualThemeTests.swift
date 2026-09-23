@@ -46,6 +46,6 @@ final class PlayerVisualThemeTests: XCTestCase {
 
         let theme = resolvePlayerVisualTheme(controls: controls)
         XCTAssertNotEqual(theme.faceStyle(label: "A").fillColor, theme.neutralControlStyle.fillColor)
-        XCTAssertNotEqual(theme.faceStyle(label: "X").fillColor, theme.faceStyle(label: "A").fillColor)
+        XCTAssertNotEqual(theme.faceStyle(label: "X").contentColor, theme.faceStyle(label: "A").contentColor)
     }
 }

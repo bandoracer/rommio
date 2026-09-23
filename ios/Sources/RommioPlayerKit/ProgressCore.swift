@@ -31,10 +31,18 @@ public struct CartridgePersistence: Sendable {
     public let state: ProgressStateCompatibility
     public let sizes: [Int: Int]
     public let descriptor: String
-    public var fileBundle: Bool { descriptor == "rommio-files-v1:ppsspp:psp" }
-    public var artifactFormat: String { fileBundle ? "psp-memory-stick-v1" : "libretro-memory" }
+    public var fileBundle: Bool { descriptor.hasPrefix("rommio-files-v1:") }
+    public var artifactFormat: String {
+        switch descriptor {
+        case "rommio-files-v1:ppsspp:psp": "psp-memory-stick-v1"
+        case "rommio-files-v1:azahar:3ds": "3ds-sd-nand-v1"
+        default: "libretro-memory"
+        }
+    }
     public func artifactInfo(_ region: Int) -> (String, String) {
-        if fileBundle && region == 0 { return ("saveFile", "memory-stick.rmmf") }
+        if fileBundle && region == 0 {
+            return ("saveFile", descriptor == "rommio-files-v1:azahar:3ds" ? "sd-nand.rmmf" : "memory-stick.rmmf")
+        }
         return Self.regions[region]!
     }
     public func validSize(region: Int, count: Int) -> Bool {
@@ -46,6 +54,12 @@ public struct CartridgePersistence: Sendable {
             descriptor = capture.descriptor; sizes = [0: 12, 1: 0]
             save = ProgressSaveCompatibility(system: "psp", format: "ppsspp-memory-stick", layoutVersion: "v1", coreId: "ppsspp", allowsEmpty: false)
             state = ProgressStateCompatibility(coreId: "ppsspp", coreSha256: coreSHA256, stateFormat: "ppsspp-native-v1", platform: platform, architecture: architecture, options: capture.options, systemFiles: systemFiles)
+            try validate(capture); return
+        }
+        if capture.descriptor == "rommio-files-v1:azahar:3ds" {
+            descriptor = capture.descriptor; sizes = [0: 12, 1: 0]
+            save = ProgressSaveCompatibility(system: "3ds", format: "azahar-sd-nand", layoutVersion: "v1", coreId: "azahar", allowsEmpty: false)
+            state = ProgressStateCompatibility(coreId: "azahar", coreSha256: coreSHA256, stateFormat: "azahar-native-v1", platform: platform, architecture: architecture, options: capture.options, systemFiles: systemFiles)
             try validate(capture); return
         }
         if fields.first == "rommio-cart-v1" {
@@ -83,6 +97,10 @@ public struct CartridgePersistence: Sendable {
             return [0, 16384, 32768, 65536, 131072, 262144, 524288].contains(ram - 8192) && rtc == 0
         case ("mupen64plus_next_gles3", "n64"): return ram == 296960 && rtc == 24
         case ("pcsx_rearmed", "psx"): return ram == 262144 && rtc == 0
+        case ("stella", "atari2600"), ("prosystem", "atari7800"):
+            return ram == 0 && rtc == 0
+        case ("handy", "lynx"):
+            return [0, 128, 256, 512, 1024, 2048].contains(ram) && rtc == 0
         default: return false
         }
     }

@@ -153,15 +153,44 @@ public enum ExpansionControls {
             ExpansionControl(id: "Select", label: "Select", key: 2, combo: [], center: true, stick: nil, axisX: 0, axisY: 0, x: 0, y: 0, left: false, size: 48),
             ExpansionControl(id: "Start", label: "Start", key: 3, combo: [], center: true, stick: nil, axisX: 0, axisY: 0, x: 0, y: 0, left: false, size: 48),
         ]
-        case "atari": return [
+        case "atari2600": return [
             ExpansionControl(id: "Up", label: "Up", key: 4, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 74, y: 74, left: true, size: 48),
             ExpansionControl(id: "Left", label: "Left", key: 6, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 26, y: 122, left: true, size: 48),
             ExpansionControl(id: "Right", label: "Right", key: 7, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 122, y: 122, left: true, size: 48),
             ExpansionControl(id: "Down", label: "Down", key: 5, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 74, y: 170, left: true, size: 48),
-            ExpansionControl(id: "1", label: "1", key: 8, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 38, y: 148, left: false, size: 48),
-            ExpansionControl(id: "2", label: "2", key: 0, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 110, y: 100, left: false, size: 48),
-            ExpansionControl(id: "Option", label: "Option", key: 2, combo: [], center: true, stick: nil, axisX: 0, axisY: 0, x: 0, y: 0, left: false, size: 48),
-            ExpansionControl(id: "Start", label: "Start", key: 3, combo: [], center: true, stick: nil, axisX: 0, axisY: 0, x: 0, y: 0, left: false, size: 48),
+            ExpansionControl(id: "Fire", label: "Fire", key: 0, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 38, y: 148, left: false, size: 48),
+            ExpansionControl(id: "Trigger", label: "Trigger", key: 8, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 110, y: 100, left: false, size: 48),
+            ExpansionControl(id: "Select", label: "Select", key: 2, combo: [], center: true, stick: nil, axisX: 0, axisY: 0, x: 0, y: 0, left: false, size: 48),
+            ExpansionControl(id: "Reset", label: "Reset", key: 3, combo: [], center: true, stick: nil, axisX: 0, axisY: 0, x: 0, y: 0, left: false, size: 48),
+            ExpansionControl(id: "Difficulty A", label: "Difficulty A", key: 10, combo: [], center: true, stick: nil, axisX: 0, axisY: 0, x: 0, y: 0, left: false, size: 48),
+            ExpansionControl(id: "Difficulty B", label: "Difficulty B", key: 12, combo: [], center: true, stick: nil, axisX: 0, axisY: 0, x: 0, y: 0, left: false, size: 48),
+            ExpansionControl(id: "Color", label: "Color", key: 14, combo: [], center: true, stick: nil, axisX: 0, axisY: 0, x: 0, y: 0, left: false, size: 48),
+            ExpansionControl(id: "B&W", label: "B&W", key: 15, combo: [], center: true, stick: nil, axisX: 0, axisY: 0, x: 0, y: 0, left: false, size: 48),
+        ]
+        case "atari7800": return [
+            ExpansionControl(id: "Up", label: "Up", key: 4, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 74, y: 74, left: true, size: 48),
+            ExpansionControl(id: "Left", label: "Left", key: 6, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 26, y: 122, left: true, size: 48),
+            ExpansionControl(id: "Right", label: "Right", key: 7, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 122, y: 122, left: true, size: 48),
+            ExpansionControl(id: "Down", label: "Down", key: 5, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 74, y: 170, left: true, size: 48),
+            ExpansionControl(id: "1", label: "1", key: 0, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 38, y: 148, left: false, size: 48),
+            ExpansionControl(id: "2", label: "2", key: 8, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 110, y: 100, left: false, size: 48),
+            ExpansionControl(id: "Select", label: "Select", key: 2, combo: [], center: true, stick: nil, axisX: 0, axisY: 0, x: 0, y: 0, left: false, size: 48),
+            ExpansionControl(id: "Pause", label: "Pause", key: 3, combo: [], center: true, stick: nil, axisX: 0, axisY: 0, x: 0, y: 0, left: false, size: 48),
+            ExpansionControl(id: "Reset", label: "Reset", key: 9, combo: [], center: true, stick: nil, axisX: 0, axisY: 0, x: 0, y: 0, left: false, size: 48),
+            ExpansionControl(id: "Left difficulty", label: "Left difficulty", key: 10, combo: [], center: true, stick: nil, axisX: 0, axisY: 0, x: 0, y: 0, left: false, size: 48),
+            ExpansionControl(id: "Right difficulty", label: "Right difficulty", key: 11, combo: [], center: true, stick: nil, axisX: 0, axisY: 0, x: 0, y: 0, left: false, size: 48),
+        ]
+        case "lynx": return [
+            ExpansionControl(id: "Up", label: "Up", key: 4, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 74, y: 74, left: true, size: 48),
+            ExpansionControl(id: "Left", label: "Left", key: 6, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 26, y: 122, left: true, size: 48),
+            ExpansionControl(id: "Right", label: "Right", key: 7, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 122, y: 122, left: true, size: 48),
+            ExpansionControl(id: "Down", label: "Down", key: 5, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 74, y: 170, left: true, size: 48),
+            ExpansionControl(id: "A", label: "A", key: 8, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 38, y: 148, left: false, size: 48),
+            ExpansionControl(id: "B", label: "B", key: 0, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 110, y: 100, left: false, size: 48),
+            ExpansionControl(id: "Option 1", label: "Option 1", key: 10, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 74, y: 24, left: true, size: 48),
+            ExpansionControl(id: "Option 2", label: "Option 2", key: 11, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 74, y: 24, left: false, size: 48),
+            ExpansionControl(id: "Pause", label: "Pause", key: 3, combo: [], center: true, stick: nil, axisX: 0, axisY: 0, x: 0, y: 0, left: false, size: 48),
+            ExpansionControl(id: "Rotate", label: "Rotate", key: 2, combo: [], center: true, stick: nil, axisX: 0, axisY: 0, x: 0, y: 0, left: false, size: 48),
         ]
         case "tg16": return [
             ExpansionControl(id: "Up", label: "Up", key: 4, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 74, y: 74, left: true, size: 48),
@@ -198,6 +227,22 @@ public enum ExpansionControls {
             ExpansionControl(id: "R", label: "R", key: 11, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 74, y: 24, left: false, size: 48),
             ExpansionControl(id: "Select", label: "Select", key: 2, combo: [], center: true, stick: nil, axisX: 0, axisY: 0, x: 0, y: 0, left: false, size: 48),
             ExpansionControl(id: "Start", label: "Start", key: 3, combo: [], center: true, stick: nil, axisX: 0, axisY: 0, x: 0, y: 0, left: false, size: 48),
+        ]
+        case "3ds": return [
+            ExpansionControl(id: "Up", label: "Up", key: 4, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 74, y: 74, left: true, size: 48),
+            ExpansionControl(id: "Left", label: "Left", key: 6, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 26, y: 122, left: true, size: 48),
+            ExpansionControl(id: "Right", label: "Right", key: 7, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 122, y: 122, left: true, size: 48),
+            ExpansionControl(id: "Down", label: "Down", key: 5, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 74, y: 170, left: true, size: 48),
+            ExpansionControl(id: "Y", label: "Y", key: 1, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 26, y: 122, left: false, size: 48),
+            ExpansionControl(id: "B", label: "B", key: 0, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 74, y: 170, left: false, size: 48),
+            ExpansionControl(id: "A", label: "A", key: 8, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 122, y: 122, left: false, size: 48),
+            ExpansionControl(id: "X", label: "X", key: 9, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 74, y: 74, left: false, size: 48),
+            ExpansionControl(id: "L", label: "L", key: 10, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 74, y: 24, left: true, size: 48),
+            ExpansionControl(id: "R", label: "R", key: 11, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 74, y: 24, left: false, size: 48),
+            ExpansionControl(id: "Select", label: "Select", key: 2, combo: [], center: true, stick: nil, axisX: 0, axisY: 0, x: 0, y: 0, left: false, size: 48),
+            ExpansionControl(id: "Start", label: "Start", key: 3, combo: [], center: true, stick: nil, axisX: 0, axisY: 0, x: 0, y: 0, left: false, size: 48),
+            ExpansionControl(id: "ZL", label: "ZL", key: 12, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 26, y: 24, left: true, size: 48),
+            ExpansionControl(id: "ZR", label: "ZR", key: 13, combo: [], center: false, stick: nil, axisX: 0, axisY: 0, x: 122, y: 24, left: false, size: 48),
         ]
         default: return nil
         }

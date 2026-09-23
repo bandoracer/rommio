@@ -72,7 +72,9 @@ Shared rules:
 - missing core should surface as recoverable runtime readiness, not as a crash
 - missing BIOS should surface as an actionable dependency problem for families that require BIOS files
 - recommended-core handling remains the primary UX rather than a full advanced-core chooser
-- executable cores must come from bundled, code-signed dylibs inside the app bundle
+- executable cores for App Store delivery must come from properly embedded,
+  signed frameworks inside the app bundle; the simulator build now verifies
+  embedded frameworks, while distribution signing remains a separate gate
 - the app may auto-provision a shipped core into runtime inventory, but it must not download executable cores at runtime
 
 ### Controller vs touch
@@ -358,7 +360,8 @@ Shipping behavior:
 ### Special notes by family
 
 - `DOS` remains controller-first and blocked until a keyboard/pointer helper model is validated
-- `GameCube / Wii`, `3DS`, `N64`, `PSP`, and `Dreamcast / NAOMI` remain blocked until the iOS hardware-render host exists and validation clears
+- `GameCube / Wii` and `Dreamcast / NAOMI` remain blocked on their rendering and execution paths; Dreamcast / NAOMI is deferred from the current delivery scope
+- `3DS` uses a pinned Azahar software-rendering candidate and remains blocked on device gameplay, real-save/snapshot sync, performance, and distribution validation
 - `Dreamcast / NAOMI` and `3DO` also remain subject to BIOS or firmware requirements where applicable
 - `Dreamcast / NAOMI`, `3DO`, `Virtual Boy`, and `Sega 32X` are breadth-expansion families rather than touch-first mobile showcases
 
@@ -366,6 +369,9 @@ Shipping behavior:
 
 The current roadmap on iOS favors correctness and App Store-safe delivery first:
 
+- focus Azahar-based 3DS integration and performance work now while integrating Atari
+  2600, Atari 7800, and Atari Lynx; keep Dreamcast / NAOMI deferred; see the
+  [priority core delivery plan](ios-priority-core-plan.md)
 - promote more validated families into `Controller`
 - only add touch layouts when a family-specific iOS control model is clearly worthwhile
 - keep blocked families visible with explicit reasons rather than pretending they do not exist

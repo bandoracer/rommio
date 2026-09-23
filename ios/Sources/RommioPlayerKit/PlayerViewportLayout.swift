@@ -37,6 +37,10 @@ public struct PlayerStageContext: Codable, Hashable, Sendable {
     public var foldIsActive: Bool
     /// The core frame holds two equal screens stacked vertically (Nintendo DS).
     public var dualScreen: Bool
+    /// 3DS uses a 400x240 upper display and a centered 320x240 touch display.
+    public var threeDS: Bool
+    /// A wide unfolded phone may need a synthetic hinge; an iPad never does.
+    public var isPhoneFormFactor: Bool
     /// Orientation policy expressed as a preference; iPhone Duo's inner display
     /// ignores supported orientations, so the player adapts instead of locking.
     public var prefersPortrait: Bool?
@@ -48,11 +52,13 @@ public struct PlayerStageContext: Codable, Hashable, Sendable {
     /// display even while it is flat.
     public var prefersSplitPad: Bool
 
-    public init(fold: CGRect? = nil, foldIsActive: Bool = false, dualScreen: Bool = false, prefersPortrait: Bool? = nil,
+    public init(fold: CGRect? = nil, foldIsActive: Bool = false, dualScreen: Bool = false, threeDS: Bool = false, isPhoneFormFactor: Bool = false, prefersPortrait: Bool? = nil,
                 trailingPaneWidth: CGFloat = 0, leftHanded: Bool = false, prefersSplitPad: Bool = false) {
         self.fold = fold
         self.foldIsActive = foldIsActive
         self.dualScreen = dualScreen
+        self.threeDS = threeDS
+        self.isPhoneFormFactor = isPhoneFormFactor
         self.prefersPortrait = prefersPortrait
         self.trailingPaneWidth = trailingPaneWidth
         self.leftHanded = leftHanded
@@ -173,6 +179,11 @@ public func resolvePlayerStageLayout(
     }
 
     if stage.dualScreen {
+        if stage.threeDS {
+            return resolveThreeDSStage(bounds: bounds, insets: insets, fold: fold, stage: stage, visible: visible) {
+                deck($0, portrait: $1, insets: $2, aspect: $3)
+            }
+        }
         return resolveDualScreenStage(bounds: bounds, insets: insets, fold: fold, stage: stage, visible: visible) {
             deck($0, portrait: $1, insets: $2, aspect: $3)
         }
@@ -234,6 +245,63 @@ public func resolvePlayerStageLayout(
     return best!.layout
 }
 
+/// Fixed Azahar default layout: 400x240 top, centered 320x240 bottom in a 400x480 frame.
+private func resolveThreeDSStage(
+    bounds: CGRect,
+    insets: PlayerViewportSafeAreaInsets,
+    fold: CGRect?,
+    stage: PlayerStageContext,
+    visible: Bool,
+    deck: (CGRect, Bool?, PlayerViewportSafeAreaInsets, Double) -> PlayerControlDeckLayout
+) -> PlayerStageLayout {
+    let topAspect: CGFloat = 5.0 / 3.0
+    let bottomAspect: CGFloat = 4.0 / 3.0
+    let gap: CGFloat = 12
+    let topSource = CGRect(x: 0, y: 0, width: 1, height: 0.5)
+    let bottomSource = CGRect(x: 0.1, y: 0.5, width: 0.8, height: 0.5)
+    func result(_ upper: CGRect, _ lower: CGRect, _ controls: PlayerControlDeckLayout, pad: Bool = false, compact: Bool = false) -> PlayerStageLayout {
+        let h = max(1, min(upper.width / topAspect, lower.width / bottomAspect, upper.height, lower.height))
+        let pairTop = controls.isPortrait && visible ? upper.minY : (upper.minY + lower.maxY - (2 * h + gap)) / 2
+        let top = CGRect(x: upper.midX - h * topAspect / 2, y: compact ? pairTop : upper.midY - h / 2, width: h * topAspect, height: h)
+        let bottom = CGRect(x: lower.midX - h * bottomAspect / 2, y: compact ? pairTop + h + gap : lower.midY - h / 2, width: h * bottomAspect, height: h)
+        return PlayerStageLayout(viewport: PlayerViewportLayout(frame: top.union(bottom), isPortrait: controls.isPortrait, screens: [
+            PlayerScreenPlacement(source: topSource, frame: top),
+            PlayerScreenPlacement(source: bottomSource, frame: bottom, isTouchScreen: true),
+        ]), deck: controls, isPadMode: pad)
+    }
+    let horizontalHinge = stage.hasHorizontalFold ? fold : nil
+    let unfoldedHinge = stage.isPhoneFormFactor && bounds.height > bounds.width && bounds.width >= 600
+        ? CGRect(x: bounds.minX, y: bounds.midY - gap / 2, width: bounds.width, height: gap) : nil
+    if let hinge = horizontalHinge ?? unfoldedHinge {
+        let upper = CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: max(1, hinge.minY - bounds.minY))
+        let lower = CGRect(x: bounds.minX, y: hinge.maxY, width: bounds.width, height: max(1, bounds.maxY - hinge.maxY))
+        let controls = deck(lower, false, PlayerViewportSafeAreaInsets(top: 0, bottom: insets.bottom, left: insets.left, right: insets.right), Double(bottomAspect))
+        return result(inset(upper, PlayerViewportSafeAreaInsets(top: insets.top, bottom: 0, left: insets.left, right: insets.right), by: 4), controls.gameArea.insetBy(dx: 0, dy: 4), controls)
+    }
+    if let fold, stage.foldIsActive, stage.hasVerticalFold, visible {
+        let leading = CGRect(x: bounds.minX, y: bounds.minY, width: max(1, fold.minX - bounds.minX), height: bounds.height)
+        let trailing = CGRect(x: fold.maxX, y: bounds.minY, width: max(1, bounds.maxX - fold.maxX), height: bounds.height)
+        let gameHalf = stage.leftHanded ? trailing : leading
+        let controlsHalf = stage.leftHanded ? leading : trailing
+        let game = inset(gameHalf, insets, by: 8)
+        let upper = CGRect(x: game.minX, y: game.minY, width: game.width, height: max(1, (game.height - gap) / 2))
+        let lower = CGRect(x: game.minX, y: upper.maxY + gap, width: game.width, height: upper.height)
+        return result(upper, lower, deck(controlsHalf, true, insets, 2.0 / 3.0), pad: true)
+    }
+    var best: (PlayerStageLayout, CGFloat)?
+    for portrait in visible ? [true, false] : [bounds.height >= bounds.width] {
+        let controls = deck(bounds, portrait, insets, 2.0 / 3.0)
+        let area = controls.gameArea
+        let h = max(1, (area.height - gap) / 2)
+        let upper = CGRect(x: area.minX, y: area.minY, width: area.width, height: h)
+        let lower = CGRect(x: area.minX, y: upper.maxY + gap, width: area.width, height: h)
+        let layout = result(upper, lower, controls, compact: true)
+        let score = layout.viewport.screens[0].frame.width * layout.viewport.screens[0].frame.height
+        if best == nil || score > best!.1 { best = (layout, score) }
+    }
+    return best!.0
+}
+
 /// Nintendo DS screens are always stacked, top screen above the touch screen.
 /// With iPhone Duo unfolded and held in portrait, the hinge runs across the
 /// middle like a DS: each screen gets its own half and the controls sit beside
@@ -262,7 +330,7 @@ private func resolveDualScreenStage(
 
     // The hinge across the middle: reported, or the midline of a tall unfolded
     // display when the system doesn't report it (Xcode 27.1 beta 1 reports none).
-    let unfoldedPortrait = bounds.height > bounds.width && bounds.width >= 600
+    let unfoldedPortrait = stage.isPhoneFormFactor && bounds.height > bounds.width && bounds.width >= 600
     let hinge = (stage.hasHorizontalFold ? fold : nil)
         ?? (unfoldedPortrait ? CGRect(x: bounds.minX, y: bounds.midY - minimumGap / 2, width: bounds.width, height: minimumGap) : nil)
     if let hinge {

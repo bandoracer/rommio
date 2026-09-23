@@ -98,6 +98,8 @@ class FceummPersistenceRegistry(private val packaged: PackagedCoreArtifacts) {
             "genesis_plus_gx" to "segacd" -> (ram - 8192) in setOf(0, 16384, 32768, 65536, 131072, 262144, 524288) && rtc == 0
             "mupen64plus_next_gles3" to "n64" -> ram == 296960 && rtc == 24
             "pcsx_rearmed" to "psx" -> ram == 262144 && rtc == 0
+            "stella" to "atari2600", "prosystem" to "atari7800" -> ram == 0 && rtc == 0
+            "handy" to "lynx" -> ram in setOf(0, 128, 256, 512, 1024, 2048) && rtc == 0
             else -> false
         }
         if (!valid) return CorePersistenceSupport.Unsupported("Unrecognized complete cartridge save format")

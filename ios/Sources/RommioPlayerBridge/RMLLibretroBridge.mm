@@ -489,7 +489,8 @@ static std::recursive_mutex coreMutex;
         [self populateError:error code:1120 description:@"This core has no qualified persistence interface."]; return nil;
     }
     const char *descriptor = _persistenceDescriptor();
-    const bool files = descriptor && strcmp(descriptor, "rommio-files-v1:ppsspp:psp") == 0;
+    const bool files = descriptor && (strcmp(descriptor, "rommio-files-v1:ppsspp:psp") == 0 ||
+                                      strcmp(descriptor, "rommio-files-v1:azahar:3ds") == 0);
     const bool cartridge = files || (descriptor && strncmp(descriptor, "rommio-cart-v1:", 15) == 0);
     const std::vector<unsigned> regions = cartridge ? std::vector<unsigned>{0u, 1u} : std::vector<unsigned>{0u, 1u, 0x100u, 0x200u, 0x300u};
     NSMutableDictionary *result = [NSMutableDictionary dictionary];
@@ -521,7 +522,8 @@ static std::recursive_mutex coreMutex;
         return [self populateError:error code:1122 description:@"Unsupported restore."];
     }
     const char *descriptor = _persistenceDescriptor();
-    const bool files = descriptor && strcmp(descriptor, "rommio-files-v1:ppsspp:psp") == 0;
+    const bool files = descriptor && (strcmp(descriptor, "rommio-files-v1:ppsspp:psp") == 0 ||
+                                      strcmp(descriptor, "rommio-files-v1:azahar:3ds") == 0);
     const bool cartridge = files || (descriptor && strncmp(descriptor, "rommio-cart-v1:", 15) == 0);
     const std::vector<unsigned> regions = cartridge ? std::vector<unsigned>{0u, 1u} : std::vector<unsigned>{0u, 1u, 0x100u, 0x200u, 0x300u};
     if (memory.count != regions.size()) {
@@ -529,7 +531,7 @@ static std::recursive_mutex coreMutex;
     }
     if (files && (_prepareFileRestore == nullptr || memory[@1].length != 0 || memory[@0].length < 12 ||
                   memory[@0].length > 64u * 1024u * 1024u || !_prepareFileRestore(memory[@0].length))) {
-        return [self populateError:error code:1123 description:@"Invalid memory-stick restore bundle."];
+        return [self populateError:error code:1123 description:@"Invalid file-backed game-save restore bundle."];
     }
     // Validate the complete inventory before unserialization can mutate anything.
     for (unsigned region : regions) {

@@ -12,11 +12,15 @@ public enum ProgressFirmware {
         "bios_CD_E.bin": "e66fa1dc5820d254611fdcdba0662372",
         "bios_CD_U.bin": "854b9150240a198070150e4566ae1290",
         "bios_CD_J.bin": "278a9397d192149e84e820ac621a8edd",
+        "lynxboot.img": "fcd403db69f54290b51035d82f835e7b",
+        "7800 BIOS (U).rom": "0763f1ffb006ddbe32e52d497ee848ae",
     ]
     public static func paths(runtimeID: String) -> [String] {
         switch runtimeID {
         case "pcsx_rearmed": return ["scph5500.bin", "scph5501.bin", "scph5502.bin"]
         case "genesis_plus_gx": return ["bios_CD_E.bin", "bios_CD_U.bin", "bios_CD_J.bin"]
+        case "handy": return ["lynxboot.img"]
+        case "prosystem": return ["7800 BIOS (U).rom"]
         default: return []
         }
     }
@@ -39,12 +43,12 @@ public enum ProgressFirmware {
         let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
         guard values.isRegularFile == true, values.isSymbolicLink != true,
               let size = values.fileSize, (1...16*1024*1024).contains(size) else {
-            throw ProgressStoreError.invalid("Choose a supported PlayStation or Sega CD BIOS file.")
+            throw ProgressStoreError.invalid("Choose a supported PlayStation, Sega CD, Atari 7800, or Lynx BIOS file.")
         }
         let bytes = try Data(contentsOf: url)
         let digest = Insecure.MD5.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
         guard let name = knownMD5.first(where: { $0.value == digest })?.key else {
-            throw ProgressStoreError.invalid("This file does not match a supported PlayStation or Sega CD BIOS.")
+            throw ProgressStoreError.invalid("This file does not match a supported PlayStation, Sega CD, Atari 7800, or Lynx BIOS.")
         }
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
         let target = destination.appending(path: name)

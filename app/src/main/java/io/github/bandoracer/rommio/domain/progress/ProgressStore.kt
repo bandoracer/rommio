@@ -247,12 +247,12 @@ class ProgressStore(private val database: AppDatabase, rootDirectory: File) : Cl
     }
 
     /** Only the native owner may release this after awaited teardown, including failed startup. */
-    suspend fun releaseSession(lease: ProgressSessionLease, committedFileBundle: ByteArray? = null) = withContext(NonCancellable) { access {
+    suspend fun releaseSession(lease: ProgressSessionLease, committedOutputBytes: ByteArray? = null) = withContext(NonCancellable) { access {
         require(lease.owner === this@ProgressStore) { "Session belongs to another store." }
         val key = lease.identity.namespaceId to lease.identity.contentId
         if (sessions[key] === lease) {
             // Native teardown has already succeeded. Cleanup failure must not retain a phantom core.
-            try { lease.workspace?.let { workspaceFiles.finish(contentRoot(lease.identity), it, committedFileBundle) } }
+            try { lease.workspace?.let { workspaceFiles.finish(contentRoot(lease.identity), it, committedOutputBytes) } }
             finally { lease.storageLease.close(); sessions.remove(key) }
         }
     } }

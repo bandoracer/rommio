@@ -100,6 +100,10 @@ final class ExpansionProgressTests: XCTestCase {
             if fixture.runtime == "ppsspp" {
                 XCTAssertEqual(try Data(contentsOf: saveFolder.appending(path: "DATA.BIN")), Data("game progress".utf8))
                 XCTAssertFalse(FileManager.default.fileExists(atPath: saves.appending(path: "LATER.BIN").path))
+            } else if fixture.runtime == "handy", let eeprom = memory[0], !eeprom.isEmpty {
+                let file = saves.appending(path: rom.deletingPathExtension().lastPathComponent + ".eeprom")
+                XCTAssertEqual(try Data(contentsOf: file), eeprom, "Lynx EEPROM must persist independently of snapshots")
+                XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: saves.path), [file.lastPathComponent])
             } else {
                 XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: saves.path).isEmpty, "Unexpected file-backed save inventory for \(fixture.system)")
             }

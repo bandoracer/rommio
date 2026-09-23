@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.platform.app.InstrumentationRegistry
 import io.github.bandoracer.rommio.data.local.AppDatabase
 import io.github.bandoracer.rommio.domain.progress.*
 import kotlinx.coroutines.*
@@ -19,7 +20,13 @@ class ExpansionProgressTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val fixtures = File(context.filesDir, "expansion-fixtures")
         assumeTrue("Stage private fixtures on a dedicated emulator", fixtures.isDirectory)
-        for ((runtime, extension) in listOf("genesis_plus_gx" to "md", "genesis_plus_gx" to "sms", "genesis_plus_gx" to "gg", "pcsx_rearmed" to "exe", "mupen64plus_next_gles3" to "z64", "ppsspp" to "prx")) {
+        val requestedRuntime = InstrumentationRegistry.getArguments().getString("rommioRuntime")
+        val cases = listOf("genesis_plus_gx" to "md", "genesis_plus_gx" to "sms", "genesis_plus_gx" to "gg", "pcsx_rearmed" to "exe", "mupen64plus_next_gles3" to "z64", "ppsspp" to "prx",
+            "stella" to "a26", "prosystem" to "a78", "handy" to "lnx").filter { (runtime, extension) ->
+            File(fixtures, "fixture.$extension").isFile && (requestedRuntime == null || runtime == requestedRuntime)
+        }
+        assertTrue("Stage at least one private expansion fixture", cases.isNotEmpty())
+        for ((runtime, extension) in cases) {
             val root = File(context.filesDir, "cartridge-roundtrip-${UUID.randomUUID()}").apply { mkdirs() }
             val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
             val store = ProgressStore(db, File(root, "store"))
@@ -98,6 +105,10 @@ class ExpansionProgressTest {
                 assertFalse(cold.useState)
                 val actual = coldOwner.engine.captureMemorySnapshot(false)
                 before.memory.forEach { (id, data) -> assertArrayEquals("$runtime cold boot $id", data, actual.memory[id]) }
+                if (runtime == "handy" && before.memory.getValue(PersistentMemory.SRAM).isNotEmpty()) {
+                    val eeprom = coldOwner.workspace.session.savesDirectory.walkTopDown().single { it.isFile && it.extension == "eeprom" }
+                    assertArrayEquals("Lynx EEPROM cold boot file", before.memory.getValue(PersistentMemory.SRAM), eeprom.readBytes())
+                }
                 if (runtime == "ppsspp") {
                     assertEquals("portable game progress", File(coldOwner.workspace.session.savesDirectory, "PSP/SAVEDATA/ROMMIO001/DATA.BIN").readText())
                     assertFalse(File(coldOwner.workspace.session.savesDirectory, "LATER.BIN").exists())

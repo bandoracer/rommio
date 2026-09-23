@@ -122,7 +122,7 @@ fi
 if [[ "${sdk}" == "iphonesimulator" && "${adhoc_sign_simulator_bundle}" == "1" ]]; then
     # Xcode leaves simulator builds as linker-signed binaries when code signing is
     # disabled in project settings. Re-sign the finished app bundle ad hoc so the
-    # shipped dylibs, license files, and other resources satisfy strict verification.
+    # embedded frameworks, license files, and other resources satisfy strict verification.
     codesign --force --sign - --timestamp=none --deep "${app_path}"
     codesign --verify --deep --strict "${app_path}"
 fi
@@ -131,7 +131,7 @@ python3 - "${app_path}" <<'PY'
 import hashlib, json, pathlib, sys
 root = pathlib.Path(sys.argv[1])
 manifest = json.loads((root / 'FceummProvenance.json').read_text())
-actual = hashlib.sha256((root / 'fceumm.dylib').read_bytes()).hexdigest()
+actual = hashlib.sha256((root / 'Frameworks/fceumm.framework/fceumm').read_bytes()).hexdigest()
 if manifest['sha256'] != actual:
     raise SystemExit('Final signed FCEUmm bytes differ from the runtime provenance manifest')
 PY

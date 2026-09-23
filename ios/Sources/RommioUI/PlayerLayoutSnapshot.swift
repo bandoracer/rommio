@@ -97,7 +97,7 @@ public func resolvePlayerOverlaySnapshot(
         primaryControlsPlacement: visible ? (deck.isPortrait ? .bottomBand : .sideRails) : .hiddenControllerFirst,
         menuPlacement: deck.isPortrait ? .utilityRow : (menuX < containerSize.width / 2 ? .landscapeLowerLeading : .landscapeLowerTrailing),
         systemPlacement: utility.isEmpty ? .none : (deck.isPortrait ? .utilityRow : .sideRails),
-        showsGameplayTouchControls: visible, showsPointerOverlay: controlsState.platformProfile.familyID == "nds" && visible,
+        showsGameplayTouchControls: visible, showsPointerOverlay: ["nds", "3ds"].contains(controlsState.platformProfile.familyID) && visible,
         menuCenter: CGPoint(x: deck.utilityX(index: menuIndex, count: utility.count + 1, width: containerSize.width), y: deck.utilityY),
         systemFrame: systemTargets.isEmpty ? nil : systemTargets.reduce(CGRect.null) { $0.union($1) },
         leftRailInset: visible ? deck.leftOrigin : nil,

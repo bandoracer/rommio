@@ -100,13 +100,17 @@ release_manifest.each do |entry|
   end
 
   catalog_path_for_runtime = catalog_paths[runtime_id]
+  framework_path = "Frameworks/#{runtime_id}.framework/#{runtime_id}"
   if catalog_path_for_runtime.nil?
     errors << "#{runtime_id}: BundledCoreCatalog does not define a bundled runtime entry"
-  elsif catalog_path_for_runtime != bundle_relative_path
-    errors << "#{runtime_id}: BundledCoreCatalog resolves #{catalog_path_for_runtime} instead of #{bundle_relative_path}"
+  elsif catalog_path_for_runtime != framework_path
+    errors << "#{runtime_id}: BundledCoreCatalog resolves #{catalog_path_for_runtime} instead of #{framework_path}"
   end
 
-  [bundle_relative_path, license_file_path].each do |bundle_path|
+  if resource_phase_entries.include?("/* #{File.basename(bundle_relative_path)} in Resources */")
+    errors << "#{runtime_id}: executable dylib must be packaged as a framework, not an app resource"
+  end
+  [license_file_path].each do |bundle_path|
     basename = File.basename(bundle_path)
     unless project.include?("path = #{bundle_path};")
       errors << "#{runtime_id}: #{bundle_path} is missing from ios/Rommio.xcodeproj/project.pbxproj"

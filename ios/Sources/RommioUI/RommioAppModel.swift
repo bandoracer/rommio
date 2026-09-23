@@ -1158,13 +1158,17 @@ public final class RommioAppModel {
         let workspace = services.progress.root.appending(path: "sessions/\(sessionID)")
         var cloudMessage: String?
         var legacyProgressFiles: [URL] = []
-        if (runtime.runtimeID == "fceumm" || PinnedAppleCore.cartridgeRuntimes.contains(runtime.runtimeID)), FileManager.default.fileExists(atPath: manifest.path), let profile = selectedProfile,
+        var threeDSArchiveMember: ThreeDSArchive.Member?
+        if (runtime.runtimeID == "fceumm" || PinnedAppleCore.cartridgeRuntimes.contains(runtime.runtimeID) || PinnedAppleCore.candidateRuntimes.contains(runtime.runtimeID)), FileManager.default.fileExists(atPath: manifest.path), let profile = selectedProfile,
            let record = try await services.downloadQueue.records(profileID: profile.id).first(where: { $0.romID == rom.id && $0.fileID == file.id }),
            let owner = record.owner, let digest = record.contentSHA256 {
             guard try await services.authController.verifiedAccount(profileID: profile.id) == owner,
                   owner.baseURL == profile.baseURL, try ProgressFileHash.sha256(URL(fileURLWithPath: romPath)) == digest else { throw AccountBindingError() }
             coreDigest = try PinnedAppleCore.verify(core: coreURL, manifest: manifest, runtimeID: runtime.runtimeID)
-            let binding = ProgressBinding(serverKey: ApplicationProgress.serverKey(owner.baseURL), accountId: String(owner.userID), romId: Int64(rom.id), files: [ProgressContentFile(fileId: Int64(file.id), discIndex: 0, contentSha256: digest, containerSha256: nil, memberPath: nil)])
+            if runtime.runtimeID == "azahar", file.effectiveFileExtension.lowercased() == "zip" {
+                threeDSArchiveMember = try ThreeDSArchive.materialize(URL(fileURLWithPath: romPath), in: workspace.appending(path: "content"))
+            }
+            let binding = ProgressBinding(serverKey: ApplicationProgress.serverKey(owner.baseURL), accountId: String(owner.userID), romId: Int64(rom.id), files: [ProgressContentFile(fileId: Int64(file.id), discIndex: 0, contentSha256: threeDSArchiveMember?.sha256 ?? digest, containerSha256: threeDSArchiveMember == nil ? nil : digest, memberPath: threeDSArchiveMember?.path)])
             let store = try await services.progress.store()
             progressIdentity = try await store.resolveIdentity(binding)
             let upgradeWarnings = try await ProgressUpgrade.run(store: store, identity: progressIdentity!)
@@ -1204,6 +1208,9 @@ public final class RommioAppModel {
                 connectivity: offlineState.connectivity
             )
         }
+        if runtime.runtimeID == "azahar", file.effectiveFileExtension.lowercased() == "zip", threeDSArchiveMember == nil {
+            throw ProgressStoreError.invalid("This 3DS ZIP needs a verified download and account before it can be opened.")
+        }
         updateFrontendUsername()
         let playerEngine = playerEngineFactory()
         var session = makePlayerSession(
@@ -1211,19 +1218,21 @@ public final class RommioAppModel {
             file: file,
             installation: installation,
             runtime: runtime,
-            romURL: URL(fileURLWithPath: romPath),
+            romURL: threeDSArchiveMember?.url ?? URL(fileURLWithPath: romPath),
             coreURL: coreURL
         )
 
         if progressIdentity != nil {
             session.ownsProgress = true; session.initialSaveRAM = nil
-            let isolatedContent = workspace.appending(path: "content/game.\(file.effectiveFileExtension.lowercased())")
-            try FileManager.default.createDirectory(at: isolatedContent.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try FileManager.default.copyItem(at: session.romURL, to: isolatedContent)
-            guard try ProgressFileHash.sha256(isolatedContent) == progressIdentity?.binding.files.first?.contentSha256 else {
-                throw ProgressStoreError.invalid("Content changed while preparing the session")
+            if threeDSArchiveMember == nil {
+                let isolatedContent = workspace.appending(path: "content/game.\(file.effectiveFileExtension.lowercased())")
+                try FileManager.default.createDirectory(at: isolatedContent.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try FileManager.default.copyItem(at: session.romURL, to: isolatedContent)
+                guard try ProgressFileHash.sha256(isolatedContent) == progressIdentity?.binding.files.first?.contentSha256 else {
+                    throw ProgressStoreError.invalid("Content changed while preparing the session")
+                }
+                session.romURL = isolatedContent
             }
-            session.romURL = isolatedContent
             session.savesDirectory = workspace.appending(path: "saves")
             session.saveRAMURL = session.savesDirectory.appending(path: "save.srm")
             session.saveStatesDirectory = workspace.appending(path: "states")

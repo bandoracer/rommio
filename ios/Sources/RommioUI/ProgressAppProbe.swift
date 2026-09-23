@@ -34,7 +34,7 @@ extension RommioAppModel {
             if phase.hasPrefix("backup-") { try await runBackupProbe(phase: phase, root: root, services: services); return }
             if phase == "seed-local" { try await prepareLocalProgressFixture(services: services) }
             if phase == "controls-local" { try await prepareControlsFixture(services: services, root: root, config: config) }
-            if phase == "seed" || phase == "play" || phase == "receive" || phase == "reconnect" || phase == "peer" || phase == "resolve" {
+            if phase == "seed" || phase == "play" || phase == "boot" || phase == "receive" || phase == "reconnect" || phase == "peer" || phase == "cold-peer" || phase == "resolve" {
                 let profile = try await services.authController.configureProfile(baseURL: baseURL, edgeAuthMode: .none, originAuthMode: .rommBearerPassword)
                 _ = try await services.authController.testServerAccess(profileID: profile.id)
                 try await services.authController.loginWithDirectCredentials(profileID: profile.id, credentials: DirectLoginCredentials(username: config["username"] as! String, password: config["password"] as! String))
@@ -49,9 +49,9 @@ extension RommioAppModel {
             } else {
                 rom = RomDTO(id: romID, name: "Original NES counter", platformSlug: "nes", fsName: "counter.nes", files: [RomFileDTO(id: fileID, romID: romID, fileName: "counter.nes", fileExtension: "nes", fileSizeBytes: 16400)])
             }
-            if phase == "seed" || phase == "play" || phase == "peer" {
+            if phase == "seed" || phase == "play" || phase == "boot" || phase == "peer" || phase == "cold-peer" {
                 try await services.downloadQueue.enqueue(rom: rom, file: rom.files[0])
-                for _ in 0..<1800 {
+                for _ in 0..<(phase == "boot" ? 18000 : 1800) {
                     if try await services.downloadQueue.verifiedLocalURL(profileID: activeProfile!.id, romID: romID, fileID: fileID) != nil { break }
                     try await Task.sleep(for: .milliseconds(100))
                 }
@@ -60,6 +60,14 @@ extension RommioAppModel {
             route = .app
             await launchInstalledGame(rom: rom, file: rom.files[0])
             guard let feature = activePlayer, let owner = feature.progressOwner else { throw ProgressStoreError.invalid(errorMessage ?? "Production progress owner was not activated") }
+            if phase == "boot" {
+                feature.preferColdBoot = true
+                if let message = feature.cloudMessage { throw ProgressStoreError.invalid(message) }
+                await feature.startIfNeeded()
+                guard feature.hasStarted else { throw ProgressStoreError.invalid(feature.errorMessage ?? "3DS title failed to start") }
+                try writeProbe(["status": "passed", "phase": phase, "platform": rom.platformSlug], root: root)
+                return
+            }
             if phase == "resolve" {
                 guard let selected = config["selectedGameHead"] as? String,
                       let expected = config["expectedGameHeads"] as? [String] else { throw ProgressStoreError.invalid("Explicit QA branch choice required") }
@@ -67,6 +75,22 @@ extension RommioAppModel {
                 let result = try await services.progress.synchronize(owner.identity)
                 guard result.complete else { throw ProgressStoreError.invalid(result.message) }
                 try writeProbe(["status": "passed", "phase": phase], root: root)
+                return
+            }
+            if phase == "cold-peer" {
+                guard rom.platformSlug == "3ds" else { throw ProgressStoreError.invalid("3DS cold peer requires a 3DS fixture") }
+                feature.preferColdBoot = true
+                if let message = feature.cloudMessage { throw ProgressStoreError.invalid(message) }
+                await feature.startIfNeeded()
+                guard feature.hasStarted, feature.noticeMessage == "Loaded game-save data." else {
+                    throw ProgressStoreError.invalid(feature.errorMessage ?? "3DS cold boot did not load its game save")
+                }
+                let expected = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: root.appending(path: "expected.json")))
+                let save = services.progress.root.appending(path: "sessions/\(owner.sessionID)/saves/Azahar/rommio-progress/sdmc/3ds/3dstris/config.mp")
+                guard try ProgressProtocol.sha256(Data(contentsOf: save)) == expected["gameSave"] else {
+                    throw ProgressStoreError.invalid("Remote 3DS game save differs after independent cold boot")
+                }
+                try writeProbe(["status": "passed", "phase": phase, "gameSave": expected["gameSave"] ?? ""], root: root)
                 return
             }
             if phase == "seed" || phase == "play" || phase == "receive" { feature.preferColdBoot = true }
@@ -90,7 +114,11 @@ extension RommioAppModel {
                 let store = try await services.progress.store()
                 let refs = try await store.references(owner.identity)
                 let snapshots = refs.filter { $0.key.hasPrefix("state/resume/") }.values.flatMap { $0 }.compactMap(\.checkpoint)
-                guard ProgressProtocol.sha256(capture.memory[0] ?? Data()) == expected["game"],
+                let threeDSSave = services.progress.root.appending(path: "sessions/\(owner.sessionID)/saves/Azahar/rommio-progress/sdmc/3ds/3dstris/config.mp")
+                let gameMatches = rom.platformSlug == "3ds"
+                    ? (try ProgressProtocol.sha256(Data(contentsOf: threeDSSave)) == expected["gameSave"])
+                    : ProgressProtocol.sha256(capture.memory[0] ?? Data()) == expected["game"]
+                guard gameMatches,
                       expected["clock"] == nil || ProgressProtocol.sha256(capture.memory[1] ?? Data()) == expected["clock"],
                       snapshots.contains(where: { $0.stateCompatibility == owner.qualification.state && $0.artifacts.contains(where: { $0.role == "state" && $0.sha256 == expected["state"] }) }),
                       owner.qualification.state.coreId != "fceumm" || ProgressProtocol.sha256(capture.state!) == expected["state"] else { throw ProgressStoreError.invalid("Restored game data or snapshot differs from the committed bytes") }
@@ -128,6 +156,27 @@ extension RommioAppModel {
                       config["expectedClock"] == nil || ProgressProtocol.sha256(capture.memory[1] ?? Data()) == config["expectedClock"] as? String else { throw ProgressStoreError.invalid("Android game-save data was not selected on iOS") }
                 try await owner.resume()
             }
+            if phase == "seed", rom.platformSlug == "3ds", config["azaharGameSave"] as? Bool == true {
+                let save = services.progress.root.appending(path: "sessions/\(owner.sessionID)/saves/Azahar/rommio-progress/sdmc/3ds/3dstris/config.mp")
+                for _ in 0..<50 where !FileManager.default.fileExists(atPath: save.path) {
+                    try await Task.sleep(for: .milliseconds(100))
+                }
+                let initial = try Data(contentsOf: save)
+                // The config is created before the game's main menu is ready to receive touch.
+                try await Task.sleep(for: .seconds(2))
+                func tap(_ x: Double, _ y: Double) async throws {
+                    let frameX = (x + 40) / 400
+                    let frameY = (y + 240) / 480
+                    feature.enqueuePointer(normalizedX: frameX, normalizedY: frameY, pressed: true)
+                    try await Task.sleep(for: .milliseconds(150))
+                    feature.enqueuePointer(normalizedX: frameX, normalizedY: frameY, pressed: false)
+                    try await Task.sleep(for: .milliseconds(150))
+                }
+                try await tap(270, 210)
+                try await tap(50, 22)
+                try await tap(45, 210)
+                guard try Data(contentsOf: save) != initial else { throw ProgressStoreError.invalid("3DS player touch did not create a game-authored save") }
+            }
             if (phase == "seed" || phase == "offline-play"),
                config["syntheticPSPSave"] as? Bool == true {
                 guard owner.qualification.save.system == "psp" else { throw ProgressStoreError.invalid("PSP fixture requires PSP") }
@@ -150,7 +199,11 @@ extension RommioAppModel {
             let refs = try await services.progress.store().references(owner.identity)
             let snapshot = refs.filter { $0.key.hasPrefix("state/resume/") }.values.flatMap { $0 }.compactMap(\.checkpoint).first { $0.stateCompatibility == owner.qualification.state }
             guard let stateHash = snapshot?.artifacts.first(where: { $0.role == "state" })?.sha256 else { throw ProgressStoreError.invalid("No committed snapshot") }
-            let expected = ["game": ProgressProtocol.sha256(capture.memory[0] ?? Data()), "clock": ProgressProtocol.sha256(capture.memory[1] ?? Data()), "state": stateHash]
+            var expected = ["game": ProgressProtocol.sha256(capture.memory[0] ?? Data()), "clock": ProgressProtocol.sha256(capture.memory[1] ?? Data()), "state": stateHash]
+            if rom.platformSlug == "3ds" {
+                let save = services.progress.root.appending(path: "sessions/\(owner.sessionID)/saves/Azahar/rommio-progress/sdmc/3ds/3dstris/config.mp")
+                expected["gameSave"] = try ProgressProtocol.sha256(Data(contentsOf: save))
+            }
             try ProgressDurability.write(JSONEncoder().encode(expected), to: root.appending(path: "expected.json"))
             if phase == "offline-play" {
                 let pending = try await services.progress.store().outbox(owner.identity).filter { $0.status != "PUBLISHED" }

@@ -20,9 +20,19 @@ final class CoreBuildManifestTests: XCTestCase {
         for entry in manifest {
             let runtime = try XCTUnwrap(runtimeByID[entry.runtimeID], "Missing runtime \(entry.runtimeID) in iOS catalog")
             XCTAssertEqual(entry.bundleRelativePath, runtime.bundleRelativePath)
-            XCTAssertEqual(entry.deviceArtifact, "build/ios/iphoneos/\(entry.runtimeID).dylib")
-            XCTAssertEqual(entry.simulatorArtifact, "build/ios/iphonesimulator/\(entry.runtimeID).dylib")
-            XCTAssertEqual(entry.licenseFile, "ios/App/Resources/Cores/licenses/\(entry.runtimeID).LICENSE.txt")
+            if ["stella", "prosystem", "handy"].contains(entry.runtimeID) {
+                XCTAssertEqual(entry.deviceArtifact, "build/cartridge-cores/\(entry.runtimeID)/iphoneos-arm64/output/\(entry.runtimeID).dylib")
+                XCTAssertEqual(entry.simulatorArtifact, "build/cartridge-cores/\(entry.runtimeID)/iphonesimulator-arm64/output/\(entry.runtimeID).dylib")
+                XCTAssertEqual(entry.licenseFile, "build/cartridge-cores/\(entry.runtimeID)/iphoneos-arm64/output/LICENSE.txt")
+            } else if entry.runtimeID == "azahar" {
+                XCTAssertEqual(entry.deviceArtifact, "build/azahar-candidate/iphoneos-arm64/output/azahar.dylib")
+                XCTAssertEqual(entry.simulatorArtifact, "build/azahar-candidate/iphonesimulator-arm64/output/azahar.dylib")
+                XCTAssertEqual(entry.licenseFile, "build/azahar-candidate/iphoneos-arm64/output/LICENSE.txt")
+            } else {
+                XCTAssertEqual(entry.deviceArtifact, "build/ios/iphoneos/\(entry.runtimeID).dylib")
+                XCTAssertEqual(entry.simulatorArtifact, "build/ios/iphonesimulator/\(entry.runtimeID).dylib")
+                XCTAssertEqual(entry.licenseFile, "ios/App/Resources/Cores/licenses/\(entry.runtimeID).LICENSE.txt")
+            }
         }
     }
 

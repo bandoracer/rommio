@@ -103,18 +103,25 @@ internal class ProgressWorkspaceFiles {
 
     /** A clean close removes only unchanged runtime inputs and empty output directories.
      * Unexpected core files or pending captures retain the entire workspace for recovery. */
-    suspend fun finish(root: File, workspace: ProgressWorkspace, committedFileBundle: ByteArray? = null) {
+    suspend fun finish(root: File, workspace: ProgressWorkspace, committedOutputBytes: ByteArray? = null) {
         val record = read(workspace.directory, workspace.identity)
-        val completeFileBundle = record.runtimeId != "ppsspp" || (committedFileBundle != null &&
-            PSPMemoryStickBundle.matches(File(workspace.directory, "saves"), committedFileBundle))
-        val outputFiles = if (record.runtimeId == "ppsspp" && committedFileBundle != null && completeFileBundle) {
-            PSPMemoryStickBundle.files(committedFileBundle).filterValues { !it.directory }.map { (path, entry) ->
+        val handyEEPROM = "saves/${File(record.contentPath).nameWithoutExtension}.eeprom"
+        val completeOutputs = when (record.runtimeId) {
+            "ppsspp" -> committedOutputBytes != null && PSPMemoryStickBundle.matches(File(workspace.directory, "saves"), committedOutputBytes)
+            "handy" -> committedOutputBytes != null && if (committedOutputBytes.isEmpty()) !File(workspace.directory, handyEEPROM).exists()
+                else File(workspace.directory, handyEEPROM).isFile && File(workspace.directory, handyEEPROM).readBytes().contentEquals(committedOutputBytes)
+            else -> true
+        }
+        val outputFiles = if (record.runtimeId == "ppsspp" && committedOutputBytes != null && completeOutputs) {
+            PSPMemoryStickBundle.files(committedOutputBytes).filterValues { !it.directory }.map { (path, entry) ->
                 "saves/$path" to ProgressProtocol.sha256(entry.bytes)
             }.toMap()
+        } else if (record.runtimeId == "handy" && committedOutputBytes != null && committedOutputBytes.isNotEmpty() && completeOutputs) {
+            mapOf(handyEEPROM to ProgressProtocol.sha256(committedOutputBytes))
         } else emptyMap()
         val expected = outputFiles + mapOf(record.contentPath to record.identity.binding.files.single().contentSha256) +
             record.firmware.mapKeys { "system/${it.key}" }
-        var pristine = completeFileBundle && expected.keys.all { File(workspace.directory, it).isFile }
+        var pristine = completeOutputs && expected.keys.all { File(workspace.directory, it).isFile }
         Files.walkFileTree(workspace.directory.toPath(), object : java.nio.file.SimpleFileVisitor<java.nio.file.Path>() {
             override fun visitFile(path: java.nio.file.Path, attrs: java.nio.file.attribute.BasicFileAttributes): java.nio.file.FileVisitResult {
                 val relative = workspace.directory.toPath().relativize(path).toString()

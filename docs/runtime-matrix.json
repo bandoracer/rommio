@@ -9,7 +9,7 @@
       "ios": {
         "render_backend": "SOFTWARE_FRAMEBUFFER",
         "interaction_profile": "TOUCH",
-        "bundle_relative_path": "Cores/fceumm.dylib",
+        "bundle_relative_path": "Frameworks/fceumm.framework/fceumm",
         "supported_extensions": ["nes"],
         "required_bios_files": [],
         "validation_state": "PLAYABLE"
@@ -24,7 +24,7 @@
       "ios": {
         "render_backend": "SOFTWARE_FRAMEBUFFER",
         "interaction_profile": "TOUCH",
-        "bundle_relative_path": "Cores/snes9x.dylib",
+        "bundle_relative_path": "Frameworks/snes9x.framework/snes9x",
         "supported_extensions": ["smc", "sfc"],
         "required_bios_files": [],
         "validation_state": "PLAYABLE"
@@ -39,7 +39,7 @@
       "ios": {
         "render_backend": "SOFTWARE_FRAMEBUFFER",
         "interaction_profile": "TOUCH",
-        "bundle_relative_path": "Cores/gambatte.dylib",
+        "bundle_relative_path": "Frameworks/gambatte.framework/gambatte",
         "supported_extensions": ["gb", "gbc"],
         "required_bios_files": [],
         "validation_state": "PLAYABLE"
@@ -54,7 +54,7 @@
       "ios": {
         "render_backend": "SOFTWARE_FRAMEBUFFER",
         "interaction_profile": "TOUCH",
-        "bundle_relative_path": "Cores/mgba.dylib",
+        "bundle_relative_path": "Frameworks/mgba.framework/mgba",
         "supported_extensions": ["gba"],
         "required_bios_files": [],
         "validation_state": "PLAYABLE"
@@ -69,7 +69,7 @@
       "ios": {
         "render_backend": "SOFTWARE_FRAMEBUFFER",
         "interaction_profile": "TOUCH",
-        "bundle_relative_path": "Cores/genesis_plus_gx.dylib",
+        "bundle_relative_path": "Frameworks/genesis_plus_gx.framework/genesis_plus_gx",
         "supported_extensions": ["md", "gen", "bin", "smd", "sms", "gg", "chd", "iso"],
         "required_bios_files": [],
         "validation_state": "PLAYABLE"
@@ -100,7 +100,7 @@
       "ios": {
         "render_backend": "SOFTWARE_FRAMEBUFFER",
         "interaction_profile": "TOUCH",
-        "bundle_relative_path": "Cores/mupen64plus_next_gles3.dylib",
+        "bundle_relative_path": "Frameworks/mupen64plus_next_gles3.framework/mupen64plus_next_gles3",
         "supported_extensions": ["z64", "n64", "v64", "bin"],
         "required_bios_files": [],
         "validation_state": "PLAYABLE"
@@ -115,7 +115,7 @@
       "ios": {
         "render_backend": "SOFTWARE_FRAMEBUFFER",
         "interaction_profile": "TOUCH",
-        "bundle_relative_path": "Cores/pcsx_rearmed.dylib",
+        "bundle_relative_path": "Frameworks/pcsx_rearmed.framework/pcsx_rearmed",
         "supported_extensions": ["chd", "bin", "img", "iso", "pbp", "exe"],
         "required_bios_files": ["scph5501.bin"],
         "validation_state": "PLAYABLE"
@@ -130,7 +130,7 @@
       "ios": {
         "render_backend": "SOFTWARE_FRAMEBUFFER",
         "interaction_profile": "TOUCH",
-        "bundle_relative_path": "Cores/ppsspp.dylib",
+        "bundle_relative_path": "Frameworks/ppsspp.framework/ppsspp",
         "supported_extensions": ["iso", "cso", "pbp", "elf", "prx"],
         "required_bios_files": [],
         "validation_state": "PLAYABLE"
@@ -145,7 +145,7 @@
       "ios": {
         "render_backend": "SOFTWARE_FRAMEBUFFER",
         "interaction_profile": "DUAL_SCREEN_TOUCH",
-        "bundle_relative_path": "Cores/melonds_ds.dylib",
+        "bundle_relative_path": "Frameworks/melonds_ds.framework/melonds_ds",
         "supported_extensions": ["nds"],
         "required_bios_files": [],
         "validation_state": "PLAYABLE"
@@ -160,8 +160,8 @@
       "ios": {
         "render_backend": "SOFTWARE_FRAMEBUFFER",
         "interaction_profile": "TOUCH",
-        "bundle_relative_path": "Cores/stella.dylib",
-        "supported_extensions": [],
+        "bundle_relative_path": "Frameworks/stella.framework/stella",
+        "supported_extensions": ["a26", "bin"],
         "required_bios_files": [],
         "validation_state": "PLAYABLE"
       }
@@ -175,8 +175,8 @@
       "ios": {
         "render_backend": "SOFTWARE_FRAMEBUFFER",
         "interaction_profile": "TOUCH",
-        "bundle_relative_path": "Cores/prosystem.dylib",
-        "supported_extensions": [],
+        "bundle_relative_path": "Frameworks/prosystem.framework/prosystem",
+        "supported_extensions": ["a78", "bin"],
         "required_bios_files": [],
         "validation_state": "PLAYABLE"
       }
@@ -190,8 +190,8 @@
       "ios": {
         "render_backend": "SOFTWARE_FRAMEBUFFER",
         "interaction_profile": "TOUCH",
-        "bundle_relative_path": "Cores/handy.dylib",
-        "supported_extensions": [],
+        "bundle_relative_path": "Frameworks/handy.framework/handy",
+        "supported_extensions": ["lnx", "lyx", "o"],
         "required_bios_files": [],
         "validation_state": "PLAYABLE"
       }
@@ -205,7 +205,7 @@
       "ios": {
         "render_backend": "SOFTWARE_FRAMEBUFFER",
         "interaction_profile": "TOUCH",
-        "bundle_relative_path": "Cores/fbneo.dylib",
+        "bundle_relative_path": "Frameworks/fbneo.framework/fbneo",
         "supported_extensions": [],
         "required_bios_files": [],
         "validation_state": "PLAYABLE"
@@ -341,15 +341,15 @@
       "display_name": "Nintendo 3DS",
       "platform_slugs": ["3ds", "new-nintendo-3ds"],
       "support_tier": "controller",
-      "default_runtime_id": "citra",
+      "default_runtime_id": "azahar",
       "ios": {
-        "render_backend": "HARDWARE_RENDER",
-        "interaction_profile": "CONTROLLER",
-        "bundle_relative_path": "Cores/citra.dylib",
-        "supported_extensions": [],
+        "render_backend": "SOFTWARE_FRAMEBUFFER",
+        "interaction_profile": "TOUCH",
+        "bundle_relative_path": "Frameworks/azahar.framework/azahar",
+        "supported_extensions": ["3ds", "3dsx", "cci", "cxi", "app", "zip"],
         "required_bios_files": [],
         "validation_state": "BLOCKED_BY_VALIDATION",
-        "validation_block_reason": "The iOS hardware-render host is not implemented for Nintendo 3DS yet."
+        "validation_block_reason": "Azahar passes 3DStris save/snapshot sync and a five-minute simulator run; Pokémon X boots with audio in simulator QA. Physical devices, conventional 3DS saves, wider titles and keys, Android parity, and distribution signing remain unqualified."
       }
     }
   ]

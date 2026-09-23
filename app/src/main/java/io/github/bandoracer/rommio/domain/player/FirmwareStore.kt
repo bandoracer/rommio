@@ -31,7 +31,7 @@ class FirmwareStore(
     init {
         require(catalog.distinctBy { it.path }.size == catalog.size)
         catalog.forEach { definition ->
-            require(definition.path.split('/').all { it.isNotEmpty() && it !in setOf(".", "..") && it.matches(Regex("[A-Za-z0-9_.-]+")) })
+            require(definition.path.split('/').all { it.isNotEmpty() && it !in setOf(".", "..") && it.matches(Regex("[A-Za-z0-9_.() -]+")) })
             require(definition.md5.matches(Regex("[0-9a-f]{32}")))
         }
     }
@@ -201,6 +201,7 @@ class FirmwareStore(
         "flycast" -> setOf("dc/dc_boot.bin")
         "opera" -> OPERA_BOOT_FILES + setOf("panafz1-kanji.bin", "panafz10ja-anvil-kanji.bin", "panafz1j-kanji.bin")
         "handy" -> setOf("lynxboot.img")
+        "prosystem" -> setOf("7800 BIOS (U).rom")
         "genesis_plus_gx", "picodrive" -> setOf("bios_CD_E.bin", "bios_CD_U.bin", "bios_CD_J.bin")
         else -> null
     }
@@ -229,6 +230,7 @@ class FirmwareStore(
             FirmwareDefinition("panafz10ja-anvil-kanji.bin", "3DO FZ-10JA Anvil Kanji font", "428577250f43edc902ea239c50d2240d"),
             FirmwareDefinition("panafz1j-kanji.bin", "3DO FZ-1J Kanji font", "c23fb5d5e6bb1c240d02cf968972be37"),
             FirmwareDefinition("lynxboot.img", "Atari Lynx boot image", "fcd403db69f54290b51035d82f835e7b"),
+            FirmwareDefinition("7800 BIOS (U).rom", "Atari 7800 US boot image (optional)", "0763f1ffb006ddbe32e52d497ee848ae"),
             FirmwareDefinition("bios_CD_E.bin", "Mega CD Europe BIOS", "e66fa1dc5820d254611fdcdba0662372"),
             FirmwareDefinition("bios_CD_U.bin", "Sega CD US BIOS", "854b9150240a198070150e4566ae1290"),
             FirmwareDefinition("bios_CD_J.bin", "Mega CD Japan BIOS", "278a9397d192149e84e820ac621a8edd"),

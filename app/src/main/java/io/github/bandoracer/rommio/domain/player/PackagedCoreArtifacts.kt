@@ -15,7 +15,7 @@ data class PackagedCoreManifest(val schemaVersion: Int, val runtimeId: String, v
     val persistenceExtension: String, val artifacts: List<PackagedCoreFile>)
 data class PackagedCoreArtifact(val manifest: PackagedCoreManifest, val file: PackagedCoreFile) {
     val identity get() = CoreArtifactIdentity(manifest.runtimeId, file.abi, file.sha256, file.sizeBytes,
-        "packaged-source", "https://github.com/${when (manifest.runtimeId) { "fceumm" -> "libretro/libretro-fceumm"; "gambatte" -> "libretro/gambatte-libretro"; "melonds_ds" -> "JesseTG/melonds-ds"; "genesis_plus_gx" -> "libretro/Genesis-Plus-GX"; "mupen64plus_next_gles3" -> "libretro/mupen64plus-libretro-nx"; "ppsspp" -> "hrydgard/ppsspp"; else -> "libretro/${manifest.runtimeId}" }}/tree/${manifest.sourceRevision}", approvedPin = true)
+        "packaged-source", "https://github.com/${when (manifest.runtimeId) { "fceumm" -> "libretro/libretro-fceumm"; "gambatte" -> "libretro/gambatte-libretro"; "melonds_ds" -> "JesseTG/melonds-ds"; "genesis_plus_gx" -> "libretro/Genesis-Plus-GX"; "mupen64plus_next_gles3" -> "libretro/mupen64plus-libretro-nx"; "ppsspp" -> "hrydgard/ppsspp"; "stella" -> "libretro/stella"; "prosystem" -> "libretro/prosystem-libretro"; "handy" -> "libretro/libretro-handy"; else -> "libretro/${manifest.runtimeId}" }}/tree/${manifest.sourceRevision}", approvedPin = true)
 }
 
 /** Reads the manifest shipped in this APK, never imported app-data provenance flags. */
@@ -29,7 +29,7 @@ class PackagedCoreArtifacts(
 
     private val adapter = Moshi.Builder().add(KotlinJsonAdapterFactory()).build().adapter(PackagedCoreManifest::class.java)
     @Synchronized fun find(profile: RuntimeProfile, abi: AndroidCoreAbi): PackagedCoreArtifact? {
-        if (profile.runtimeId !in setOf("fceumm", "gambatte", "mgba", "snes9x", "melonds_ds", "genesis_plus_gx", "pcsx_rearmed", "mupen64plus_next_gles3", "ppsspp")) return null
+        if (profile.runtimeId !in setOf("fceumm", "gambatte", "mgba", "snes9x", "melonds_ds", "genesis_plus_gx", "pcsx_rearmed", "mupen64plus_next_gles3", "ppsspp", "stella", "prosystem", "handy")) return null
         val bytes = try {
             openAsset("cores/${profile.runtimeId}/manifest.json").use { input ->
                 val buffer = ByteArray(65_537)

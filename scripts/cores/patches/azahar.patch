@@ -1,0 +1,205 @@
+diff --git a/src/citra_libretro/CMakeLists.txt b/src/citra_libretro/CMakeLists.txt
+index e28f994..f913f28 100644
+--- a/src/citra_libretro/CMakeLists.txt
++++ b/src/citra_libretro/CMakeLists.txt
+@@ -25,6 +25,7 @@ if(ENABLE_VULKAN)
+ endif()
+ 
+ add_library(citra_libretro SHARED
++        rommio_file_bundle.cpp
+         citra_libretro.cpp
+         citra_libretro.h
+         $<TARGET_OBJECTS:citra_libretro_common>)
+diff --git a/src/citra_libretro/citra_libretro.cpp b/src/citra_libretro/citra_libretro.cpp
+index 8a65f9d..7eb6f83 100644
+--- a/src/citra_libretro/citra_libretro.cpp
++++ b/src/citra_libretro/citra_libretro.cpp
+@@ -3,6 +3,7 @@
+ // Refer to the license.txt file included.
+ 
+ #include <list>
++#include <limits>
+ #include <numeric>
+ #include <vector>
+ #include <math.h>
+@@ -32,8 +33,10 @@
+ #include "citra_libretro/core_settings.h"
+ #include "citra_libretro/environment.h"
+ #include "citra_libretro/input/input_factory.h"
++#include "citra_libretro/rommio_file_bundle.h"
+ 
+ #include "common/arch.h"
++#include "common/file_util.h"
+ #if CITRA_ARCH(x86_64)
+ #include "common/x64/cpu_detect.h"
+ #endif
+@@ -48,6 +51,7 @@
+ #include "core/hle/kernel/memory.h"
+ #include "core/hle/kernel/process.h"
+ #include "core/loader/loader.h"
++#include "core/file_sys/disk_archive.h"
+ #include "core/memory.h"
+ 
+ #ifdef HAVE_LIBRETRO_VFS
+@@ -737,13 +741,58 @@ bool retro_unserialize(const void* data, size_t size) {
+     }
+ }
+ 
++static std::vector<uint8_t> rommio_files_buffer;
++static bool rommio_files_importing = false;
++static std::string rommio_progress_root() {
++    return FileUtil::GetUserPath(FileUtil::UserPath::UserDir) + "rommio-progress";
++}
++static void rommio_closed_game_handles() {}
++
++extern "C" RETRO_API const char* retro_rommio_persistence_descriptor() {
++    return "rommio-files-v1:azahar:3ds";
++}
++
++extern "C" RETRO_API bool retro_rommio_prepare_restore(size_t size) {
++    if (size < 12 || size > rommio_files::max_bytes ||
++        !DrainAsyncOperations(Core::System::GetInstance())) return false;
++    try {
++        rommio_files_buffer.assign(size, 0);
++        rommio_files_importing = true;
++        return true;
++    } catch (...) { return false; }
++}
++
++extern "C" RETRO_API bool retro_rommio_memory_restored() {
++    if (!rommio_files_importing || !emu_instance || !emu_instance->game_loaded) return false;
++    rommio_files_importing = false;
++    const std::string game_path = LibRetro::settings.file_path;
++    retro_unload_game();
++    const bool restored = rommio_files::restore(rommio_progress_root(), rommio_files_buffer,
++                                               &rommio_closed_game_handles);
++    const retro_game_info game{game_path.c_str(), nullptr, 0, nullptr};
++    const bool reloaded = retro_load_game(&game);
++    return restored && reloaded;
++}
++
+ void* retro_get_memory_data(unsigned id) {
++    if (id == RETRO_MEMORY_SAVE_RAM)
++        return rommio_files_buffer.empty() ? nullptr : rommio_files_buffer.data();
+     // Memory is exposed via RETRO_ENVIRONMENT_SET_MEMORY_MAPS instead,
+     // using virtual addresses for stable cheat/achievement support.
+     return NULL;
+ }
+ 
+ size_t retro_get_memory_size(unsigned id) {
++    if (id == RETRO_MEMORY_SAVE_RAM) {
++        if (!rommio_files_importing) {
++            try {
++                if (!DrainAsyncOperations(Core::System::GetInstance()) ||
++                    !FileSys::DiskFile::RommioFlushAll()) return SIZE_MAX;
++                rommio_files_buffer = rommio_files::capture(rommio_progress_root());
++            } catch (...) { return SIZE_MAX; }
++        }
++        return rommio_files_buffer.size();
++    }
+     return 0;
+ }
+ 
+diff --git a/src/citra_libretro/libretro.osx.def b/src/citra_libretro/libretro.osx.def
+index 53a556a..e1a2bd6 100644
+--- a/src/citra_libretro/libretro.osx.def
++++ b/src/citra_libretro/libretro.osx.def
+@@ -24,4 +24,7 @@ _retro_load_game_special
+ _retro_unload_game
+ _retro_get_region
+ _retro_get_memory_data
++_retro_rommio_persistence_descriptor
++_retro_rommio_prepare_restore
++_retro_rommio_memory_restored
+ _retro_get_memory_size
+diff --git a/src/common/file_util.cpp b/src/common/file_util.cpp
+index 3168a26..2617932 100644
+--- a/src/common/file_util.cpp
++++ b/src/common/file_util.cpp
+@@ -1020,8 +1020,17 @@ void SetUserPath(const std::string& path) {
+ #endif
+     }
+ 
++#ifdef HAVE_LIBRETRO
++    // Rommio persists the per-title SD and NAND trees as one game-save artifact.
++    // Config, cache, keys and system archives remain outside that artifact.
++    const auto progress_path = user_path + "rommio-progress" DIR_SEP;
++    CreateDir(progress_path);
++    g_paths.emplace(UserPath::SDMCDir, progress_path + SDMC_DIR DIR_SEP);
++    g_paths.emplace(UserPath::NANDDir, progress_path + NAND_DIR DIR_SEP);
++#else
+     g_paths.emplace(UserPath::SDMCDir, user_path + SDMC_DIR DIR_SEP);
+     g_paths.emplace(UserPath::NANDDir, user_path + NAND_DIR DIR_SEP);
++#endif
+     g_paths.emplace(UserPath::SysDataDir, user_path + SYSDATA_DIR DIR_SEP);
+     // TODO: Put the logs in a better location for each OS
+     g_paths.emplace(UserPath::LogDir, user_path + LOG_DIR DIR_SEP);
+diff --git a/src/core/file_sys/disk_archive.cpp b/src/core/file_sys/disk_archive.cpp
+index 7125bd3..4ede7c8 100644
+--- a/src/core/file_sys/disk_archive.cpp
++++ b/src/core/file_sys/disk_archive.cpp
+@@ -5,6 +5,7 @@
+ #include <algorithm>
+ #include <iterator>
+ #include <memory>
++#include <set>
+ #include "common/archives.h"
+ #include "common/common_types.h"
+ #include "common/file_util.h"
+@@ -18,6 +19,17 @@ SERIALIZE_EXPORT_IMPL(FileSys::DiskDirectory)
+ 
+ namespace FileSys {
+ 
++static std::set<DiskFile*> rommio_open_disk_files;
++
++void DiskFile::RegisterRommioFile(DiskFile* file) { rommio_open_disk_files.insert(file); }
++void DiskFile::UnregisterRommioFile(DiskFile* file) { rommio_open_disk_files.erase(file); }
++bool DiskFile::RommioFlushAll() {
++    for (auto* file : rommio_open_disk_files) {
++        if (file->file && file->file->IsOpen() && !file->file->Flush()) return false;
++    }
++    return true;
++}
++
+ ResultVal<std::size_t> DiskFile::Read(const u64 offset, const std::size_t length,
+                                       u8* buffer) const {
+     if (!mode.read_flag)
+diff --git a/src/core/file_sys/disk_archive.h b/src/core/file_sys/disk_archive.h
+index cc2c251..7419ba9 100644
+--- a/src/core/file_sys/disk_archive.h
++++ b/src/core/file_sys/disk_archive.h
+@@ -25,10 +25,14 @@ public:
+     DiskFile(FileUtil::IOFile&& file_, const Mode& mode_,
+              std::unique_ptr<DelayGenerator> delay_generator_)
+         : file(new FileUtil::IOFile(std::move(file_))) {
++        RegisterRommioFile(this);
+         delay_generator = std::move(delay_generator_);
+         mode.hex = mode_.hex;
+     }
+ 
++    ~DiskFile() override { UnregisterRommioFile(this); }
++    static bool RommioFlushAll();
++
+     ResultVal<std::size_t> Read(u64 offset, std::size_t length, u8* buffer) const override;
+     ResultVal<std::size_t> Write(u64 offset, std::size_t length, bool flush, bool update_timestamp,
+                                  const u8* buffer) override;
+@@ -44,7 +48,10 @@ protected:
+     Mode mode;
+     std::unique_ptr<FileUtil::IOFile> file;
+ 
+-    DiskFile() = default;
++    DiskFile() { RegisterRommioFile(this); }
++
++    static void RegisterRommioFile(DiskFile* file);
++    static void UnregisterRommioFile(DiskFile* file);
+ 
+ private:
+     template <class Archive>
+diff --git a/src/video_core/renderer_software/sw_rasterizer.cpp b/src/video_core/renderer_software/sw_rasterizer.cpp
+--- a/src/video_core/renderer_software/sw_rasterizer.cpp
++++ b/src/video_core/renderer_software/sw_rasterizer.cpp
+@@ -104,3 +104,3 @@ RasterizerSoftware::RasterizerSoftware(Memory::MemorySystem& memory_, Pica::Pica
+     : memory{memory_}, pica{pica_}, regs{pica.regs.internal},
+-      num_sw_threads{std::max(std::thread::hardware_concurrency(), 2U)},
++      num_sw_threads{std::min(std::max(std::thread::hardware_concurrency(), 2U), 4U)},
+       sw_workers{num_sw_threads, "SwRenderer workers"}, fb{memory, regs.framebuffer} {}

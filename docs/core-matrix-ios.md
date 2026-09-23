@@ -2,6 +2,10 @@
 
 This document tracks the iOS-specific embedded runtime policy for Rommio.
 
+The matrix is a **catalog of intended runtimes**, not a list of cores present in
+the current app or qualified for distribution. The near-term delivery scope is
+defined below.
+
 It preserves the same product-facing runtime families as Android, but changes delivery and packaging:
 
 - iOS cores must be bundled and code-signed with the app
@@ -35,14 +39,14 @@ It preserves the same product-facing runtime families as Android, but changes de
 | PlayStation | `psx`, `ps1`, `playstation` | Touch | `PCSX ReARMed` | `SwanStation` | `scph5501.bin` | Bundled signed libretro core | strong | Same BIOS policy, but iOS packaging differs. |
 | PlayStation Portable | `psp` | Controller | `PPSSPP` | None | None | Bundled signed libretro core | provisional | Needs battery and thermal validation on reference devices. |
 | Nintendo DS / DSi-enhanced | `nds`, `nintendo-dsi` | Touch | `melonDS DS` | `DeSmuME` | None | Bundled signed libretro core | strong | Uses the portrait handheld touch layout and lower-screen pointer routing already defined by the iOS player shell. |
-| Nintendo 3DS | `3ds`, `new-nintendo-3ds` | Controller | `Citra Canary/Experimental` | None | None | Bundled signed libretro core | provisional | Controller-first until iOS stability is proven. |
+| Nintendo 3DS | `3ds`, `new-nintendo-3ds` | Touch | `Azahar` | None | User keys/system files for content that needs them | Blocked integration candidate | provisional | 3DStris changed its own config through the simulator player's touch input; local RomM save and resume streams restored in a fresh app root. Commercial content, keys, device performance and distribution remain unqualified. |
 | GameCube / Wii | `gamecube`, `ngc`, `wii` | Controller | `Dolphin` | None | None | Bundled signed libretro core | provisional | Higher-end expansion target once the iOS bridge is validated. |
 | Dreamcast / NAOMI | `dreamcast`, `naomi` | Controller | `Flycast` | None | `dc_boot.bin`, `dc_flash.bin` | Bundled signed libretro core | provisional | Same BIOS policy, iOS-specific packaging. |
 | 3DO | `3do` | Controller | `Opera` | None | Varies by ROM set / firmware path | Bundled signed libretro core | provisional | Keep controller-first until heavier per-core validation clears. |
 | Virtual Boy | `virtualboy`, `virtual-boy` | Controller | `Beetle VB` | None | None | Bundled signed libretro core | provisional | Moderate-risk expansion target. |
-| Atari 2600 | `atari2600` | Touch | `Stella` | `Stella 2023` | None | Bundled signed libretro core | provisional | Low-risk parity target. |
-| Atari 7800 | `atari7800` | Touch | `ProSystem` | None | None | Bundled signed libretro core | provisional | Low-risk parity target. |
-| Atari Lynx | `lynx` | Touch | `Handy` | None | None | Bundled signed libretro core | provisional | Needs device validation. |
+| Atari 2600 | `atari2600` | Touch | `Stella 2023` | None | None | Embedded signed framework in simulator | provisional | Explicit empty game-save inventory; snapshot cold restore passed on simulator. |
+| Atari 7800 | `atari7800` | Touch | `ProSystem` | None | Optional `7800 BIOS (U).rom` | Embedded signed framework in simulator | provisional | Generated NTSC fixture passes simulator snapshot replay; PAL and device tests remain. |
+| Atari Lynx | `lynx` | Touch | `Handy` | None | Optional `lynxboot.img` | Embedded signed framework in simulator | provisional | Internal HLE fallback and homebrew EEPROM/snapshot simulator replay pass. |
 | Arcade | `arcade` | Touch | `FinalBurn Neo` | None | ROM set dependent | Bundled signed libretro core | strong | Keep the curated-arcade policy. |
 | DOS | `dos` | Controller | `DOSBox Pure` | `DOSBox Core` | None | Bundled signed libretro core | strong | Native iOS frontend must still mediate keyboard and touch affordances. |
 | PC Engine / TurboGrafx-16 | `tg16` | Touch | `Beetle PCE Fast` | None | None | Bundled signed libretro core | provisional | Lower-risk parity family. |
@@ -51,16 +55,53 @@ It preserves the same product-facing runtime families as Android, but changes de
 
 ## Packaging strategy
 
-- Ship core binaries inside the application bundle under a dedicated cores directory.
-- Provision runtimes automatically on demand from the signed app bundle into the app's runtime inventory without downloading executable code.
+- Executable cores are embedded as individually signed iOS frameworks. The
+  simulator app's final product verifies 13 core frameworks with no loose
+  libraries. Apple distribution signing and review remain unqualified.
+- Resolve shipped runtimes from the signed app bundle without downloading
+  executable code.
 - Keep bundle-relative core locations stable so the native iOS player bridge can resolve them deterministically.
 - Treat BIOS files as user-managed app content, not bundled executable code.
 - Preserve the product behavior of one recommended runtime per family, but express installation state as “bundled and auto-provisioned in this build” instead of “download required”.
-- Keep the canonical family/runtime map in `docs/runtime-matrix.json` and the
-  iOS build recipe inventory in `scripts/ios/core-build-manifest.json` so
-  Android parity and iOS packaging verification can be tested independently.
-- Keep the shipped bundled-core release set in
-  `scripts/ios/bundled-core-release-manifest.json`. The signed dylib binaries
-  themselves are hosted as GitHub Release assets and fetched locally or in CI
-  before iOS app builds; they are no longer tracked as normal Git blobs in the
-  main repository.
+- Keep the canonical family/runtime map in `docs/runtime-matrix.json` and
+  declared iOS artifact paths in `scripts/ios/core-build-manifest.json`. A
+  manifest entry does not establish a working build recipe or bundled core.
+- Keep externally fetched cores in
+  `scripts/ios/bundled-core-release-manifest.json`. FCEUmm and FinalBurn Neo
+  currently come from release assets; the other eleven shipped cores have
+  source builds in `scripts/cores/`. None of these binaries is tracked as a
+  normal Git blob in the main repository.
+
+## Near-term delivery scope
+
+Keep the thirteen cores now used by iOS development builds: FCEUmm,
+Snes9x, Gambatte, mGBA, Genesis Plus GX, Mupen64Plus-Next, PCSX ReARMed,
+PPSSPP, melonDS DS, FinalBurn Neo, Stella, ProSystem, and Handy. Their presence in a development build
+does not establish App Store signing or platform qualification.
+
+Azahar remains blocked. The Atari cores are present in the simulator build;
+their remaining qualification gates are recorded below:
+
+| Priority | Families | Core | Current gap | Required outcome |
+| --- | --- | --- | --- | --- |
+| Now — integration proof | Nintendo 3DS | Azahar 2126.1.2 candidate | Pinned macOS, simulator and iPhone arm64 builds; 3DStris game-authored config and independent snapshot restore pass on iPhone Duo and iPad Air simulators against disposable RomM 5.2; five-minute iPhone Duo simulator run averages 67.8 fps | Conventional 3DS save or extdata, audio, broader titles and keys, physical iPhone/iPad performance, hosted RomM, and distribution signing |
+| Atari 1 | Atari 2600 | Stella 2023 | Pinned framework and simulator snapshot replay pass | Real RomM snapshot sync, touch/controller play, and device qualification |
+| Atari 2 | Atari 7800 | ProSystem | Pinned framework; generated NTSC fixture passes simulator replay | PAL timing, controls, real RomM sync, and device qualification |
+| Atari 3 | Atari Lynx | Handy | Pinned framework; homebrew EEPROM and HLE boot pass simulator replay | EEPROM/snapshot sync, rotation, and device qualification |
+
+The [priority core delivery plan](ios-priority-core-plan.md) defines the work
+and promotion gates. The Atari entries are delivery work; 3DS starts with an
+Azahar integration proof. Dreamcast/NAOMI (Flycast) is on the backburner and is
+not in the active build or validation scope.
+Do not mark 3DS playable just because a core compiles. For
+each family, a **game save**, where supported, is its own persistent progress
+artifact and a **resume snapshot** is a separate captured emulator state; both
+must satisfy the ownership, recovery, and synchronization rules in
+[save-sync-spec.md](save-sync-spec.md). Simulator checks, iPhone/iPad device
+checks, and App Store distribution signing are separate gates.
+
+Defer new iOS integration of Flycast, PicoDrive, DOSBox Pure, Beetle PCE Fast,
+Beetle NeoPop, Beetle Cygne, Opera, Beetle VB, and Dolphin while this scope is
+underway. They remain in the catalog and artifact manifest as planned
+runtimes, not as shipped cores. Revisit them after the active priorities above
+or when an explicit scope decision changes the order.

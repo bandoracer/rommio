@@ -49,12 +49,9 @@ manifest.each do |entry|
   errors << "#{runtime_id}: missing keys #{missing_keys.join(", ")}" unless missing_keys.empty?
 
   bundle_relative_path = entry["bundle_relative_path"]
-  unless bundle_relative_path.start_with?("Cores/")
-    errors << "#{runtime_id}: bundle_relative_path must start with Cores/"
-  end
-
-  if File.basename(bundle_relative_path) != "#{runtime_id}.dylib"
-    errors << "#{runtime_id}: bundle_relative_path should end in #{runtime_id}.dylib"
+  expected_paths = ["Cores/#{runtime_id}.dylib", "Frameworks/#{runtime_id}.framework/#{runtime_id}"]
+  unless expected_paths.include?(bundle_relative_path)
+    errors << "#{runtime_id}: bundle_relative_path must be a core resource or embedded framework path"
   end
 
   if require_files == "1"

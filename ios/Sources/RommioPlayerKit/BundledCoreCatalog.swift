@@ -153,7 +153,7 @@ public enum IOSRuntimeMatrix {
                 runtimeID: "fceumm",
                 displayName: "FCEUmm",
                 platformSlugs: ["nes", "famicom"],
-                bundleRelativePath: "Cores/fceumm.dylib",
+                bundleRelativePath: "Frameworks/fceumm.framework/fceumm",
                 supportedExtensions: ["nes"],
                 shader: .crt
             )
@@ -166,7 +166,7 @@ public enum IOSRuntimeMatrix {
                 runtimeID: "snes9x",
                 displayName: "Snes9x",
                 platformSlugs: ["snes", "sfam"],
-                bundleRelativePath: "Cores/snes9x.dylib",
+                bundleRelativePath: "Frameworks/snes9x.framework/snes9x",
                 supportedExtensions: ["smc", "sfc"],
                 shader: .crt
             )
@@ -179,7 +179,7 @@ public enum IOSRuntimeMatrix {
                 runtimeID: "gambatte",
                 displayName: "Gambatte",
                 platformSlugs: ["gb", "gbc"],
-                bundleRelativePath: "Cores/gambatte.dylib",
+                bundleRelativePath: "Frameworks/gambatte.framework/gambatte",
                 supportedExtensions: ["gb", "gbc"],
                 shader: .lcd
             )
@@ -192,7 +192,7 @@ public enum IOSRuntimeMatrix {
                 runtimeID: "mgba",
                 displayName: "mGBA",
                 platformSlugs: ["gba"],
-                bundleRelativePath: "Cores/mgba.dylib",
+                bundleRelativePath: "Frameworks/mgba.framework/mgba",
                 supportedExtensions: ["gba"],
                 shader: .lcd
             )
@@ -205,7 +205,7 @@ public enum IOSRuntimeMatrix {
                 runtimeID: "genesis_plus_gx",
                 displayName: "Genesis Plus GX",
                 platformSlugs: ["genesis", "sms", "gamegear", "segacd"],
-                bundleRelativePath: "Cores/genesis_plus_gx.dylib",
+                bundleRelativePath: "Frameworks/genesis_plus_gx.framework/genesis_plus_gx",
                 supportedExtensions: ["md", "gen", "bin", "smd", "sms", "gg", "chd", "iso"],
                 shader: .crt
             )
@@ -233,7 +233,7 @@ public enum IOSRuntimeMatrix {
                 runtimeID: "mupen64plus_next_gles3",
                 displayName: "Mupen64Plus-Next (GLES3)",
                 platformSlugs: ["n64"],
-                bundleRelativePath: "Cores/mupen64plus_next_gles3.dylib",
+                bundleRelativePath: "Frameworks/mupen64plus_next_gles3.framework/mupen64plus_next_gles3",
                 defaultVariables: [
                     "mupen64plus-43screensize": "320x240",
                     "mupen64plus-FrameDuping": "True",
@@ -254,7 +254,7 @@ public enum IOSRuntimeMatrix {
                 runtimeID: "pcsx_rearmed",
                 displayName: "PCSX ReARMed",
                 platformSlugs: ["psx", "ps1", "playstation"],
-                bundleRelativePath: "Cores/pcsx_rearmed.dylib",
+                bundleRelativePath: "Frameworks/pcsx_rearmed.framework/pcsx_rearmed",
                 defaultVariables: ["pcsx_rearmed_drc": "disabled"],
                 supportedExtensions: ["chd", "bin", "img", "iso", "pbp", "exe"],
                 requiredBIOSFiles: ["scph5501.bin"],
@@ -269,7 +269,7 @@ public enum IOSRuntimeMatrix {
                 runtimeID: "ppsspp",
                 displayName: "PPSSPP",
                 platformSlugs: ["psp"],
-                bundleRelativePath: "Cores/ppsspp.dylib",
+                bundleRelativePath: "Frameworks/ppsspp.framework/ppsspp",
                 defaultVariables: ["ppsspp_frame_duplication": "enabled", "ppsspp_cpu_core": "IR JIT"],
                 supportedExtensions: ["iso", "cso", "pbp", "elf", "prx"],
                 shader: .lcd,
@@ -284,7 +284,7 @@ public enum IOSRuntimeMatrix {
                 runtimeID: "melonds_ds",
                 displayName: "melonDS DS",
                 platformSlugs: ["nds", "dsi", "nintendo-dsi"],
-                bundleRelativePath: "Cores/melonds_ds.dylib",
+                bundleRelativePath: "Frameworks/melonds_ds.framework/melonds_ds",
                 defaultVariables: [
                     "melonds_number_of_screen_layouts": "1",
                     "melonds_touch_mode": "Touch",
@@ -301,9 +301,10 @@ public enum IOSRuntimeMatrix {
             platformSlugs: ["atari2600"],
             runtime: runtime(
                 runtimeID: "stella",
-                displayName: "Stella",
+                displayName: "Stella 2023",
                 platformSlugs: ["atari2600"],
-                bundleRelativePath: "Cores/stella.dylib",
+                bundleRelativePath: "Frameworks/stella.framework/stella",
+                supportedExtensions: ["a26", "bin"],
                 shader: .crt
             )
         ),
@@ -315,7 +316,8 @@ public enum IOSRuntimeMatrix {
                 runtimeID: "prosystem",
                 displayName: "ProSystem",
                 platformSlugs: ["atari7800"],
-                bundleRelativePath: "Cores/prosystem.dylib",
+                bundleRelativePath: "Frameworks/prosystem.framework/prosystem",
+                supportedExtensions: ["a78", "bin"],
                 shader: .crt
             )
         ),
@@ -327,7 +329,8 @@ public enum IOSRuntimeMatrix {
                 runtimeID: "handy",
                 displayName: "Handy",
                 platformSlugs: ["lynx"],
-                bundleRelativePath: "Cores/handy.dylib",
+                bundleRelativePath: "Frameworks/handy.framework/handy",
+                supportedExtensions: ["lnx", "lyx", "o"],
                 shader: .lcd
             )
         ),
@@ -339,7 +342,7 @@ public enum IOSRuntimeMatrix {
                 runtimeID: "fbneo",
                 displayName: "FinalBurn Neo",
                 platformSlugs: ["arcade"],
-                bundleRelativePath: "Cores/fbneo.dylib",
+                bundleRelativePath: "Frameworks/fbneo.framework/fbneo",
                 shader: .crt
             )
         ),
@@ -457,14 +460,16 @@ public enum IOSRuntimeMatrix {
             displayName: "Nintendo 3DS",
             platformSlugs: ["3ds", "new-nintendo-3ds"],
             runtime: runtime(
-                runtimeID: "citra",
-                displayName: "Citra Canary/Experimental",
+                runtimeID: "azahar",
+                displayName: "Azahar",
                 platformSlugs: ["3ds", "new-nintendo-3ds"],
-                bundleRelativePath: "Cores/citra.dylib",
-                renderBackend: .hardwareRender,
-                interactionProfile: .controller,
+                bundleRelativePath: "Frameworks/azahar.framework/azahar",
+                defaultVariables: ["citra_graphics_api": "Software", "citra_use_cpu_jit": "disabled", "citra_use_shader_jit": "disabled"],
+                supportedExtensions: ["3ds", "3dsx", "cci", "cxi", "app", "zip"],
+                renderBackend: .softwareFramebuffer,
+                interactionProfile: .touch,
                 validationState: .blockedByValidation,
-                validationBlockReason: "The iOS hardware-render host is not implemented for Nintendo 3DS yet."
+                validationBlockReason: "Azahar passes 3DStris save/snapshot sync and a five-minute simulator run; Pokémon X boots with audio in simulator QA. Physical devices, conventional 3DS saves, wider titles and keys, Android parity, and distribution signing remain unqualified."
             )
         ),
     ]
@@ -498,7 +503,15 @@ public enum IOSRuntimeMatrix {
         validationState: IOSRuntimeValidationState = .playable,
         validationBlockReason: String? = nil
     ) -> IOSRuntimeProfile {
-        IOSRuntimeProfile(
+        #if DEBUG
+        // The candidate remains blocked for ordinary builds. An installed simulator
+        // qualification run can explicitly open the real player with the embedded core.
+        let qaEnabled = runtimeID == "azahar" &&
+            ProcessInfo.processInfo.environment["ROMMIO_ENABLE_AZAHAR_QA"] == "1"
+        #else
+        let qaEnabled = false
+        #endif
+        return IOSRuntimeProfile(
             runtimeID: runtimeID,
             displayName: displayName,
             platformSlugs: platformSlugs,
@@ -509,8 +522,8 @@ public enum IOSRuntimeMatrix {
             shader: shader,
             renderBackend: renderBackend,
             interactionProfile: interactionProfile,
-            validationState: validationState,
-            validationBlockReason: validationBlockReason
+            validationState: qaEnabled ? .playable : validationState,
+            validationBlockReason: qaEnabled ? nil : validationBlockReason
         )
     }
 }

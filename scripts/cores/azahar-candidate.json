@@ -1,0 +1,8 @@
+{
+  "repository": "https://github.com/azahar-emu/azahar.git",
+  "revision": "9e6f523a57fac9564ac0bf8286db3c3702d301ec",
+  "upstreamTag": "2126.1.2",
+  "license": "GPL-2.0-or-later",
+  "persistenceExtension": "rommio-files-v1:azahar:3ds",
+  "status": "integration-candidate"
+}

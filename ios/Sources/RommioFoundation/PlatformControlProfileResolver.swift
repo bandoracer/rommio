@@ -132,9 +132,9 @@ public struct PlatformControlProfileResolver: ControlProfileResolving {
         ),
 
         touchProfile(
-            familyID: "atari",
-            displayName: "Atari / Handheld Classics",
-            platformSlugs: ["atari2600", "atari7800", "lynx"],
+            familyID: "atari2600",
+            displayName: "Atari 2600",
+            platformSlugs: ["atari2600"],
             presets: [
                 TouchLayoutPreset(
                     presetID: "standard",
@@ -142,12 +142,47 @@ public struct PlatformControlProfileResolver: ControlProfileResolving {
                     elements: [
                         standardDpad(),
                         faceTwo(
-                            primaryLabel: "1",
-                            secondaryLabel: "2",
-                            primaryKey: LibretroJoypadID.a,
-                            secondaryKey: LibretroJoypadID.b
+                            primaryLabel: "Fire",
+                            secondaryLabel: "Trigger",
+                            primaryKey: LibretroJoypadID.b,
+                            secondaryKey: LibretroJoypadID.a
                         ),
-                        standardStartSelect(selectLabel: "Option", startLabel: "Start"),
+                        standardStartSelect(selectLabel: "Select", startLabel: "Reset"),
+                        standardShoulders(labels: ("Difficulty A", "Difficulty B"), keyCodes: (LibretroJoypadID.l1, LibretroJoypadID.l2)),
+                    ]
+                ),
+            ]
+        ),
+        touchProfile(
+            familyID: "atari7800",
+            displayName: "Atari 7800",
+            platformSlugs: ["atari7800"],
+            presets: [
+                TouchLayoutPreset(
+                    presetID: "standard",
+                    displayName: "Standard",
+                    elements: [
+                        standardDpad(),
+                        faceTwo(primaryLabel: "1", secondaryLabel: "2", primaryKey: LibretroJoypadID.b, secondaryKey: LibretroJoypadID.a),
+                        standardStartSelect(selectLabel: "Select", startLabel: "Pause"),
+                        standardShoulders(labels: ("Reset", "Difficulty"), keyCodes: (LibretroJoypadID.x, LibretroJoypadID.l1)),
+                    ]
+                ),
+            ]
+        ),
+        touchProfile(
+            familyID: "lynx",
+            displayName: "Atari Lynx",
+            platformSlugs: ["lynx"],
+            presets: [
+                TouchLayoutPreset(
+                    presetID: "standard",
+                    displayName: "Standard",
+                    elements: [
+                        standardDpad(),
+                        faceTwo(primaryLabel: "A", secondaryLabel: "B", primaryKey: LibretroJoypadID.a, secondaryKey: LibretroJoypadID.b),
+                        standardStartSelect(selectLabel: "Rotate", startLabel: "Pause"),
+                        standardShoulders(labels: ("Option 1", "Option 2")),
                     ]
                 ),
             ]
@@ -239,10 +274,28 @@ public struct PlatformControlProfileResolver: ControlProfileResolving {
             displayName: "GameCube / Wii",
             platformSlugs: ["gamecube", "ngc", "wii"]
         ),
-        controllerFirstProfile(
+        touchProfile(
             familyID: "3ds",
             displayName: "Nintendo 3DS",
-            platformSlugs: ["3ds", "new-nintendo-3ds"]
+            platformSlugs: ["3ds", "new-nintendo-3ds"],
+            orientationPolicy: .portraitOnly,
+            presets: [
+                TouchLayoutPreset(
+                    presetID: "portrait-handheld",
+                    displayName: "Portrait handheld",
+                    elements: [
+                        standardDpad().copy(centerX: 0.19, centerY: 0.80),
+                        faceFour(
+                            left: ("Y", LibretroJoypadID.y),
+                            bottom: ("B", LibretroJoypadID.b),
+                            right: ("A", LibretroJoypadID.a),
+                            top: ("X", LibretroJoypadID.x)
+                        ).copy(centerX: 0.81, centerY: 0.79, baseScale: 0.94),
+                        standardShoulders(labels: ("L", "R")).copy(centerY: 0.11, baseScale: 0.86),
+                        standardStartSelect().copy(centerY: 0.72, baseScale: 0.82),
+                    ]
+                ),
+            ]
         ),
         controllerFirstProfile(
             familyID: "dos",
@@ -270,6 +323,8 @@ private func touchProfile(
         preferredViewportAspectRatio = 3.0 / 2.0
     case "nds":
         preferredViewportAspectRatio = 2.0 / 3.0
+    case "3ds":
+        preferredViewportAspectRatio = 5.0 / 6.0
     default:
         preferredViewportAspectRatio = nil
     }

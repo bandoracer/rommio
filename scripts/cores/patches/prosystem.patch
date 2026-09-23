@@ -1,0 +1,42 @@
+diff --git a/core/libretro.c b/core/libretro.c
+index c6fd112..8d2d5d9 100644
+--- a/core/libretro.c
++++ b/core/libretro.c
+@@ -44,6 +44,7 @@ static uint16_t display_palette16[256] = {0};
+ static uint8_t keyboard_data[17]       = {0};
+ 
+ static bool persistent_data            = false;
++static bool rommio_loaded              = false;
+ 
+ #define GAMEPAD_ANALOG_THRESHOLD 0x4000
+ static bool gamepad_dual_stick_hack    = false;
+@@ -591,6 +592,7 @@ bool retro_load_game(const struct retro_game_info *info)
+ 
+    display_ResetPalette();
+ 
++   rommio_loaded = true;
+    return true;
+ }
+ 
+@@ -604,6 +606,7 @@ bool retro_load_game_special(unsigned game_type, const struct retro_game_info *i
+ 
+ void retro_unload_game(void) 
+ {
++   rommio_loaded = false;
+    prosystem_Close(persistent_data);
+    bios_Release();
+    persistent_data = false;
+@@ -731,3 +734,13 @@ void retro_run(void)
+ 
+    sound_Store();
+ }
++
++const char *retro_rommio_persistence_descriptor(void)
++{
++   return rommio_loaded ? "rommio-cart-v1:prosystem:atari7800:0:0" : "";
++}
++
++bool retro_rommio_memory_restored(void)
++{
++   return rommio_loaded;
++}

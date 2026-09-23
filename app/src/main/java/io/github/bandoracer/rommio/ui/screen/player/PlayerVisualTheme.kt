@@ -126,10 +126,15 @@ private fun consoleFaceColors(familyId: String): Map<String, Color> {
             "I" to Color(0xFF4479CF),
             "II" to Color(0xFFE08C3E),
         )
-        "atari" -> mapOf(
+        "atari2600" -> mapOf(
+            "Fire" to Color(0xFFE08C3E),
+            "Trigger" to Color(0xFFD85E4B),
+        )
+        "atari7800" -> mapOf(
             "1" to Color(0xFFE08C3E),
             "2" to Color(0xFFD85E4B),
         )
+        "lynx" -> mapOf("A" to Color(0xFFE08C3E), "B" to Color(0xFFD85E4B))
         else -> emptyMap()
     }
 }
@@ -146,7 +151,7 @@ private fun consoleNeutralAccent(familyId: String): Color {
         "gb" -> Color(0xFF8A4FA8)
         "gba" -> Color(0xFF7D70D6)
         "tg16" -> Color(0xFF4479CF)
-        "atari" -> Color(0xFFE08C3E)
+        "atari2600", "atari7800", "lynx" -> Color(0xFFE08C3E)
         else -> BrandSeed
     }
 }

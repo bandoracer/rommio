@@ -1,0 +1,51 @@
+diff --git a/libretro/libretro.cpp b/libretro/libretro.cpp
+index ad4efd7..178bcb6 100644
+--- a/libretro/libretro.cpp
++++ b/libretro/libretro.cpp
+@@ -1294,6 +1294,8 @@ unsigned retro_get_region(void)
+ 
+ void *retro_get_memory_data(unsigned type)
+ {
++   if (lynx && type == RETRO_MEMORY_SAVE_RAM && lynx->mEEPROM->Available())
++      return lynx->mEEPROM->RommioData();
+    if (lynx && type == RETRO_MEMORY_SYSTEM_RAM)
+       return lynx->GetRamPointer();
+    return NULL;
+@@ -1301,7 +1303,25 @@ void *retro_get_memory_data(unsigned type)
+ 
+ size_t retro_get_memory_size(unsigned type)
+ {
++   if (lynx && type == RETRO_MEMORY_SAVE_RAM && lynx->mEEPROM->Available())
++      return lynx->mEEPROM->Size();
+    if (type == RETRO_MEMORY_SYSTEM_RAM)
+       return 1024 * 64;
+    return 0;
+ }
++
++extern "C" const char *retro_rommio_persistence_descriptor()
++{
++   static char descriptor[96];
++   if (!initialized || !lynx) return "";
++   snprintf(descriptor, sizeof(descriptor), "rommio-cart-v1:handy:lynx:%zu:0",
++            retro_get_memory_size(RETRO_MEMORY_SAVE_RAM));
++   return descriptor;
++}
++
++extern "C" bool retro_rommio_memory_restored()
++{
++   if (!initialized || !lynx) return false;
++   lynx->SaveEEPROM();
++   return true;
++}
+diff --git a/lynx/eeprom.h b/lynx/eeprom.h
+index 8966e51..ec22594 100644
+--- a/lynx/eeprom.h
++++ b/lynx/eeprom.h
+@@ -48,6 +48,7 @@ public:
+    };
+    void SetEEPROMType(UBYTE b);
+    int Size(void);
++   void *RommioData(void) { return romdata; }
+    void InitFrom(char *data,int count){ memcpy(romdata,data,__min(count,Size()));};
+ 
+    void Poke(ULONG addr,UBYTE data) { };

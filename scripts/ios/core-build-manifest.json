@@ -5,7 +5,7 @@
     "source_checkout": "third_party/libretro/fceumm",
     "device_artifact": "build/ios/iphoneos/fceumm.dylib",
     "simulator_artifact": "build/ios/iphonesimulator/fceumm.dylib",
-    "bundle_relative_path": "Cores/fceumm.dylib",
+    "bundle_relative_path": "Frameworks/fceumm.framework/fceumm",
     "license_file": "ios/App/Resources/Cores/licenses/fceumm.LICENSE.txt"
   },
   {
@@ -14,7 +14,7 @@
     "source_checkout": "third_party/libretro/snes9x",
     "device_artifact": "build/ios/iphoneos/snes9x.dylib",
     "simulator_artifact": "build/ios/iphonesimulator/snes9x.dylib",
-    "bundle_relative_path": "Cores/snes9x.dylib",
+    "bundle_relative_path": "Frameworks/snes9x.framework/snes9x",
     "license_file": "ios/App/Resources/Cores/licenses/snes9x.LICENSE.txt"
   },
   {
@@ -23,7 +23,7 @@
     "source_checkout": "third_party/libretro/gambatte",
     "device_artifact": "build/ios/iphoneos/gambatte.dylib",
     "simulator_artifact": "build/ios/iphonesimulator/gambatte.dylib",
-    "bundle_relative_path": "Cores/gambatte.dylib",
+    "bundle_relative_path": "Frameworks/gambatte.framework/gambatte",
     "license_file": "ios/App/Resources/Cores/licenses/gambatte.LICENSE.txt"
   },
   {
@@ -32,7 +32,7 @@
     "source_checkout": "third_party/libretro/mgba",
     "device_artifact": "build/ios/iphoneos/mgba.dylib",
     "simulator_artifact": "build/ios/iphonesimulator/mgba.dylib",
-    "bundle_relative_path": "Cores/mgba.dylib",
+    "bundle_relative_path": "Frameworks/mgba.framework/mgba",
     "license_file": "ios/App/Resources/Cores/licenses/mgba.LICENSE.txt"
   },
   {
@@ -41,7 +41,7 @@
     "source_checkout": "third_party/libretro/genesis_plus_gx",
     "device_artifact": "build/ios/iphoneos/genesis_plus_gx.dylib",
     "simulator_artifact": "build/ios/iphonesimulator/genesis_plus_gx.dylib",
-    "bundle_relative_path": "Cores/genesis_plus_gx.dylib",
+    "bundle_relative_path": "Frameworks/genesis_plus_gx.framework/genesis_plus_gx",
     "license_file": "ios/App/Resources/Cores/licenses/genesis_plus_gx.LICENSE.txt"
   },
   {
@@ -59,7 +59,7 @@
     "source_checkout": "third_party/libretro/mupen64plus_next",
     "device_artifact": "build/ios/iphoneos/mupen64plus_next_gles3.dylib",
     "simulator_artifact": "build/ios/iphonesimulator/mupen64plus_next_gles3.dylib",
-    "bundle_relative_path": "Cores/mupen64plus_next_gles3.dylib",
+    "bundle_relative_path": "Frameworks/mupen64plus_next_gles3.framework/mupen64plus_next_gles3",
     "license_file": "ios/App/Resources/Cores/licenses/mupen64plus_next_gles3.LICENSE.txt"
   },
   {
@@ -68,7 +68,7 @@
     "source_checkout": "third_party/libretro/pcsx_rearmed",
     "device_artifact": "build/ios/iphoneos/pcsx_rearmed.dylib",
     "simulator_artifact": "build/ios/iphonesimulator/pcsx_rearmed.dylib",
-    "bundle_relative_path": "Cores/pcsx_rearmed.dylib",
+    "bundle_relative_path": "Frameworks/pcsx_rearmed.framework/pcsx_rearmed",
     "license_file": "ios/App/Resources/Cores/licenses/pcsx_rearmed.LICENSE.txt"
   },
   {
@@ -77,7 +77,7 @@
     "source_checkout": "third_party/libretro/ppsspp",
     "device_artifact": "build/ios/iphoneos/ppsspp.dylib",
     "simulator_artifact": "build/ios/iphonesimulator/ppsspp.dylib",
-    "bundle_relative_path": "Cores/ppsspp.dylib",
+    "bundle_relative_path": "Frameworks/ppsspp.framework/ppsspp",
     "license_file": "ios/App/Resources/Cores/licenses/ppsspp.LICENSE.txt"
   },
   {
@@ -86,35 +86,35 @@
     "source_checkout": "third_party/libretro/melonds_ds",
     "device_artifact": "build/ios/iphoneos/melonds_ds.dylib",
     "simulator_artifact": "build/ios/iphonesimulator/melonds_ds.dylib",
-    "bundle_relative_path": "Cores/melonds_ds.dylib",
+    "bundle_relative_path": "Frameworks/melonds_ds.framework/melonds_ds",
     "license_file": "ios/App/Resources/Cores/licenses/melonds_ds.LICENSE.txt"
   },
   {
     "runtime_id": "stella",
-    "recipe_id": "stella",
-    "source_checkout": "third_party/libretro/stella",
-    "device_artifact": "build/ios/iphoneos/stella.dylib",
-    "simulator_artifact": "build/ios/iphonesimulator/stella.dylib",
-    "bundle_relative_path": "Cores/stella.dylib",
-    "license_file": "ios/App/Resources/Cores/licenses/stella.LICENSE.txt"
+    "recipe_id": "scripts/cores/build.py",
+    "source_checkout": "build/cartridge-cores/stella/source",
+    "device_artifact": "build/cartridge-cores/stella/iphoneos-arm64/output/stella.dylib",
+    "simulator_artifact": "build/cartridge-cores/stella/iphonesimulator-arm64/output/stella.dylib",
+    "bundle_relative_path": "Frameworks/stella.framework/stella",
+    "license_file": "build/cartridge-cores/stella/iphoneos-arm64/output/LICENSE.txt"
   },
   {
     "runtime_id": "prosystem",
-    "recipe_id": "prosystem",
-    "source_checkout": "third_party/libretro/prosystem",
-    "device_artifact": "build/ios/iphoneos/prosystem.dylib",
-    "simulator_artifact": "build/ios/iphonesimulator/prosystem.dylib",
-    "bundle_relative_path": "Cores/prosystem.dylib",
-    "license_file": "ios/App/Resources/Cores/licenses/prosystem.LICENSE.txt"
+    "recipe_id": "scripts/cores/build.py",
+    "source_checkout": "build/cartridge-cores/prosystem/source",
+    "device_artifact": "build/cartridge-cores/prosystem/iphoneos-arm64/output/prosystem.dylib",
+    "simulator_artifact": "build/cartridge-cores/prosystem/iphonesimulator-arm64/output/prosystem.dylib",
+    "bundle_relative_path": "Frameworks/prosystem.framework/prosystem",
+    "license_file": "build/cartridge-cores/prosystem/iphoneos-arm64/output/LICENSE.txt"
   },
   {
     "runtime_id": "handy",
-    "recipe_id": "handy",
-    "source_checkout": "third_party/libretro/handy",
-    "device_artifact": "build/ios/iphoneos/handy.dylib",
-    "simulator_artifact": "build/ios/iphonesimulator/handy.dylib",
-    "bundle_relative_path": "Cores/handy.dylib",
-    "license_file": "ios/App/Resources/Cores/licenses/handy.LICENSE.txt"
+    "recipe_id": "scripts/cores/build.py",
+    "source_checkout": "build/cartridge-cores/handy/source",
+    "device_artifact": "build/cartridge-cores/handy/iphoneos-arm64/output/handy.dylib",
+    "simulator_artifact": "build/cartridge-cores/handy/iphonesimulator-arm64/output/handy.dylib",
+    "bundle_relative_path": "Frameworks/handy.framework/handy",
+    "license_file": "build/cartridge-cores/handy/iphoneos-arm64/output/LICENSE.txt"
   },
   {
     "runtime_id": "fbneo",
@@ -122,7 +122,7 @@
     "source_checkout": "third_party/libretro/fbneo",
     "device_artifact": "build/ios/iphoneos/fbneo.dylib",
     "simulator_artifact": "build/ios/iphonesimulator/fbneo.dylib",
-    "bundle_relative_path": "Cores/fbneo.dylib",
+    "bundle_relative_path": "Frameworks/fbneo.framework/fbneo",
     "license_file": "ios/App/Resources/Cores/licenses/fbneo.LICENSE.txt"
   },
   {
@@ -198,12 +198,12 @@
     "license_file": "ios/App/Resources/Cores/licenses/dolphin.LICENSE.txt"
   },
   {
-    "runtime_id": "citra",
-    "recipe_id": "citra",
-    "source_checkout": "third_party/libretro/citra",
-    "device_artifact": "build/ios/iphoneos/citra.dylib",
-    "simulator_artifact": "build/ios/iphonesimulator/citra.dylib",
-    "bundle_relative_path": "Cores/citra.dylib",
-    "license_file": "ios/App/Resources/Cores/licenses/citra.LICENSE.txt"
+    "runtime_id": "azahar",
+    "recipe_id": "azahar-candidate-2126.1.2",
+    "source_checkout": "build/azahar-candidate/iphoneos-arm64/source",
+    "device_artifact": "build/azahar-candidate/iphoneos-arm64/output/azahar.dylib",
+    "simulator_artifact": "build/azahar-candidate/iphonesimulator-arm64/output/azahar.dylib",
+    "bundle_relative_path": "Frameworks/azahar.framework/azahar",
+    "license_file": "build/azahar-candidate/iphoneos-arm64/output/LICENSE.txt"
   }
 ]

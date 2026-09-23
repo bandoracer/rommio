@@ -5,7 +5,7 @@ final class ExpansionControlsTests: XCTestCase {
     func testEveryExpansionPlatformHasTouchControlsAndIndependentFamilyProfiles() throws {
         let resolver = PlatformControlProfileResolver()
         XCTAssertEqual(Set(resolver.supportedProfiles().map(\.familyID)).count, resolver.supportedProfiles().count)
-        for slug in ["genesis", "segacd", "sms", "gamegear", "psx", "n64", "psp", "nes", "snes", "gb", "gba", "atari2600", "tg16", "arcade", "nds"] {
+        for slug in ["genesis", "segacd", "sms", "gamegear", "psx", "n64", "psp", "nes", "snes", "gb", "gba", "atari2600", "atari7800", "lynx", "tg16", "arcade", "nds"] {
             let profile = resolver.resolve(platformSlug: slug)
             XCTAssertEqual(profile.supportTier, .touchSupported, slug)
             XCTAssertEqual(profile.touchSupportMode, .full, slug)
@@ -18,6 +18,7 @@ final class ExpansionControlsTests: XCTestCase {
             } }
         }
         XCTAssertNotEqual(resolver.resolve(platformSlug: "sms").familyID, resolver.resolve(platformSlug: "genesis").familyID)
+        XCTAssertNotEqual(resolver.resolve(platformSlug: "atari2600").familyID, resolver.resolve(platformSlug: "atari7800").familyID)
     }
     func testPinnedCoreButtonMapsAndStickCoverage() throws {
         let sega = try XCTUnwrap(ExpansionControls.controls(for: "sega16"))
@@ -31,5 +32,8 @@ final class ExpansionControlsTests: XCTestCase {
         let c = ExpansionControls.controls(for: "n64")!.filter { $0.label.hasPrefix("C-") }
         XCTAssertEqual(c.count, 4); XCTAssertTrue(c.allSatisfy { abs($0.axisX) + abs($0.axisY) == 1 })
         XCTAssertEqual(ExpansionControls.profiles.first { $0.familyID == "psp" }?.preferredViewportAspectRatio ?? 0, 480.0/272, accuracy: 0.00001)
+        XCTAssertEqual(ExpansionControls.controls(for: "atari2600")?.first { $0.label == "Fire" }?.key, LibretroJoypadID.b)
+        XCTAssertEqual(ExpansionControls.controls(for: "atari7800")?.first { $0.label == "1" }?.key, LibretroJoypadID.b)
+        XCTAssertEqual(ExpansionControls.controls(for: "lynx")?.first { $0.label == "Option 1" }?.key, LibretroJoypadID.l1)
     }
 }

@@ -238,16 +238,18 @@ class SessionCheckpointWriter(
         commitPending(fault)
     }
 
-    internal var committedFileBundle: ByteArray? = null
+    internal var committedOutputBytes: ByteArray? = null
         private set
 
     private suspend fun commitPending(fault: (ProgressCommitBoundary) -> Unit): CheckpointWriteResult {
         val item = requireNotNull(pending)
         store.commit(identity, item.payload, item.sources, publish, fault)
         item.operation.changes.forEach { parents[it.reference] = listOf(item.operation.operationId) }
-        if (qualification.fileBundle) {
-            committedFileBundle = runCatching {
-                val artifact = item.result.checkpoint.artifacts.single { it.relativePath == "memory-stick.rmmf" }
+        if (qualification.fileBundle || qualification.coreId == "handy") {
+            committedOutputBytes = runCatching {
+                val path = if (qualification.fileBundle) "memory-stick.rmmf" else PersistentMemory.SRAM.path
+                val artifact = item.result.checkpoint.artifacts.singleOrNull { it.relativePath == path }
+                    ?: return@runCatching ByteArray(0)
                 requireNotNull(item.sources[artifact.sha256]).readBytes().also { require(ProgressProtocol.sha256(it) == artifact.sha256) }
             }.getOrNull()
         }

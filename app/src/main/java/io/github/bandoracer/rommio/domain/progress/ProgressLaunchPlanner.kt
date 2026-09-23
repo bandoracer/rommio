@@ -193,7 +193,7 @@ class ProgressLaunchPlanner(private val store: ProgressStore) {
                 workspace?.sessionId ?: UUID.randomUUID().toString(), prepared.baselineParents,
                 workspace?.stagingDirectory ?: stagingRoot, engine::captureMemorySnapshot, publish, version)
             val owner = ProgressSessionCoordinator(engine, writer, MemoryCheckpointLoader(store, prepared.identity, prepared.qualification),
-                onNativeClosed = { store.releaseSession(lease, writer.committedFileBundle) })
+                onNativeClosed = { store.releaseSession(lease, writer.committedOutputBytes) })
             coordinator = owner
             owner.start(prepared.checkpointId, prepared.useState).await()
             return owner

@@ -1114,12 +1114,128 @@
       }
     ]
   },
-  "atari": {
-    "name": "Atari",
+  "atari2600": {
+    "name": "Atari 2600",
     "slugs": [
-      "atari2600",
-      "atari7800",
-      "lynx"
+      "atari2600"
+    ],
+    "aspect": 1.3333333333333333,
+    "generateProfile": false,
+    "buttons": [
+      {
+        "id": "Up",
+        "label": "Up",
+        "key": 4,
+        "x": 74,
+        "y": 74,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Left",
+        "label": "Left",
+        "key": 6,
+        "x": 26,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Right",
+        "label": "Right",
+        "key": 7,
+        "x": 122,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Down",
+        "label": "Down",
+        "key": 5,
+        "x": 74,
+        "y": 170,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Fire",
+        "label": "Fire",
+        "key": 0,
+        "x": 38,
+        "y": 148,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Trigger",
+        "label": "Trigger",
+        "key": 8,
+        "x": 110,
+        "y": 100,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Select",
+        "label": "Select",
+        "key": 2,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      },
+      {
+        "id": "Reset",
+        "label": "Reset",
+        "key": 3,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      },
+      {
+        "id": "Difficulty A",
+        "label": "Difficulty A",
+        "key": 10,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      },
+      {
+        "id": "Difficulty B",
+        "label": "Difficulty B",
+        "key": 12,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      },
+      {
+        "id": "Color",
+        "label": "Color",
+        "key": 14,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      },
+      {
+        "id": "B&W",
+        "label": "B&W",
+        "key": 15,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      }
+    ]
+  },
+  "atari7800": {
+    "name": "Atari 7800",
+    "slugs": [
+      "atari7800"
     ],
     "aspect": 1.3333333333333333,
     "generateProfile": false,
@@ -1163,7 +1279,7 @@
       {
         "id": "1",
         "label": "1",
-        "key": 8,
+        "key": 0,
         "x": 38,
         "y": 148,
         "side": "right",
@@ -1172,15 +1288,15 @@
       {
         "id": "2",
         "label": "2",
-        "key": 0,
+        "key": 8,
         "x": 110,
         "y": 100,
         "side": "right",
         "size": 48
       },
       {
-        "id": "Option",
-        "label": "Option",
+        "id": "Select",
+        "label": "Select",
         "key": 2,
         "x": 0,
         "y": 0,
@@ -1188,9 +1304,136 @@
         "size": 48
       },
       {
-        "id": "Start",
-        "label": "Start",
+        "id": "Pause",
+        "label": "Pause",
         "key": 3,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      },
+      {
+        "id": "Reset",
+        "label": "Reset",
+        "key": 9,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      },
+      {
+        "id": "Left difficulty",
+        "label": "Left difficulty",
+        "key": 10,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      },
+      {
+        "id": "Right difficulty",
+        "label": "Right difficulty",
+        "key": 11,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      }
+    ]
+  },
+  "lynx": {
+    "name": "Atari Lynx",
+    "slugs": [
+      "lynx"
+    ],
+    "aspect": 1.5686274509803921,
+    "generateProfile": false,
+    "buttons": [
+      {
+        "id": "Up",
+        "label": "Up",
+        "key": 4,
+        "x": 74,
+        "y": 74,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Left",
+        "label": "Left",
+        "key": 6,
+        "x": 26,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Right",
+        "label": "Right",
+        "key": 7,
+        "x": 122,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Down",
+        "label": "Down",
+        "key": 5,
+        "x": 74,
+        "y": 170,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "A",
+        "label": "A",
+        "key": 8,
+        "x": 38,
+        "y": 148,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "B",
+        "label": "B",
+        "key": 0,
+        "x": 110,
+        "y": 100,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Option 1",
+        "label": "Option 1",
+        "key": 10,
+        "x": 74,
+        "y": 24,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Option 2",
+        "label": "Option 2",
+        "key": 11,
+        "x": 74,
+        "y": 24,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Pause",
+        "label": "Pause",
+        "key": 3,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      },
+      {
+        "id": "Rotate",
+        "label": "Rotate",
+        "key": 2,
         "x": 0,
         "y": 0,
         "side": "center",
@@ -1500,6 +1743,143 @@
         "x": 0,
         "y": 0,
         "side": "center",
+        "size": 48
+      }
+    ]
+  },
+  "3ds": {
+    "name": "Nintendo 3DS",
+    "slugs": [
+      "3ds",
+      "new-nintendo-3ds"
+    ],
+    "aspect": 0.8333333333333334,
+    "generateProfile": false,
+    "buttons": [
+      {
+        "id": "Up",
+        "label": "Up",
+        "key": 4,
+        "x": 74,
+        "y": 74,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Left",
+        "label": "Left",
+        "key": 6,
+        "x": 26,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Right",
+        "label": "Right",
+        "key": 7,
+        "x": 122,
+        "y": 122,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Down",
+        "label": "Down",
+        "key": 5,
+        "x": 74,
+        "y": 170,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "Y",
+        "label": "Y",
+        "key": 1,
+        "x": 26,
+        "y": 122,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "B",
+        "label": "B",
+        "key": 0,
+        "x": 74,
+        "y": 170,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "A",
+        "label": "A",
+        "key": 8,
+        "x": 122,
+        "y": 122,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "X",
+        "label": "X",
+        "key": 9,
+        "x": 74,
+        "y": 74,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "L",
+        "label": "L",
+        "key": 10,
+        "x": 74,
+        "y": 24,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "R",
+        "label": "R",
+        "key": 11,
+        "x": 74,
+        "y": 24,
+        "side": "right",
+        "size": 48
+      },
+      {
+        "id": "Select",
+        "label": "Select",
+        "key": 2,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      },
+      {
+        "id": "Start",
+        "label": "Start",
+        "key": 3,
+        "x": 0,
+        "y": 0,
+        "side": "center",
+        "size": 48
+      },
+      {
+        "id": "ZL",
+        "label": "ZL",
+        "key": 12,
+        "x": 26,
+        "y": 24,
+        "side": "left",
+        "size": 48
+      },
+      {
+        "id": "ZR",
+        "label": "ZR",
+        "key": 13,
+        "x": 122,
+        "y": 24,
+        "side": "right",
         "size": 48
       }
     ]

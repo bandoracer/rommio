@@ -23,7 +23,7 @@ final class PlayerDuoStageLayoutTests: XCTestCase {
 
     func testUnfoldedPortraitStacksDSScreensAcrossTheHinge() {
         // Beta 1 reports no hinge, so the midline stands in for it.
-        let layout = dsLayout(size: portraitSize, insets: portraitInsets, stage: PlayerStageContext(dualScreen: true))
+        let layout = dsLayout(size: portraitSize, insets: portraitInsets, stage: PlayerStageContext(dualScreen: true, isPhoneFormFactor: true))
         XCTAssertEqual(layout.screens.count, 2)
         let (top, touch) = (layout.screens[0], layout.screens[1])
         XCTAssertEqual(top.source, CGRect(x: 0, y: 0, width: 1, height: 0.5))
@@ -70,6 +70,34 @@ final class PlayerDuoStageLayoutTests: XCTestCase {
                               stage: PlayerStageContext(dualScreen: true))
         XCTAssertTrue(layout.deck.isPortrait)
         XCTAssertLessThan(layout.screens[0].frame.maxY, layout.screens[1].frame.minY)
+    }
+
+    func testThreeDSScreensKeepNativeAspectsAndCenteredTouchSource() {
+        let layout = resolvePlayerStageLayout(
+            containerSize: CGSize(width: 430, height: 932),
+            safeAreaInsets: PlayerViewportSafeAreaInsets(top: 59, bottom: 34, left: 0, right: 0),
+            aspectRatio: 5.0 / 6.0, topAlignedInPortrait: true,
+            reserveTouchSpace: true,
+            stage: PlayerStageContext(dualScreen: true, threeDS: true)
+        )
+        XCTAssertEqual(layout.screens.count, 2)
+        XCTAssertEqual(layout.screens[0].frame.width / layout.screens[0].frame.height, 5.0 / 3.0, accuracy: 0.01)
+        XCTAssertEqual(layout.screens[1].frame.width / layout.screens[1].frame.height, 4.0 / 3.0, accuracy: 0.01)
+        XCTAssertEqual(layout.screens[1].source, CGRect(x: 0.1, y: 0.5, width: 0.8, height: 0.5))
+        XCTAssertTrue(layout.screens[1].isTouchScreen)
+        XCTAssertLessThan(layout.screens[0].frame.maxY, layout.screens[1].frame.minY)
+    }
+
+    func testIPadThreeDSScreensStayTogetherWithoutAnInventedHinge() {
+        let layout = resolvePlayerStageLayout(
+            containerSize: CGSize(width: 820, height: 1180),
+            safeAreaInsets: PlayerViewportSafeAreaInsets(top: 24, bottom: 20, left: 0, right: 0),
+            aspectRatio: 5.0 / 6.0, topAlignedInPortrait: true,
+            reserveTouchSpace: true,
+            stage: PlayerStageContext(dualScreen: true, threeDS: true, isPhoneFormFactor: false)
+        )
+        XCTAssertEqual(layout.screens.count, 2)
+        XCTAssertEqual(layout.screens[1].frame.minY - layout.screens[0].frame.maxY, 12, accuracy: 0.5)
     }
 
     func testBookPoseGivesSingleScreenGamesAPadHalf() {

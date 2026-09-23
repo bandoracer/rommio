@@ -140,7 +140,18 @@ Build the app for the iOS simulator:
 scripts/ios/build_simulator_app.sh
 ```
 
-The app build compiles pinned FCEUmm, Gambatte, mGBA, Snes9x, melonDS DS, Genesis Plus GX, PCSX ReARMed, Mupen64Plus-Next, and PPSSPP for its Apple target, signs each bundled dylib, and records its final digest in per-core provenance. The older downloaded FCEUmm resource is replaced by this build phase. Cartridge builds need Git, Make, Python 3, CMake, and network access for first-time source/dependency fetches. Set `CMAKE` to select an explicit executable. See [build inputs and persistence scope](../docs/cartridge-progress.md) and [platform expansion qualification](../docs/platform-expansion.md).
+The app build embeds thirteen independently signed core frameworks, including
+Stella, ProSystem, and Handy. Pinned source builds produce each new cartridge
+core for simulator and device; the final framework digest is recorded in its
+provenance file. Cartridge builds need Git, Make, Python 3, CMake, and network
+access for first-time source/dependency fetches. Set `CMAKE` to select an
+explicit executable. The blocked Azahar 3DS candidate can be included in a
+Debug simulator or device build with `ROMMIO_INCLUDE_AZAHAR_CANDIDATE=1` and
+`ROMMIO_AZAHAR_SOURCE_CACHE=<pinned-source-checkout>`. It is omitted from
+normal builds and every Release build. See [build inputs and persistence
+scope](../docs/cartridge-progress.md), [platform expansion
+qualification](../docs/platform-expansion.md), and the [priority core
+plan](../docs/ios-priority-core-plan.md).
 
 That build reuses the tracked `ios/Rommio.xcodeproj` by default so routine
 simulator builds do not churn the repo. Regenerate the project only when the
@@ -164,20 +175,20 @@ scripts/ios/install_and_launch_simulator.sh --device-name "iPhone 16"
 scripts/ios/install_and_launch_simulator.sh --udid 699D613E-95F1-4EDD-835C-CD68F32E525D
 ```
 
-The app only advertises a family as playable once a signed bundled core exists
-under `ios/App/Resources/Cores/`, passes `BundledCoreVerifier`, and can be
-provisioned from the shipped bundle into the app's runtime inventory. That
-provisioning now happens automatically on demand when a title is downloaded or
+The app only advertises a family as playable once its core is in the verified
+packaged-core inventory and can be provisioned from a signed framework under
+`Rommio.app/Frameworks/`. Provisioning happens automatically when a title is downloaded or
 launched, which mirrors Android's integrated core flow without downloading
 executable code at runtime on iOS.
 
 The main repo tracks the shipped-core manifest, `CoreLicenses.json`, and the
-corresponding license files, but not the signed dylib blobs themselves. The
-signed bundled cores live in GitHub Release assets declared in
-`scripts/ios/bundled-core-release-manifest.json` and are fetched into
-`ios/App/Resources/Cores/` locally and in CI. Keep those fetched dylibs bundled
-through the Rommio app target `Resources` phase. Do not move them into SwiftPM
-artifacts, generated build directories, or runtime downloads.
+corresponding license files, but not the prebuilt binary inputs. Those inputs
+are fetched from the GitHub Release declared in
+`scripts/ios/bundled-core-release-manifest.json`; the Xcode build converts
+them to signed frameworks in the final app product. Verify that product with
+`python3 scripts/ios/verify_embedded_cores.py ios/build/Debug-iphonesimulator/Rommio.app`.
+For a distribution archive, use `--distribution` to require matching Apple
+Distribution signatures on the app and every framework.
 
 Generated SwiftPM and Xcode outputs are always local-only and must never be
 tracked. That includes `ios/.build`, `ios/build`, `ios/build-logs`,
@@ -232,3 +243,41 @@ It opens an isolated controls harness, checks every console button and analog ax
 mirroring, rotation and Menu, then returns the app to its normal root. It does not
 connect to a server or modify game progress. Actual fixture-player validation is
 separate; see `docs/player-controls-validation.md`.
+
+### Nintendo 3DS candidate qualification
+
+Azahar is a blocked, opt-in Debug candidate. Build its simulator framework
+into the app with `ROMMIO_INCLUDE_AZAHAR_CANDIDATE=1 scripts/ios/build_simulator_app.sh`.
+The normal player catalog keeps 3DS
+blocked; `ROMMIO_ENABLE_AZAHAR_QA=1` opens it only in a Debug QA launch.
+Release builds do not include that override.
+
+The reproducible simulator probe uses the separately obtained MIT-licensed
+3DStris 1.6.9 `.3dsx` fixture and the disposable, loopback-only RomM 5.2
+stack. From the repository root, run:
+
+```bash
+python3 scripts/ios/verify_3ds_simulator.py \
+  --simulator SIMULATOR_UDID \
+  --rom build/azahar-inspection/3dstris.3dsx \
+  --endurance-seconds 300
+```
+
+It checks a game-authored config change through the real player, separately
+publishes the game-save bundle and resume snapshot, restores both from a
+fresh app data root, and cold-boots another root using the game save alone.
+It also runs the native 3DS core for the requested endurance interval and
+reads back the separate RomM blobs. Keep test ROMs and credentials out of Git.
+The hosted RomM library currently serves 3DS titles as ZIP archives. The
+candidate accepts an account-verified ZIP containing exactly one playable 3DS
+file, extracts it into the isolated session workspace, and binds progress to
+both the archive and extracted game hashes. A large user-owned ZIP can be
+checked without checking it into Git by setting `ROMMIO_3DS_ARCHIVE` for
+`swift test --package-path ios --filter ThreeDSArchiveTests`. The extracted
+game and archive both occupy local storage during play.
+For a real RomM ZIP boot check, use a QA account credential JSON containing
+`username` and `password` and run `scripts/ios/verify_3ds_live_romm.py` with
+`--simulator`, `--base-url`, `--credentials`, `--rom-id`, and `--file-id`.
+The script downloads into a disposable app root and can save a player screenshot
+with `--screenshot`; it does not test a game's own save command.
+See `docs/ios-priority-core-plan.md` for the remaining release gates.

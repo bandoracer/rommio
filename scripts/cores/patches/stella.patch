@@ -1,0 +1,44 @@
+diff --git a/src/os/libretro/libretro.cxx b/src/os/libretro/libretro.cxx
+index 6d82066..023304d 100644
+--- a/src/os/libretro/libretro.cxx
++++ b/src/os/libretro/libretro.cxx
+@@ -47,6 +47,7 @@ static NTSCFilter::Preset setting_filter;
+ static const char* setting_palette;
+ 
+ static bool system_reset;
++static bool rommio_loaded;
+ 
+ // DC-blocking high-pass filter state.
+ //
+@@ -901,7 +902,8 @@ bool retro_load_game(const struct retro_game_info *info)
+ 
+   stella.setROM(info->path, info->data, info->size);
+ 
+-  return reset_system();
++  rommio_loaded = reset_system();
++  return rommio_loaded;
+ }
+ 
+ // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+@@ -957,6 +959,7 @@ void retro_run()
+ // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ void retro_unload_game()
+ {
++  rommio_loaded = false;
+   stella.destroy();
+ }
+ 
+@@ -1027,3 +1030,13 @@ void retro_cheat_reset()
+ void retro_cheat_set(unsigned index, bool enabled, const char *code)
+ {
+ }
++
++extern "C" RETRO_API const char *retro_rommio_persistence_descriptor()
++{
++  return rommio_loaded ? "rommio-cart-v1:stella:atari2600:0:0" : "";
++}
++
++extern "C" RETRO_API bool retro_rommio_memory_restored()
++{
++  return rommio_loaded;
++}

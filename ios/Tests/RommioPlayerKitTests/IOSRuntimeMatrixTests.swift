@@ -7,7 +7,10 @@ final class IOSRuntimeMatrixTests: XCTestCase {
 
         XCTAssertFalse(runtimes.isEmpty)
         XCTAssertTrue(runtimes.allSatisfy { $0.packagingPolicy == .bundledSignedDynamicLibrary })
-        XCTAssertTrue(runtimes.allSatisfy { $0.bundleRelativePath.hasPrefix("Cores/") })
+        XCTAssertTrue(runtimes.allSatisfy {
+            $0.bundleRelativePath.hasPrefix("Cores/") ||
+            $0.bundleRelativePath == "Frameworks/\($0.runtimeID).framework/\($0.runtimeID)"
+        })
     }
 
     func testEveryFamilyDefaultRuntimeExistsInOptions() {

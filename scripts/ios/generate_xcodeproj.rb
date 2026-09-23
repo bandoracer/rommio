@@ -32,19 +32,18 @@ manifest_resource_paths =
     end
 
 resource_paths = (
-    Dir[File.join(resource_root, '**', '*')].sort.filter_map do |path|
+    Dir[File.join(resource_root, '**', '*')].sort.map do |path|
         next if File.directory?(path)
 
         path.delete_prefix(resource_root + '/')
-    end +
+    end.compact +
     manifest_resource_paths +
     ['Cores/CoreLicenses.json']
-).uniq.sort
+).uniq.reject { |path| path.end_with?('.dylib') }.sort
 
 resource_files = resource_paths.map do |relative_path|
     file = resources_group.new_file(relative_path)
     file.path = relative_path
-    file.last_known_file_type = 'compiled.mach-o.dylib' if relative_path.end_with?('.dylib')
     file
 end
 
@@ -98,8 +97,8 @@ app_target.build_configurations.each do |config|
     config.build_settings['TARGETED_DEVICE_FAMILY'] = '1,2'
     config.build_settings['SUPPORTED_PLATFORMS'] = 'iphoneos iphonesimulator'
     config.build_settings['LD_RUNPATH_SEARCH_PATHS'] = ['$(inherited)', '@executable_path/Frameworks']
-    config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
-    config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
+    config.build_settings['CODE_SIGNING_ALLOWED'] = config.name == 'Release' ? 'YES' : 'NO'
+    config.build_settings['CODE_SIGNING_REQUIRED'] = config.name == 'Release' ? 'YES' : 'NO'
     config.build_settings.delete('SDKROOT')
 end
 

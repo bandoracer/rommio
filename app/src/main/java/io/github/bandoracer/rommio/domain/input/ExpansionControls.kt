@@ -140,15 +140,44 @@ object ExpansionControls {
             ExpansionControl("Select", "Select", KeyEvent.KEYCODE_BUTTON_SELECT, listOf(), true, null, 0.0f, 0.0f, 0.0f, 0.0f, false, 48.0f),
             ExpansionControl("Start", "Start", KeyEvent.KEYCODE_BUTTON_START, listOf(), true, null, 0.0f, 0.0f, 0.0f, 0.0f, false, 48.0f),
         )
-        "atari" -> listOf(
+        "atari2600" -> listOf(
             ExpansionControl("Up", "Up", KeyEvent.KEYCODE_DPAD_UP, listOf(), false, null, 0.0f, 0.0f, 74.0f, 74.0f, true, 48.0f),
             ExpansionControl("Left", "Left", KeyEvent.KEYCODE_DPAD_LEFT, listOf(), false, null, 0.0f, 0.0f, 26.0f, 122.0f, true, 48.0f),
             ExpansionControl("Right", "Right", KeyEvent.KEYCODE_DPAD_RIGHT, listOf(), false, null, 0.0f, 0.0f, 122.0f, 122.0f, true, 48.0f),
             ExpansionControl("Down", "Down", KeyEvent.KEYCODE_DPAD_DOWN, listOf(), false, null, 0.0f, 0.0f, 74.0f, 170.0f, true, 48.0f),
-            ExpansionControl("1", "1", KeyEvent.KEYCODE_BUTTON_A, listOf(), false, null, 0.0f, 0.0f, 38.0f, 148.0f, false, 48.0f),
-            ExpansionControl("2", "2", KeyEvent.KEYCODE_BUTTON_B, listOf(), false, null, 0.0f, 0.0f, 110.0f, 100.0f, false, 48.0f),
-            ExpansionControl("Option", "Option", KeyEvent.KEYCODE_BUTTON_SELECT, listOf(), true, null, 0.0f, 0.0f, 0.0f, 0.0f, false, 48.0f),
-            ExpansionControl("Start", "Start", KeyEvent.KEYCODE_BUTTON_START, listOf(), true, null, 0.0f, 0.0f, 0.0f, 0.0f, false, 48.0f),
+            ExpansionControl("Fire", "Fire", KeyEvent.KEYCODE_BUTTON_B, listOf(), false, null, 0.0f, 0.0f, 38.0f, 148.0f, false, 48.0f),
+            ExpansionControl("Trigger", "Trigger", KeyEvent.KEYCODE_BUTTON_A, listOf(), false, null, 0.0f, 0.0f, 110.0f, 100.0f, false, 48.0f),
+            ExpansionControl("Select", "Select", KeyEvent.KEYCODE_BUTTON_SELECT, listOf(), true, null, 0.0f, 0.0f, 0.0f, 0.0f, false, 48.0f),
+            ExpansionControl("Reset", "Reset", KeyEvent.KEYCODE_BUTTON_START, listOf(), true, null, 0.0f, 0.0f, 0.0f, 0.0f, false, 48.0f),
+            ExpansionControl("Difficulty A", "Difficulty A", KeyEvent.KEYCODE_BUTTON_L1, listOf(), true, null, 0.0f, 0.0f, 0.0f, 0.0f, false, 48.0f),
+            ExpansionControl("Difficulty B", "Difficulty B", KeyEvent.KEYCODE_BUTTON_L2, listOf(), true, null, 0.0f, 0.0f, 0.0f, 0.0f, false, 48.0f),
+            ExpansionControl("Color", "Color", KeyEvent.KEYCODE_BUTTON_THUMBL, listOf(), true, null, 0.0f, 0.0f, 0.0f, 0.0f, false, 48.0f),
+            ExpansionControl("B&W", "B&W", KeyEvent.KEYCODE_BUTTON_THUMBR, listOf(), true, null, 0.0f, 0.0f, 0.0f, 0.0f, false, 48.0f),
+        )
+        "atari7800" -> listOf(
+            ExpansionControl("Up", "Up", KeyEvent.KEYCODE_DPAD_UP, listOf(), false, null, 0.0f, 0.0f, 74.0f, 74.0f, true, 48.0f),
+            ExpansionControl("Left", "Left", KeyEvent.KEYCODE_DPAD_LEFT, listOf(), false, null, 0.0f, 0.0f, 26.0f, 122.0f, true, 48.0f),
+            ExpansionControl("Right", "Right", KeyEvent.KEYCODE_DPAD_RIGHT, listOf(), false, null, 0.0f, 0.0f, 122.0f, 122.0f, true, 48.0f),
+            ExpansionControl("Down", "Down", KeyEvent.KEYCODE_DPAD_DOWN, listOf(), false, null, 0.0f, 0.0f, 74.0f, 170.0f, true, 48.0f),
+            ExpansionControl("1", "1", KeyEvent.KEYCODE_BUTTON_B, listOf(), false, null, 0.0f, 0.0f, 38.0f, 148.0f, false, 48.0f),
+            ExpansionControl("2", "2", KeyEvent.KEYCODE_BUTTON_A, listOf(), false, null, 0.0f, 0.0f, 110.0f, 100.0f, false, 48.0f),
+            ExpansionControl("Select", "Select", KeyEvent.KEYCODE_BUTTON_SELECT, listOf(), true, null, 0.0f, 0.0f, 0.0f, 0.0f, false, 48.0f),
+            ExpansionControl("Pause", "Pause", KeyEvent.KEYCODE_BUTTON_START, listOf(), true, null, 0.0f, 0.0f, 0.0f, 0.0f, false, 48.0f),
+            ExpansionControl("Reset", "Reset", KeyEvent.KEYCODE_BUTTON_X, listOf(), true, null, 0.0f, 0.0f, 0.0f, 0.0f, false, 48.0f),
+            ExpansionControl("Left difficulty", "Left difficulty", KeyEvent.KEYCODE_BUTTON_L1, listOf(), true, null, 0.0f, 0.0f, 0.0f, 0.0f, false, 48.0f),
+            ExpansionControl("Right difficulty", "Right difficulty", KeyEvent.KEYCODE_BUTTON_R1, listOf(), true, null, 0.0f, 0.0f, 0.0f, 0.0f, false, 48.0f),
+        )
+        "lynx" -> listOf(
+            ExpansionControl("Up", "Up", KeyEvent.KEYCODE_DPAD_UP, listOf(), false, null, 0.0f, 0.0f, 74.0f, 74.0f, true, 48.0f),
+            ExpansionControl("Left", "Left", KeyEvent.KEYCODE_DPAD_LEFT, listOf(), false, null, 0.0f, 0.0f, 26.0f, 122.0f, true, 48.0f),
+            ExpansionControl("Right", "Right", KeyEvent.KEYCODE_DPAD_RIGHT, listOf(), false, null, 0.0f, 0.0f, 122.0f, 122.0f, true, 48.0f),
+            ExpansionControl("Down", "Down", KeyEvent.KEYCODE_DPAD_DOWN, listOf(), false, null, 0.0f, 0.0f, 74.0f, 170.0f, true, 48.0f),
+            ExpansionControl("A", "A", KeyEvent.KEYCODE_BUTTON_A, listOf(), false, null, 0.0f, 0.0f, 38.0f, 148.0f, false, 48.0f),
+            ExpansionControl("B", "B", KeyEvent.KEYCODE_BUTTON_B, listOf(), false, null, 0.0f, 0.0f, 110.0f, 100.0f, false, 48.0f),
+            ExpansionControl("Option 1", "Option 1", KeyEvent.KEYCODE_BUTTON_L1, listOf(), false, null, 0.0f, 0.0f, 74.0f, 24.0f, true, 48.0f),
+            ExpansionControl("Option 2", "Option 2", KeyEvent.KEYCODE_BUTTON_R1, listOf(), false, null, 0.0f, 0.0f, 74.0f, 24.0f, false, 48.0f),
+            ExpansionControl("Pause", "Pause", KeyEvent.KEYCODE_BUTTON_START, listOf(), true, null, 0.0f, 0.0f, 0.0f, 0.0f, false, 48.0f),
+            ExpansionControl("Rotate", "Rotate", KeyEvent.KEYCODE_BUTTON_SELECT, listOf(), true, null, 0.0f, 0.0f, 0.0f, 0.0f, false, 48.0f),
         )
         "tg16" -> listOf(
             ExpansionControl("Up", "Up", KeyEvent.KEYCODE_DPAD_UP, listOf(), false, null, 0.0f, 0.0f, 74.0f, 74.0f, true, 48.0f),
@@ -185,6 +214,22 @@ object ExpansionControls {
             ExpansionControl("R", "R", KeyEvent.KEYCODE_BUTTON_R1, listOf(), false, null, 0.0f, 0.0f, 74.0f, 24.0f, false, 48.0f),
             ExpansionControl("Select", "Select", KeyEvent.KEYCODE_BUTTON_SELECT, listOf(), true, null, 0.0f, 0.0f, 0.0f, 0.0f, false, 48.0f),
             ExpansionControl("Start", "Start", KeyEvent.KEYCODE_BUTTON_START, listOf(), true, null, 0.0f, 0.0f, 0.0f, 0.0f, false, 48.0f),
+        )
+        "3ds" -> listOf(
+            ExpansionControl("Up", "Up", KeyEvent.KEYCODE_DPAD_UP, listOf(), false, null, 0.0f, 0.0f, 74.0f, 74.0f, true, 48.0f),
+            ExpansionControl("Left", "Left", KeyEvent.KEYCODE_DPAD_LEFT, listOf(), false, null, 0.0f, 0.0f, 26.0f, 122.0f, true, 48.0f),
+            ExpansionControl("Right", "Right", KeyEvent.KEYCODE_DPAD_RIGHT, listOf(), false, null, 0.0f, 0.0f, 122.0f, 122.0f, true, 48.0f),
+            ExpansionControl("Down", "Down", KeyEvent.KEYCODE_DPAD_DOWN, listOf(), false, null, 0.0f, 0.0f, 74.0f, 170.0f, true, 48.0f),
+            ExpansionControl("Y", "Y", KeyEvent.KEYCODE_BUTTON_Y, listOf(), false, null, 0.0f, 0.0f, 26.0f, 122.0f, false, 48.0f),
+            ExpansionControl("B", "B", KeyEvent.KEYCODE_BUTTON_B, listOf(), false, null, 0.0f, 0.0f, 74.0f, 170.0f, false, 48.0f),
+            ExpansionControl("A", "A", KeyEvent.KEYCODE_BUTTON_A, listOf(), false, null, 0.0f, 0.0f, 122.0f, 122.0f, false, 48.0f),
+            ExpansionControl("X", "X", KeyEvent.KEYCODE_BUTTON_X, listOf(), false, null, 0.0f, 0.0f, 74.0f, 74.0f, false, 48.0f),
+            ExpansionControl("L", "L", KeyEvent.KEYCODE_BUTTON_L1, listOf(), false, null, 0.0f, 0.0f, 74.0f, 24.0f, true, 48.0f),
+            ExpansionControl("R", "R", KeyEvent.KEYCODE_BUTTON_R1, listOf(), false, null, 0.0f, 0.0f, 74.0f, 24.0f, false, 48.0f),
+            ExpansionControl("Select", "Select", KeyEvent.KEYCODE_BUTTON_SELECT, listOf(), true, null, 0.0f, 0.0f, 0.0f, 0.0f, false, 48.0f),
+            ExpansionControl("Start", "Start", KeyEvent.KEYCODE_BUTTON_START, listOf(), true, null, 0.0f, 0.0f, 0.0f, 0.0f, false, 48.0f),
+            ExpansionControl("ZL", "ZL", KeyEvent.KEYCODE_BUTTON_L2, listOf(), false, null, 0.0f, 0.0f, 26.0f, 24.0f, true, 48.0f),
+            ExpansionControl("ZR", "ZR", KeyEvent.KEYCODE_BUTTON_R2, listOf(), false, null, 0.0f, 0.0f, 122.0f, 24.0f, false, 48.0f),
         )
         else -> null
     }
