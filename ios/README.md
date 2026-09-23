@@ -278,6 +278,9 @@ game and archive both occupy local storage during play.
 For a real RomM ZIP boot check, use a QA account credential JSON containing
 `username` and `password` and run `scripts/ios/verify_3ds_live_romm.py` with
 `--simulator`, `--base-url`, `--credentials`, `--rom-id`, and `--file-id`.
+For a server protected by Cloudflare Access, add `--cloudflare-credentials`
+with the one-touch service credentials JSON; the probe uses the same iOS
+Cloudflare mode as the app and removes its temporary credential copy afterward.
 The script downloads into a disposable app root and can save a player screenshot
 with `--screenshot`; it does not test a game's own save command.
 See `docs/ios-priority-core-plan.md` for the remaining release gates.

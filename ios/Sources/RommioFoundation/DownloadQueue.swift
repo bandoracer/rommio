@@ -68,8 +68,17 @@ public actor ManagedDownloadQueue: DownloadQueue {
             guard existing.owner != nil else { throw DownloadOwnershipError.legacyOwnership }
             guard existing.owner == owner else { throw AccountBindingError() }
             if existing.status == .queued || existing.status == .running { return }
-            next.localPath = existing.localPath
-            next.contentSHA256 = existing.contentSHA256
+            if let path = existing.localPath, let digest = existing.contentSHA256 {
+                let installed = URL(fileURLWithPath: path)
+                if (try? validateManagedURL(installed)) != nil,
+                   FileManager.default.fileExists(atPath: path),
+                   (try? Self.sha256(installed)) == digest {
+                    if existing.status == .completed, existing.fileName == file.fileName,
+                       existing.fileSizeBytes == file.fileSizeBytes { return }
+                    next.localPath = path
+                    next.contentSHA256 = digest
+                }
+            }
         }
         next.owner = owner
         try await requireOwner(next)
@@ -146,7 +155,9 @@ public actor ManagedDownloadQueue: DownloadQueue {
 
     /// New installs are selected through their durable record, never inferred from a filename.
     public func verifiedLocalURL(profileID: String, romID: Int, fileID: Int) async throws -> URL? {
-        guard let saved = try record(recordID: "\(profileID):\(romID):\(fileID)"), let path = saved.localPath else { return nil }
+        guard let saved = try record(recordID: "\(profileID):\(romID):\(fileID)"),
+              saved.status == .completed || saved.status == .failed,
+              let path = saved.localPath else { return nil }
         if let owner = saved.owner {
             guard let profile = try await profileStore.profile(id: profileID), profile.baseURL == owner.baseURL,
                   try await authController.verifiedAccount(profileID: profileID) == owner else { throw AccountBindingError() }
@@ -308,7 +319,7 @@ public actor ManagedDownloadQueue: DownloadQueue {
     /// Recover only the exact owned install destination, verified against its digest.
     private func relocatedRecord(_ record: DownloadRecord, db: Database) throws -> DownloadRecord {
         guard record.status == .completed, record.owner != nil,
-              let path = record.localPath, !FileManager.default.fileExists(atPath: path),
+              let path = record.localPath,
               let relative = record.destinationRelativePath,
               let attempt = record.attemptID,
               relative == "roms/installs/\(attempt)/\(record.fileName)",
@@ -317,6 +328,7 @@ public actor ManagedDownloadQueue: DownloadQueue {
               let digest = record.contentSHA256 else { return record }
         let target = libraryStore.rootDirectory.appending(path: relative)
         try validateManagedURL(target)
+        guard path != target.path else { return record }
         guard FileManager.default.fileExists(atPath: target.path),
               try Self.sha256(target) == digest else { return record }
         var relocated = record

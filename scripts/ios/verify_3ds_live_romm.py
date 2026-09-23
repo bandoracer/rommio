@@ -8,6 +8,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import time
 import urllib.parse
@@ -27,6 +28,7 @@ def main():
     parser.add_argument('--simulator', required=True)
     parser.add_argument('--base-url', required=True, help='RomM origin reachable from the simulator')
     parser.add_argument('--credentials', type=Path, required=True, help='Local JSON with username and password')
+    parser.add_argument('--cloudflare-credentials', type=Path, help='One-touch service credentials JSON for the public route')
     parser.add_argument('--rom-id', type=int, required=True)
     parser.add_argument('--file-id', type=int, required=True)
     parser.add_argument('--timeout-seconds', type=int, default=1800)
@@ -37,6 +39,11 @@ def main():
     assert 0 < args.timeout_seconds <= 3600
     credentials = json.loads(args.credentials.read_text())
     assert credentials['username'].startswith('codex-'), 'Live probe requires a QA account'
+    edge = json.loads(args.cloudflare_credentials.read_text()) if args.cloudflare_credentials else None
+    request_headers = {'User-Agent': 'Rommio/1.0 (iOS)'}
+    if edge:
+        request_headers.update({'CF-Access-Client-Id': edge['client_id'],
+                                'CF-Access-Client-Secret': edge['client_secret']})
 
     token_request = urllib.request.Request(
         base + '/api/token',
@@ -44,13 +51,13 @@ def main():
             'grant_type': 'password', 'username': credentials['username'],
             'password': credentials['password'], 'scope': 'roms.read',
         }).encode(),
-        headers={'Content-Type': 'application/x-www-form-urlencoded'},
+        headers=request_headers | {'Content-Type': 'application/x-www-form-urlencoded'},
     )
     with urllib.request.urlopen(token_request, timeout=30) as response:
         token = json.load(response)['access_token']
     rom_request = urllib.request.Request(
         base + f'/api/roms/{args.rom_id}',
-        headers={'Authorization': 'Bearer ' + token},
+        headers=request_headers | {'Authorization': 'Bearer ' + token},
     )
     with urllib.request.urlopen(rom_request, timeout=30) as response:
         rom = json.load(response)
@@ -67,11 +74,15 @@ def main():
     probe.mkdir(parents=True)
     (probe / 'rom.json').write_text(json.dumps(rom))
     config = probe / 'config.json'
+    edge_file = probe / 'edge.json'
+    if edge:
+        shutil.copyfile(args.cloudflare_credentials, edge_file)
+        edge_file.chmod(0o600)
     config.write_text(json.dumps({
         'phase': 'boot', 'allowLiveServer': True, 'baseUrl': base,
         'romId': args.rom_id, 'fileId': args.file_id, 'romMetadata': 'rom.json',
         'username': credentials['username'], 'password': credentials['password'],
-    }))
+    } | ({'cloudflareCredentialsFile': edge_file.name} if edge else {})))
     config.chmod(0o600)
     env = os.environ.copy()
     env.update(SIMCTL_CHILD_ROMMIO_APP_ROOT=str(probe),
@@ -94,6 +105,7 @@ def main():
         raise RuntimeError(f'Timed out waiting for the player; inspect {probe}')
     finally:
         config.unlink(missing_ok=True)
+        edge_file.unlink(missing_ok=True)
 
 
 if __name__ == '__main__':

@@ -14,7 +14,7 @@ public enum PinnedAppleCore {
             guard record?["schemaVersion"] as? Int == 1, record?["runtimeId"] as? String == "azahar",
                   record?["status"] as? String == "integration-candidate",
                   record?["sourceRevision"] as? String == "9e6f523a57fac9564ac0bf8286db3c3702d301ec",
-                  record?["patchSha256"] as? String == "168d34853a94429484f73a1f276935e81b832dd9af0cc3eb962742f6c8249442",
+                  record?["patchSha256"] as? String == "7b4541034f7d259fa8eacf7bcaf0fde868ffa3225182e755baa0dc344076ce40",
                   record?["persistenceExtension"] as? String == "rommio-files-v1:azahar:3ds",
                   record?["architecture"] as? String == CartridgePersistence.architecture,
                   let expected = record?["sha256"] as? String, try ProgressFileHash.sha256(core) == expected else {

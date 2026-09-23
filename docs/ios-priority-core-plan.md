@@ -203,15 +203,49 @@ and observed behavior take precedence over those descriptions.
   verifies the extracted file, and records both the archive and member digests
   in the progress binding. A user-owned Pokémon X archive passed its ZIP CRC
   and the RomM SHA-1 for the 2 GiB member; the member rendered in the macOS
-  host core and in the iPhone Duo simulator's embedded Azahar core. This is a
-  real-title boot check, not conventional in-game save qualification. The
+  host core and in the iPhone Duo simulator's embedded Azahar core. The
   iPhone Duo Debug app also downloaded the ZIP from that server's LAN origin,
   verified it, extracted the member into the progress session, and started
   the production SwiftUI player. A simulator screenshot showed both Pokémon X
   screens at its language-selection scene with on-screen controls. The
   reproducible real-server boot probe is `scripts/ios/verify_3ds_live_romm.py`.
-  The Cloudflare route, an in-game Pokémon save, and remote progress sync are
-  separate unqualified paths.
+  The public `https://romm.borchetta.xyz` Cloudflare route also passed the
+  account-scoped ZIP download, verification, extraction, and rendered
+  language screen on the iPad Air simulator using one-touch service credentials.
+  The iPhone Duo simulator then reached normal Pokémon X gameplay and used
+  the game's own Save command in Vaniville Town. The title's 415,232-byte
+  `main` file changed from its initialized digest to
+  `babaec5ef659ae0d86ff1d43e223c6b2a19b8ba86eaf841baee76588d5a93dbc`.
+  Rommio published distinct game-save and resume operations to the real RomM
+  5.2 server. Independent API readback verified the envelope and blob sizes
+  and SHA-256 digests. The game operation references `game/current` and its
+  678,781-byte save bundle; the resume operation references `state/resume/...`,
+  depends on that game operation, and adds a 12,963,157-byte snapshot. A cold
+  app restart copied the saved `main` file into a new session; Pokémon X
+  displayed Continue with Vaniville Town and the saved play time, then loaded
+  the player back into that room. A fresh disposable app data root downloaded
+  the ROM again from the real server, received both checkpoint IDs from RomM,
+  and cold-started with the same saved `main` digest. Its player reported
+  “Loaded game-save data.” On relaunch, that peer resumed the latest compatible
+  remote snapshot and matching game save into the saved room; the installed-app
+  peer probe passed and the player rendered the resumed scene. This establishes
+  both real-server fresh-peer lanes for this title in the simulator. Other
+  commercial titles remain separate qualification gates.
+- Re-entering that installed title exposed a download-queue defect: enqueue
+  replaced a completed verified install with a running record that retained
+  its prior absolute path. An app reinstall then made that pointer invalid.
+  The queue now reuses verified completed installs, relocates a digest-verified
+  current-container copy even when the old path still exists, and does not
+  expose a stale install while a replacement is running. Focused queue tests
+  cover all three cases.
+- Advancing Pokémon X beyond its title screen exposed a reproducible simulator
+  crash in Azahar's software texture rasterizer. Its shared physical-region
+  cache could race across renderer workers, pairing a bank pointer with a
+  different bank's offset. The pinned candidate now resolves the bank from
+  each address without shared mutable cache and bounds texture-tile reads to
+  that bank. The rebuilt app proceeded through character creation, gameplay,
+  in-game saving, and cold Continue without another crash. The exact game
+  path was exercised; this is not a claim of exhaustive renderer safety.
 - Pokémon X produced non-silent audio in a 1,200-frame macOS host probe and in
   the installed iPad Air simulator app (745,280 audio frames, 23,464 nonzero
   samples after advancing past the title screen).
@@ -224,8 +258,8 @@ and observed behavior take precedence over those descriptions.
   valid persistence assertion. The probe compares the game's save file and
   resumed video separately. Before promotion, narrow or otherwise classify
   the portable save inventory so system-data churn does not create false
-  game-save changes. Test at least one title using conventional 3DS save or
-  extdata, not only 3DStris's config.
+  game-save changes. Pokémon X now covers a conventional title save; extdata
+  and a narrowed portable save inventory remain open before catalog promotion.
 - The initial five-minute JIT-disabled software-rendering 3DStris normal-mode
   run in the installed iPhone Duo simulator averaged **38.2 emulated fps** over
   11,464 frames. Profiling showed Azahar creating one software-rasterizer
@@ -237,15 +271,25 @@ and observed behavior take precedence over those descriptions.
   stayed around 55–58 fps. The simulator app process stayed near 676 MiB RSS.
   This clears the provisional 50 fps **simulator homebrew** gate. It does not
   predict physical iPhone thermals or qualify more demanding titles. 3DStris
-  produced no audio, so audio remains untested.
+  produced no audio, so this endurance run did not test audio.
+- After the renderer race fix, the final simulator core digest
+  `e35d2d680a56282c32aacd2d73bf9355fe62704b50d0d313b425ee309e7e31ce`
+  completed the same five-minute installed-app 3DStris probe at **15,279 frames,
+  50.9 fps average**. Its game-authored config, cold boot, snapshot replay and
+  fresh snapshot checks also passed. This is only 0.9 fps above the provisional
+  simulator threshold and materially slower than the earlier build; retain the
+  candidate block and profile the final renderer before claiming performance
+  headroom on a physical iPhone.
 - The full Swift package suite and Android standard debug unit suite pass.
-  The final candidate-enabled simulator product contains 14 signed frameworks
+  The candidate-enabled simulator product contains 14 signed frameworks
   and passes `verify_embedded_cores.py`; `--distribution` correctly rejects
-  its development/ad-hoc signature. The optimized Azahar iPhone arm64 artifact
+  its development/ad-hoc signature. Before the final renderer race fix, the
+  optimized Azahar iPhone arm64 artifact
   (`81167cc3b339b43930f70475758efc0b6cbd1646c301f74782d8b91fb57065ec`)
   and a full unsigned iPhoneOS app build with the same 14 candidate-enabled
   frameworks also succeed and verify all
-  four target architectures as arm64. Device installation remains blocked:
+  four target architectures as arm64. The final renderer patch was rebuilt and
+  exercised on the simulator only. Device installation remains blocked:
   Xcode has no account or provisioning profile for Rommio and no Apple
   Distribution identity is present on this machine. Physical-device
   qualification is deferred at the user's request; simulator evidence alone

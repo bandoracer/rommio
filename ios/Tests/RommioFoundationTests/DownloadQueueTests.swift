@@ -5,6 +5,24 @@ import RommioContract
 @testable import RommioFoundation
 
 final class DownloadQueueTests: XCTestCase {
+    func testEnqueueReusesVerifiedCompletedInstall() async throws {
+        let h = try Harness(); defer { h.clean() }
+        let profile = try await h.profile("A", userID: 1)
+        try await h.queue.enqueue(rom: h.rom, file: h.file)
+        _ = try await h.pipe.waitForCall(0)
+        await h.pipe.finish(0, bytes: "GOOD")
+        let installed = try await h.waitFor(profile.id, .completed)
+
+        try await h.queue.enqueue(rom: h.rom, file: h.file)
+        let reusedRows = try await h.queue.records(profileID: profile.id)
+        let reused = try XCTUnwrap(reusedRows.first)
+        XCTAssertEqual(reused, installed)
+        let calls = await h.pipe.count
+        XCTAssertEqual(calls, 1)
+        let verified = try await h.queue.verifiedLocalURL(profileID: profile.id, romID: 42, fileID: 7)
+        XCTAssertEqual(verified?.path, installed.localPath)
+    }
+
     func testMovedContainerRecoversOnlyDigestVerifiedOwnedInstall() async throws {
         let h = try Harness(); defer { h.clean() }
         let profile = try await h.profile("A", userID: 1)
@@ -24,6 +42,48 @@ final class DownloadQueueTests: XCTestCase {
         try h.db.write { try $0.execute(sql: "UPDATE download_records SET payload = ? WHERE profile_id = ?", arguments: [try h.db.encoded(record), profile.id]) }
         let corrupt = try await h.queue.records(profileID: profile.id).first
         XCTAssertEqual(corrupt?.localPath, record.localPath, "Never adopt a different file after relocation")
+    }
+
+    func testMovedContainerPrefersCurrentOwnedCopyEvenWhileOldPathExists() async throws {
+        let h = try Harness(); defer { h.clean() }
+        let profile = try await h.profile("A", userID: 1)
+        try await h.queue.enqueue(rom: h.rom, file: h.file)
+        _ = try await h.pipe.waitForCall(0)
+        await h.pipe.finish(0, bytes: "MOVE")
+        var record = try await h.waitFor(profile.id, .completed)
+        let currentPath = try XCTUnwrap(record.localPath)
+        let oldPath = h.root.appending(path: "old-container/Library/roms/installs/\(try XCTUnwrap(record.attemptID))/fixture.nes")
+        try FileManager.default.createDirectory(at: oldPath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("MOVE".utf8).write(to: oldPath)
+        record.localPath = oldPath.path
+        try h.db.write { try $0.execute(sql: "UPDATE download_records SET payload = ? WHERE profile_id = ?", arguments: [try h.db.encoded(record), profile.id]) }
+
+        let recoveredRows = try await h.queue.records(profileID: profile.id)
+        let recovered = try XCTUnwrap(recoveredRows.first)
+        XCTAssertEqual(recovered.localPath, currentPath)
+        let verified = try await h.queue.verifiedLocalURL(profileID: profile.id, romID: 42, fileID: 7)
+        XCTAssertEqual(verified?.path, currentPath)
+    }
+
+    func testReenqueueDropsUnrecoverableOldContainerPointer() async throws {
+        let h = try Harness(); defer { h.clean() }
+        let profile = try await h.profile("A", userID: 1)
+        try await h.queue.enqueue(rom: h.rom, file: h.file)
+        _ = try await h.pipe.waitForCall(0)
+        await h.pipe.finish(0, bytes: "GOOD")
+        var record = try await h.waitFor(profile.id, .completed)
+        try Data("BAD!".utf8).write(to: URL(fileURLWithPath: try XCTUnwrap(record.localPath)))
+        record.localPath = "/old-container/Library/" + (try XCTUnwrap(record.destinationRelativePath))
+        try h.db.write { try $0.execute(sql: "UPDATE download_records SET payload = ? WHERE profile_id = ?", arguments: [try h.db.encoded(record), profile.id]) }
+
+        try await h.queue.enqueue(rom: h.rom, file: h.file)
+        _ = try await h.pipe.waitForCall(1)
+        await h.pipe.fail(1, error: RommClientError.invalidResponse)
+        let failed = try await h.waitFor(profile.id, .failed)
+        XCTAssertNil(failed.localPath)
+        XCTAssertNil(failed.contentSHA256)
+        let verified = try await h.queue.verifiedLocalURL(profileID: profile.id, romID: 42, fileID: 7)
+        XCTAssertNil(verified)
     }
 
     func testProductionTransferUsesFrozenOwnerAndCommitsVerifiedFile() async throws {
@@ -219,6 +279,9 @@ final class DownloadQueueTests: XCTestCase {
         let good = try await h.waitFor(a.id, .completed)
         try await h.queue.retry(recordID: good.id)
         _ = try await h.pipe.waitForCall(1)
+        let duringReplacement = try await h.queue.verifiedLocalURL(profileID: a.id, romID: 42, fileID: 7)
+        XCTAssertNil(duringReplacement,
+                     "A running replacement must not expose a stale install pointer")
         await h.pipe.fail(1, error: RommClientError.invalidResponse)
         let failed = try await h.waitFor(a.id, .failed)
         XCTAssertEqual(failed.localPath, good.localPath)

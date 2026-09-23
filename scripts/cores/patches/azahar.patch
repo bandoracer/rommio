@@ -195,11 +195,126 @@ index cc2c251..7419ba9 100644
  
  private:
      template <class Archive>
+diff --git a/src/core/memory.cpp b/src/core/memory.cpp
+index b5eb9b8..964ff64 100644
+--- a/src/core/memory.cpp
++++ b/src/core/memory.cpp
+@@ -892,49 +892,21 @@ std::string MemorySystem::ReadCString(VAddr vaddr, std::size_t max_length) {
+ }
+ 
+ MemorySystem::PhysMemRegionInfo MemorySystem::GetPhysMemRegionInfo(PAddr address) {
+-    if (address >= phys_mem_region_info_cache.region_start &&
+-        address < phys_mem_region_info_cache.region_end) {
+-        return phys_mem_region_info_cache;
+-    }
+-
+-    constexpr std::array memory_areas = {
+-        std::make_pair(VRAM_PADDR, VRAM_SIZE),
+-        std::make_pair(DSP_RAM_PADDR, DSP_RAM_SIZE),
+-        std::make_pair(FCRAM_PADDR, FCRAM_N3DS_SIZE),
+-        std::make_pair(N3DS_EXTRA_RAM_PADDR, N3DS_EXTRA_RAM_SIZE),
+-    };
+-
+-    const auto area = std::find_if(memory_areas.begin(), memory_areas.end(), [&](const auto& area) {
+-        // Note: the region end check is inclusive because the user can pass in an address that
+-        // represents an open right bound
+-        return address >= area.first && address <= area.first + area.second;
+-    });
+-
+-    if (area == memory_areas.end()) [[unlikely]] {
+-        LOG_ERROR(HW_Memory, "Unknown GetPhysMemRegionInfo @ {:#08X} at PC {:#08X}", address,
+-                  impl->GetPC());
+-        phys_mem_region_info_cache = PhysMemRegionInfo();
+-        return phys_mem_region_info_cache;
+-    }
+-
+-    switch (area->first) {
+-    case VRAM_PADDR:
+-        phys_mem_region_info_cache = {&impl->vram_mem, area->first, area->second};
+-        break;
+-    case DSP_RAM_PADDR:
+-        phys_mem_region_info_cache = {&impl->dsp_mem, area->first, area->second};
+-        break;
+-    case FCRAM_PADDR:
+-        phys_mem_region_info_cache = {&impl->fcram_mem, area->first, area->second};
+-        break;
+-    case N3DS_EXTRA_RAM_PADDR:
+-        phys_mem_region_info_cache = {&impl->n3ds_extra_ram_mem, area->first, area->second};
+-        break;
+-    default:
+-        UNREACHABLE();
+-    }
+-
+-    return phys_mem_region_info_cache;
++    // Software-renderer workers can call this concurrently. A mutable last-region
++    // cache races across workers and can pair one bank's pointer with another
++    // bank's offset, reading past the end of the backing allocation.
++    // The right bound remains inclusive for callers that pass an open end.
++    if (address >= VRAM_PADDR && address <= VRAM_PADDR_END)
++        return {&impl->vram_mem, VRAM_PADDR, VRAM_SIZE};
++    if (address >= DSP_RAM_PADDR && address <= DSP_RAM_PADDR_END)
++        return {&impl->dsp_mem, DSP_RAM_PADDR, DSP_RAM_SIZE};
++    if (address >= FCRAM_PADDR && address <= FCRAM_N3DS_PADDR_END)
++        return {&impl->fcram_mem, FCRAM_PADDR, FCRAM_N3DS_SIZE};
++    if (address >= N3DS_EXTRA_RAM_PADDR && address <= N3DS_EXTRA_RAM_PADDR_END)
++        return {&impl->n3ds_extra_ram_mem, N3DS_EXTRA_RAM_PADDR, N3DS_EXTRA_RAM_SIZE};
++    LOG_ERROR(HW_Memory, "Unknown GetPhysMemRegionInfo @ {:#08X} at PC {:#08X}", address,
++              impl->GetPC());
++    return {};
+ }
+ 
+ u8* MemorySystem::GetPhysicalPointer(PAddr address) {
+diff --git a/src/core/memory.h b/src/core/memory.h
+index f7045c1..e3ee9ef 100644
+--- a/src/core/memory.h
++++ b/src/core/memory.h
+@@ -753,8 +753,6 @@ private:
+     class Impl;
+     std::unique_ptr<Impl> impl;
+ 
+-    PhysMemRegionInfo phys_mem_region_info_cache{};
+-
+     friend class boost::serialization::access;
+     template <class Archive>
+     void serialize(Archive& ar, const unsigned int file_version);
 diff --git a/src/video_core/renderer_software/sw_rasterizer.cpp b/src/video_core/renderer_software/sw_rasterizer.cpp
+index a64c951..3268e4b 100644
 --- a/src/video_core/renderer_software/sw_rasterizer.cpp
 +++ b/src/video_core/renderer_software/sw_rasterizer.cpp
-@@ -104,3 +104,3 @@ RasterizerSoftware::RasterizerSoftware(Memory::MemorySystem& memory_, Pica::Pica
+@@ -102,7 +102,7 @@ private:
+ 
+ RasterizerSoftware::RasterizerSoftware(Memory::MemorySystem& memory_, Pica::PicaCore& pica_)
      : memory{memory_}, pica{pica_}, regs{pica.regs.internal},
 -      num_sw_threads{std::max(std::thread::hardware_concurrency(), 2U)},
 +      num_sw_threads{std::min(std::max(std::thread::hardware_concurrency(), 2U), 4U)},
        sw_workers{num_sw_threads, "SwRenderer workers"}, fb{memory, regs.framebuffer} {}
+ 
+ void RasterizerSoftware::AddTriangle(const Pica::OutputVertex& v0, const Pica::OutputVertex& v1,
+@@ -561,6 +561,27 @@ std::array<Common::Vec4<u8>, 4> RasterizerSoftware::TextureColor(
+             const u8* texture_data = memory.GetPhysicalPointer(texture_address);
+             const auto info = TextureInfo::FromPicaRegister(texture.config, texture.format);
+ 
++            // A title may bind a tile near the end of a physical memory bank. The base
++            // address is valid, but the sampled tile can extend beyond its backing array.
++            const auto tile_size = Pica::Texture::CalculateTileSize(info.format);
++            const u64 tile_offset = s < 0 || t < 0 || info.stride < 0 ? 0 :
++                static_cast<u64>(t / 8) * static_cast<u64>(info.stride) +
++                static_cast<u64>(s / 8) * tile_size;
++            const u64 end = static_cast<u64>(texture_address) + tile_offset + tile_size;
++            const u64 region_end = texture_address >= Memory::VRAM_PADDR && texture_address < Memory::VRAM_PADDR_END
++                ? Memory::VRAM_PADDR_END
++                : texture_address >= Memory::DSP_RAM_PADDR && texture_address < Memory::DSP_RAM_PADDR_END
++                    ? Memory::DSP_RAM_PADDR_END
++                    : texture_address >= Memory::N3DS_EXTRA_RAM_PADDR && texture_address < Memory::N3DS_EXTRA_RAM_PADDR_END
++                        ? Memory::N3DS_EXTRA_RAM_PADDR_END
++                        : texture_address >= Memory::FCRAM_PADDR && texture_address < Memory::FCRAM_N3DS_PADDR_END
++                            ? Memory::FCRAM_N3DS_PADDR_END : 0;
++            if (!texture_data || !tile_size || s < 0 || t < 0 || info.stride < 0 ||
++                !region_end || end > region_end) {
++                texture_color[i] = {0, 0, 0, 0};
++                continue;
++            }
++
+             // TODO: Apply the min and mag filters to the texture
+             texture_color[i] = LookupTexture(texture_data, s, t, info);
+         }

@@ -34,8 +34,15 @@ extension RommioAppModel {
             if phase.hasPrefix("backup-") { try await runBackupProbe(phase: phase, root: root, services: services); return }
             if phase == "seed-local" { try await prepareLocalProgressFixture(services: services) }
             if phase == "controls-local" { try await prepareControlsFixture(services: services, root: root, config: config) }
-            if phase == "seed" || phase == "play" || phase == "boot" || phase == "receive" || phase == "reconnect" || phase == "peer" || phase == "cold-peer" || phase == "resolve" {
-                let profile = try await services.authController.configureProfile(baseURL: baseURL, edgeAuthMode: .none, originAuthMode: .rommBearerPassword)
+            if phase == "seed" || phase == "play" || phase == "boot" || phase == "interactive-3ds" || phase == "receive" || phase == "reconnect" || phase == "peer" || phase == "cold-peer" || phase == "resolve" {
+                let edgeFile = config["cloudflareCredentialsFile"] as? String
+                let edgeMode: EdgeAuthMode = edgeFile == nil ? .none : .cloudflareAccessService
+                let profile = try await services.authController.configureProfile(baseURL: baseURL, edgeAuthMode: edgeMode, originAuthMode: .rommBearerPassword)
+                if let edgeFile {
+                    guard edgeFile == "edge.json" else { throw ProgressStoreError.invalid("Invalid QA edge credential path") }
+                    let credentials = try JSONDecoder().decode(CloudflareServiceCredentials.self, from: Data(contentsOf: root.appending(path: edgeFile)))
+                    try await services.authController.saveCloudflareCredentials(profileID: profile.id, credentials: credentials)
+                }
                 _ = try await services.authController.testServerAccess(profileID: profile.id)
                 try await services.authController.loginWithDirectCredentials(profileID: profile.id, credentials: DirectLoginCredentials(username: config["username"] as! String, password: config["password"] as! String))
             }
@@ -49,9 +56,9 @@ extension RommioAppModel {
             } else {
                 rom = RomDTO(id: romID, name: "Original NES counter", platformSlug: "nes", fsName: "counter.nes", files: [RomFileDTO(id: fileID, romID: romID, fileName: "counter.nes", fileExtension: "nes", fileSizeBytes: 16400)])
             }
-            if phase == "seed" || phase == "play" || phase == "boot" || phase == "peer" || phase == "cold-peer" {
+            if phase == "seed" || phase == "play" || phase == "boot" || phase == "interactive-3ds" || phase == "peer" || phase == "cold-peer" {
                 try await services.downloadQueue.enqueue(rom: rom, file: rom.files[0])
-                for _ in 0..<(phase == "boot" ? 18000 : 1800) {
+                for _ in 0..<((phase == "boot" || phase == "interactive-3ds") ? 18000 : 1800) {
                     if try await services.downloadQueue.verifiedLocalURL(profileID: activeProfile!.id, romID: romID, fileID: fileID) != nil { break }
                     try await Task.sleep(for: .milliseconds(100))
                 }
@@ -60,12 +67,66 @@ extension RommioAppModel {
             route = .app
             await launchInstalledGame(rom: rom, file: rom.files[0])
             guard let feature = activePlayer, let owner = feature.progressOwner else { throw ProgressStoreError.invalid(errorMessage ?? "Production progress owner was not activated") }
-            if phase == "boot" {
+            if phase == "boot" || phase == "interactive-3ds" {
                 feature.preferColdBoot = true
+                for _ in 0..<5 where feature.cloudMessage != nil {
+                    try await Task.sleep(for: .seconds(1))
+                    await feature.retryCloudCheck()
+                }
                 if let message = feature.cloudMessage { throw ProgressStoreError.invalid(message) }
                 await feature.startIfNeeded()
                 guard feature.hasStarted else { throw ProgressStoreError.invalid(feature.errorMessage ?? "3DS title failed to start") }
-                try writeProbe(["status": "passed", "phase": phase, "platform": rom.platformSlug], root: root)
+                try writeProbe(["status": phase == "boot" ? "passed" : "ready", "phase": phase, "platform": rom.platformSlug], root: root)
+                if phase == "interactive-3ds" {
+                    guard rom.platformSlug == "3ds" else { throw ProgressStoreError.invalid("Interactive probe requires a 3DS title") }
+                    let commandURL = root.appending(path: "input-command.json")
+                    let resultURL = root.appending(path: "input-result.json")
+                    while !Task.isCancelled {
+                        guard FileManager.default.fileExists(atPath: commandURL.path) else {
+                            try await Task.sleep(for: .milliseconds(100))
+                            continue
+                        }
+                        let command = try JSONSerialization.jsonObject(with: Data(contentsOf: commandURL)) as? [String: Any] ?? [:]
+                        try FileManager.default.removeItem(at: commandURL)
+                        let commandID = command["id"] as? String ?? ""
+                        var response: [String: Any] = ["id": commandID, "status": "passed"]
+                        do {
+                            let duration = command["holdMilliseconds"] as? Int ?? 100
+                            guard (40...1500).contains(duration) else { throw ProgressStoreError.invalid("Invalid input hold duration") }
+                            switch command["action"] as? String {
+                            case "button":
+                                guard let key = command["keyCode"] as? Int, (0...15).contains(key) else { throw ProgressStoreError.invalid("Invalid 3DS button") }
+                                let action = ControlAction.digital(actionID: "qa", keyCode: key, label: "QA")
+                                await feature.press(action)
+                                try await Task.sleep(for: .milliseconds(duration))
+                                await feature.release(action)
+                            case "pointer":
+                                guard let x = command["x"] as? Double, let y = command["y"] as? Double,
+                                      (0...1).contains(x), (0...1).contains(y) else { throw ProgressStoreError.invalid("Invalid 3DS pointer") }
+                                await feature.dispatchPointer(normalizedX: x, normalizedY: y, pressed: true)
+                                try await Task.sleep(for: .milliseconds(duration))
+                                await feature.dispatchPointer(normalizedX: x, normalizedY: y, pressed: false)
+                            case "capture":
+                                let captured = try await owner.capture(reason: "manual", snapshot: true)
+                                guard let snapshot = captured.snapshot else { throw ProgressStoreError.invalid(captured.snapshotError ?? "3DS snapshot was not saved") }
+                                let synced = try await services.progress.synchronize(owner.identity)
+                                guard synced.complete else { throw ProgressStoreError.invalid(synced.message) }
+                                response["gameCheckpoint"] = captured.game.checkpointId
+                                response["snapshotCheckpoint"] = snapshot.checkpointId
+                            case "stop":
+                                break
+                            default:
+                                throw ProgressStoreError.invalid("Unknown 3DS QA action")
+                            }
+                            if let error = feature.errorMessage { throw ProgressStoreError.invalid(error) }
+                        } catch {
+                            response["status"] = "failed"
+                            response["error"] = error.localizedDescription
+                        }
+                        try ProgressDurability.write(JSONSerialization.data(withJSONObject: response), to: resultURL)
+                        if command["action"] as? String == "stop" { break }
+                    }
+                }
                 return
             }
             if phase == "resolve" {
@@ -114,7 +175,12 @@ extension RommioAppModel {
                 let store = try await services.progress.store()
                 let refs = try await store.references(owner.identity)
                 let snapshots = refs.filter { $0.key.hasPrefix("state/resume/") }.values.flatMap { $0 }.compactMap(\.checkpoint)
-                let threeDSSave = services.progress.root.appending(path: "sessions/\(owner.sessionID)/saves/Azahar/rommio-progress/sdmc/3ds/3dstris/config.mp")
+                let savePath = config["azaharGameSaveRelativePath"] as? String ?? "3ds/3dstris/config.mp"
+                guard !savePath.hasPrefix("/"),
+                      !savePath.split(separator: "/").contains(where: { $0 == "." || $0 == ".." }) else {
+                    throw ProgressStoreError.invalid("Invalid 3DS QA save path")
+                }
+                let threeDSSave = services.progress.root.appending(path: "sessions/\(owner.sessionID)/saves/Azahar/rommio-progress/sdmc").appending(path: savePath)
                 let gameMatches = rom.platformSlug == "3ds"
                     ? (try ProgressProtocol.sha256(Data(contentsOf: threeDSSave)) == expected["gameSave"])
                     : ProgressProtocol.sha256(capture.memory[0] ?? Data()) == expected["game"]
