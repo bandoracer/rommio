@@ -15,7 +15,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 PIN = pathlib.Path(__file__).with_name('azahar-candidate.json')
 PATCH = pathlib.Path(__file__).parent / 'patches/azahar.patch'
-EXTENSIONS = sorted((pathlib.Path(__file__).parent / 'extensions').glob('rommio_file_bundle.*'))
+EXTENSIONS = sorted((pathlib.Path(__file__).parent / 'extensions').glob('rommio_3ds_file_bundle.*'))
 
 
 def run(args):

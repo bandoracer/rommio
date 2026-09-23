@@ -252,14 +252,22 @@ and observed behavior take precedence over those descriptions.
   ccleste and Ballistica homebrew produced no audio callbacks over that same
   interval, so those fixtures do not establish a general core-audio failure.
   Physical-device sound and longer play sessions remain unqualified.
-- Azahar's current game-save bundle includes emulated NAND system data and
-  game-generated log files as well as title data. Those bytes can change as
-  frames run, so a whole-bundle comparison after snapshot replay is not a
-  valid persistence assertion. The probe compares the game's save file and
-  resumed video separately. Before promotion, narrow or otherwise classify
-  the portable save inventory so system-data churn does not create false
-  game-save changes. Pokémon X now covers a conventional title save; extdata
-  and a narrowed portable save inventory remain open before catalog promotion.
+- Azahar now captures a 3DS-specific portable game-data inventory: SD title
+  saves and extdata, homebrew data, NAND title data, and NAND per-title extdata.
+  It excludes the known 3DStris diagnostic log, NAND sysdata, and `00048000` system extdata such as
+  play coins. The format and save compatibility remain `3ds-sd-nand-v1`, so
+  older complete-tree checkpoints remain cold-bootable: restore filters the
+  old bundle and preserves the receiving console's system files. Focused
+  bundle tests cover SD/NAND saves, extdata, excluded-file churn, and legacy
+  restore. The installed iPhone Duo simulator published a fresh 3DStris
+  game-save blob of 551 bytes and a separate snapshot to disposable RomM;
+  fresh snapshot and save-only cold peers passed. Its blob contained the
+  game-authored config and no log, sysdata, or play-coin files. A real Pokémon X
+  678,781-byte checkpoint from the earlier complete-tree format cold-booted
+  under the new core with the same 415,232-byte `main` save digest above.
+  This qualifies the tested simulator paths, not every title's save behavior.
+  Recheck the bundle policy with
+  `clang++ -std=c++17 scripts/cores/extensions/rommio_3ds_file_bundle.cpp scripts/cores/extensions/file_bundle_3ds_test.cpp -o /tmp/rommio-3ds-file-bundle-test && /tmp/rommio-3ds-file-bundle-test`.
 - The initial five-minute JIT-disabled software-rendering 3DStris normal-mode
   run in the installed iPhone Duo simulator averaged **38.2 emulated fps** over
   11,464 frames. Profiling showed Azahar creating one software-rasterizer

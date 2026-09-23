@@ -6,7 +6,7 @@ index e28f994..f913f28 100644
  endif()
  
  add_library(citra_libretro SHARED
-+        rommio_file_bundle.cpp
++        rommio_3ds_file_bundle.cpp
          citra_libretro.cpp
          citra_libretro.h
          $<TARGET_OBJECTS:citra_libretro_common>)
@@ -26,7 +26,7 @@ index 8a65f9d..7eb6f83 100644
  #include "citra_libretro/core_settings.h"
  #include "citra_libretro/environment.h"
  #include "citra_libretro/input/input_factory.h"
-+#include "citra_libretro/rommio_file_bundle.h"
++#include "citra_libretro/rommio_3ds_file_bundle.h"
  
  #include "common/arch.h"
 +#include "common/file_util.h"
@@ -41,7 +41,7 @@ index 8a65f9d..7eb6f83 100644
  #include "core/memory.h"
  
  #ifdef HAVE_LIBRETRO_VFS
-@@ -737,13 +741,58 @@ bool retro_unserialize(const void* data, size_t size) {
+@@ -737,13 +741,60 @@ bool retro_unserialize(const void* data, size_t size) {
      }
  }
  
@@ -72,7 +72,8 @@ index 8a65f9d..7eb6f83 100644
 +    const std::string game_path = LibRetro::settings.file_path;
 +    retro_unload_game();
 +    const bool restored = rommio_files::restore(rommio_progress_root(), rommio_files_buffer,
-+                                               &rommio_closed_game_handles);
++                                               &rommio_closed_game_handles,
++                                               rommio_files::Profile::ThreeDSGameData);
 +    const retro_game_info game{game_path.c_str(), nullptr, 0, nullptr};
 +    const bool reloaded = retro_load_game(&game);
 +    return restored && reloaded;
@@ -92,7 +93,8 @@ index 8a65f9d..7eb6f83 100644
 +            try {
 +                if (!DrainAsyncOperations(Core::System::GetInstance()) ||
 +                    !FileSys::DiskFile::RommioFlushAll()) return SIZE_MAX;
-+                rommio_files_buffer = rommio_files::capture(rommio_progress_root());
++                rommio_files_buffer = rommio_files::capture(rommio_progress_root(),
++                    rommio_files::Profile::ThreeDSGameData);
 +            } catch (...) { return SIZE_MAX; }
 +        }
 +        return rommio_files_buffer.size();

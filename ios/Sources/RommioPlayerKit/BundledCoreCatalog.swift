@@ -469,7 +469,7 @@ public enum IOSRuntimeMatrix {
                 renderBackend: .softwareFramebuffer,
                 interactionProfile: .touch,
                 validationState: .blockedByValidation,
-                validationBlockReason: "Azahar passes 3DStris save/snapshot sync and a five-minute simulator run. Pokémon X passes in-game save, separate remote save/snapshot sync, cold Continue, and audio in simulator QA. Physical devices, wider titles and keys, portable save inventory, Android parity, and distribution signing remain unqualified."
+                validationBlockReason: "Azahar passes 3DStris separate save/snapshot sync, filtered save inventory, and a five-minute simulator run. Pokémon X passes in-game save, separate remote sync, cold Continue, legacy save cold boot, and non-silent audio output in simulator QA. Physical devices, wider titles and keys, Android parity, and distribution signing remain unqualified."
             )
         ),
     ]
