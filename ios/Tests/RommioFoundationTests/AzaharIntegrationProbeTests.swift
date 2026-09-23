@@ -1,4 +1,5 @@
 import Foundation
+import CoreImage
 import XCTest
 import RommioPlayerBridge
 import RommioPlayerKit
@@ -6,6 +7,88 @@ import RommioPlayerKit
 /// Opt-in JIT-free renderer probe with a separately licensed homebrew fixture.
 @MainActor
 final class AzaharIntegrationProbeTests: XCTestCase {
+    func testVulkanRendererProducesMetalFrame() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let corePath = environment["ROMMIO_AZAHAR_GPU_CORE"],
+              let romPath = environment["ROMMIO_AZAHAR_ROM"] else {
+            throw XCTSkip("Set ROMMIO_AZAHAR_GPU_CORE and ROMMIO_AZAHAR_ROM for the native GPU probe")
+        }
+        let root = FileManager.default.temporaryDirectory.appending(path: "azahar-gpu-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bridge = try RMLLibretroBridge(coreURL: URL(fileURLWithPath: corePath))
+        try bridge.prepareGame(
+            at: URL(fileURLWithPath: romPath), systemDirectory: root,
+            savesDirectory: root,
+            variables: ["citra_graphics_api": "Vulkan", "citra_use_cpu_jit": "disabled", "citra_use_shader_jit": "disabled"]
+        )
+        defer { bridge.stop() }
+        for _ in 0..<180 { try bridge.runFrame() }
+        let texture = try XCTUnwrap(bridge.copyLatestHardwareTexture())
+        XCTAssertEqual(texture.width, 400)
+        XCTAssertEqual(texture.height, 480)
+        let image = try XCTUnwrap(CIImage(mtlTexture: texture, options: nil))
+        XCTAssertNotNil(CIContext(mtlDevice: texture.device).createCGImage(image, from: image.extent))
+
+        let save = root.appending(path: "Azahar/rommio-progress/sdmc/3ds/3dstris/config.mp")
+        let initial = try Data(contentsOf: save)
+        func tap(_ x: Double, _ y: Double) throws {
+            bridge.setPointerX(((x + 40) / 400) * 2 - 1,
+                               y: ((y + 240) / 480) * 2 - 1, pressed: true, port: 0)
+            for _ in 0..<5 { try bridge.runFrame() }
+            bridge.setPointerX(((x + 40) / 400) * 2 - 1,
+                               y: ((y + 240) / 480) * 2 - 1, pressed: false, port: 0)
+            for _ in 0..<5 { try bridge.runFrame() }
+        }
+        try tap(270, 210)
+        try tap(50, 22)
+        try tap(45, 210)
+        let gameWrittenSave = try Data(contentsOf: save)
+        XCTAssertNotEqual(gameWrittenSave, initial)
+
+        let capture = try NativeProgressCapture.read(bridge, includeState: true)
+        XCTAssertEqual(capture.descriptor, "rommio-files-v1:azahar:3ds")
+        let snapshot = try XCTUnwrap(capture.state, capture.stateError ?? "Missing Vulkan snapshot")
+        let memory = Dictionary(uniqueKeysWithValues: capture.memory.map { (NSNumber(value: $0.key), $0.value) })
+        try FileManager.default.removeItem(at: save)
+        try bridge.restoreProgress(memory, state: nil)
+        XCTAssertEqual(try Data(contentsOf: save), gameWrittenSave,
+                       "The game-authored save must restore independently of a snapshot")
+        for _ in 0..<8 { try bridge.runFrame() }
+        XCTAssertNotNil(bridge.copyLatestHardwareTexture())
+        try FileManager.default.removeItem(at: save)
+        try bridge.restoreProgress(memory, state: snapshot)
+        XCTAssertEqual(try Data(contentsOf: save), gameWrittenSave)
+        for _ in 0..<8 { try bridge.runFrame() }
+        XCTAssertNotNil(bridge.copyLatestHardwareTexture())
+
+        bridge.stop()
+        func reopen() throws -> RMLLibretroBridge {
+            let next = try RMLLibretroBridge(coreURL: URL(fileURLWithPath: corePath))
+            try next.prepareGame(
+                at: URL(fileURLWithPath: romPath), systemDirectory: root,
+                savesDirectory: root,
+                variables: ["citra_graphics_api": "Vulkan", "citra_use_cpu_jit": "disabled", "citra_use_shader_jit": "disabled"]
+            )
+            return next
+        }
+        let coldSave = try reopen()
+        try FileManager.default.removeItem(at: save)
+        try coldSave.restoreProgress(memory, state: nil)
+        XCTAssertEqual(try Data(contentsOf: save), gameWrittenSave)
+        for _ in 0..<8 { try coldSave.runFrame() }
+        XCTAssertNotNil(coldSave.copyLatestHardwareTexture())
+        coldSave.stop()
+
+        let coldSnapshot = try reopen()
+        try FileManager.default.removeItem(at: save)
+        try coldSnapshot.restoreProgress(memory, state: snapshot)
+        XCTAssertEqual(try Data(contentsOf: save), gameWrittenSave)
+        for _ in 0..<8 { try coldSnapshot.runFrame() }
+        XCTAssertNotNil(coldSnapshot.copyLatestHardwareTexture())
+        coldSnapshot.stop()
+    }
+
     func testAudibleTitleProducesNonSilentAudio() throws {
         let environment = ProcessInfo.processInfo.environment
         guard let corePath = environment["ROMMIO_AZAHAR_CORE"],

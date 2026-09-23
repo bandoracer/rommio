@@ -1,4 +1,5 @@
 #import <Foundation/Foundation.h>
+#import <Metal/Metal.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -86,6 +87,7 @@ typedef NS_ENUM(NSInteger, RMLMotionSource) {
 
 - (BOOL)runFrame:(NSError * _Nullable * _Nullable)error;
 - (nullable RMLVideoFrame *)copyLatestVideoFrame;
+- (nullable id<MTLTexture>)copyLatestHardwareTexture;
 - (NSArray<RMLAudioBatch *> *)drainAudioBatches;
 - (NSArray<NSNumber *> *)drainRumbleMagnitudes;
 

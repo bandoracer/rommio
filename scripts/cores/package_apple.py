@@ -34,21 +34,32 @@ def main():
         shutil.copy2(fbneo.parent/'licenses/fbneo.LICENSE.txt',license_dest)
         licenses=[{**entry,'binary_path':'Frameworks/fbneo.framework/fbneo','license_path':'Cores/licenses/fbneo.LICENSE.txt'} if entry['id']=='fbneo' else entry for entry in licenses]
     include_candidate=sdk in ('iphonesimulator','iphoneos') and os.environ.get('CONFIGURATION')=='Debug' and os.environ.get('ROMMIO_INCLUDE_AZAHAR_CANDIDATE')=='1'
+    moltenvk_license=root/'Cores/licenses/MoltenVK.LICENSE.txt'
     if include_candidate:
         candidate_spec=importlib.util.spec_from_file_location('azahar_candidate',pathlib.Path(__file__).with_name('build_azahar_candidate.py'))
         candidate=importlib.util.module_from_spec(candidate_spec);candidate_spec.loader.exec_module(candidate)
         source_cache=os.environ.get('ROMMIO_AZAHAR_SOURCE_CACHE')
         binary=candidate.build(sdk,arch,pathlib.Path(source_cache) if source_cache else None)
+        gpu_candidate=os.environ.get('ROMMIO_INCLUDE_AZAHAR_GPU_CANDIDATE')=='1'
+        if gpu_candidate:
+            gpu_spec=importlib.util.spec_from_file_location('azahar_vulkan_probe',pathlib.Path(__file__).with_name('build_azahar_vulkan_probe.py'))
+            gpu=importlib.util.module_from_spec(gpu_spec);gpu_spec.loader.exec_module(gpu)
+            binary=gpu.build(sdk,arch)
+            moltenvk_license.parent.mkdir(parents=True,exist_ok=True)
+            shutil.copy2(pathlib.Path(__file__).resolve().parents[2]/'ios/Sources/RommioPlayerBridge/vendor/MOLTENVK_LICENSE.txt',moltenvk_license)
+        else:
+            moltenvk_license.unlink(missing_ok=True)
         _,digest=framework.embed(binary,root,'azahar',identity)
-        provenance=json.loads(binary.with_name('provenance.json').read_text());provenance['sha256']=digest
+        provenance=json.loads(binary.with_name('provenance.json').read_text());provenance['sha256']=digest;provenance['bundledInApp']=True
         (root/'azaharProvenance.json').write_text(json.dumps(provenance,indent=2)+'\n')
         license_dest=root/'Cores/licenses/azahar.LICENSE.txt';license_dest.parent.mkdir(parents=True,exist_ok=True)
-        shutil.copy2(binary.with_name('LICENSE.txt'),license_dest)
+        shutil.copy2(pathlib.Path(__file__).resolve().parents[2]/f'build/azahar-candidate/{sdk}-{arch}/output/LICENSE.txt',license_dest)
         licenses=[x for x in licenses if x['id']!='azahar']+[{'id':'azahar','binary_path':'Frameworks/azahar.framework/azahar','license_path':'Cores/licenses/azahar.LICENSE.txt'}]
     else:
         shutil.rmtree(root/'Frameworks/azahar.framework',ignore_errors=True)
         (root/'azaharProvenance.json').unlink(missing_ok=True)
         (root/'Cores/licenses/azahar.LICENSE.txt').unlink(missing_ok=True)
+        moltenvk_license.unlink(missing_ok=True)
         licenses=[x for x in licenses if x['id']!='azahar']
     manifest.write_text(json.dumps(licenses,indent=2)+'\n')
 if __name__=='__main__': main()

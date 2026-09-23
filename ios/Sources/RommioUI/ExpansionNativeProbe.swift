@@ -1,5 +1,6 @@
 #if DEBUG && canImport(UIKit)
 import Foundation
+import CoreImage
 import RommioFoundation
 import RommioPlayerKit
 import RommioPlayerBridge
@@ -26,11 +27,37 @@ extension RommioAppModel {
             var bridge = try RMLLibretroBridge(coreURL: core)
             defer { bridge.stop() }
             try bridge.prepareGame(at: rom, systemDirectory: system, savesDirectory: saves, variables: fixture.variables)
+            let vulkan3DS = fixture.runtime == "azahar" && fixture.variables["citra_graphics_api"] == "Vulkan"
+            func framePixels() throws -> Data {
+                if vulkan3DS {
+                    guard let texture = bridge.copyLatestHardwareTexture(), texture.width == 400,
+                          texture.height == 480,
+                          let image = CIImage(mtlTexture: texture, options: nil),
+                          let cgImage = CIContext(mtlDevice: texture.device).createCGImage(image, from: image.extent),
+                          let pixels = cgImage.dataProvider?.data as Data? else {
+                        throw ProgressStoreError.invalid("3DS Vulkan title did not render a readable Metal frame")
+                    }
+                    return pixels
+                }
+                guard let frame = bridge.copyLatestVideoFrame() else {
+                    throw ProgressStoreError.invalid("The core did not render a video frame")
+                }
+                return frame.pixelData
+            }
             for _ in 0..<(["ppsspp", "azahar"].contains(fixture.runtime) ? 180 : 30) { try bridge.runFrame() }
             if fixture.runtime == "azahar", fixture.bootOnly == true {
-                guard let frame = bridge.copyLatestVideoFrame(), frame.width == 400,
-                      frame.height == 480, Set(frame.pixelData).count > 8 else {
-                    throw ProgressStoreError.invalid("3DS title did not render both screens")
+                if vulkan3DS {
+                    guard let texture = bridge.copyLatestHardwareTexture(), texture.width == 400,
+                          texture.height == 480,
+                          let image = CIImage(mtlTexture: texture, options: nil),
+                          CIContext(mtlDevice: texture.device).createCGImage(image, from: image.extent) != nil else {
+                        throw ProgressStoreError.invalid("3DS Vulkan title did not render a Metal frame")
+                    }
+                } else {
+                    guard let frame = bridge.copyLatestVideoFrame(), frame.width == 400,
+                          frame.height == 480, Set(frame.pixelData).count > 8 else {
+                        throw ProgressStoreError.invalid("3DS title did not render both screens")
+                    }
                 }
                 results.append(["runtime": fixture.runtime, "system": fixture.system,
                                 "coreSHA256": digest, "boot": "rendered", "rom": fixture.rom])
@@ -39,6 +66,7 @@ extension RommioAppModel {
             }
             if fixture.runtime == "azahar", fixture.audioOnly == true {
                 var audioFrames = 0, nonSilentSamples = 0
+                let started = Date()
                 for frameIndex in 0..<1200 {
                     if frameIndex == 300 { bridge.setDigitalInputPressed(true, keyCode: 8, port: 0) }
                     if frameIndex == 310 { bridge.setDigitalInputPressed(false, keyCode: 8, port: 0) }
@@ -50,13 +78,16 @@ extension RommioAppModel {
                         }
                     }
                 }
-                guard let frame = bridge.copyLatestVideoFrame(), Set(frame.pixelData).count > 8,
+                guard Set(try framePixels()).count > 8,
                       audioFrames > 0, nonSilentSamples > 0 else {
                     throw ProgressStoreError.invalid("3DS audio probe failed: frames=\(audioFrames), nonSilent=\(nonSilentSamples)")
                 }
+                let elapsed = max(Date().timeIntervalSince(started), 0.001)
                 results.append(["runtime": fixture.runtime, "system": fixture.system,
                                 "coreSHA256": digest, "audioFrames": String(audioFrames),
-                                "nonSilentSamples": String(nonSilentSamples)])
+                                "nonSilentSamples": String(nonSilentSamples),
+                                "averageFPS": String(format: "%.1f", 1200 / elapsed),
+                                "audioFramesPerSecond": String(format: "%.0f", Double(audioFrames) / elapsed)])
                 bridge.stop()
                 continue
             }
@@ -70,8 +101,10 @@ extension RommioAppModel {
                 guard let frame = bridge.copyLatestVideoFrame(), Set(frame.pixelData).count > 8 else { throw ProgressStoreError.invalid("PSP did not render its test scene") }
             }
             if fixture.runtime == "azahar" {
-                guard let frame = bridge.copyLatestVideoFrame(), Set(frame.pixelData).count > 8 else { throw ProgressStoreError.invalid("3DS did not render both screens") }
-                guard frame.width == 400, frame.height == 480 else { throw ProgressStoreError.invalid("3DS touch layout changed") }
+                guard Set(try framePixels()).count > 8 else { throw ProgressStoreError.invalid("3DS did not render both screens") }
+                if !vulkan3DS {
+                    guard let frame = bridge.copyLatestVideoFrame(), frame.width == 400, frame.height == 480 else { throw ProgressStoreError.invalid("3DS touch layout changed") }
+                }
                 let initial = try Data(contentsOf: threeDSSave)
                 func tap(_ screenX: Double, _ screenY: Double) throws {
                     let x = ((screenX + 40) / 400) * 2 - 1
@@ -107,12 +140,14 @@ extension RommioAppModel {
                 throw ProgressStoreError.invalid("3DS SD game-save tree did not restore")
             }
             for _ in 0..<8 { try bridge.runFrame() }
-            let frame = bridge.copyLatestVideoFrame()!.pixelData
+            let frame = try framePixels()
             let expected = try NativeProgressCapture.read(bridge, includeState: false).memory
             try restore(capture.state)
             for _ in 0..<8 { try bridge.runFrame() }
-            let actualFrame = bridge.copyLatestVideoFrame()!.pixelData
-            let pixelsMatch = fixture.system == "n64" ? actualFrame.count == frame.count && (zip(frame, actualFrame).map { abs(Int($0)-Int($1)) }.max() ?? 0) <= 1 : actualFrame == frame
+            let actualFrame = try framePixels()
+            let pixelsMatch = fixture.system == "n64" || vulkan3DS
+                ? actualFrame.count == frame.count && (zip(frame, actualFrame).map { abs(Int($0)-Int($1)) }.max() ?? 0) <= 1
+                : actualFrame == frame
             // Azahar's SD tree also contains emulator-managed files that legitimately change
             // as frames advance. The game's config must remain intact across state replay.
             let memoryMatch = fixture.runtime == "azahar"
@@ -164,7 +199,7 @@ extension RommioAppModel {
                 let fps = Double(frames) / max(elapsed, 0.001)
                 endurance = ["durationSeconds": String(Int(elapsed)), "frames": String(frames), "averageFPS": String(format: "%.1f", fps), "audioFrames": String(audioFrames)]
                 // 3DStris has no gameplay audio, so audio output needs a separate fixture.
-                guard fps >= 50, bridge.copyLatestVideoFrame() != nil else {
+                guard fps >= 50, !(try framePixels()).isEmpty else {
                     throw ProgressStoreError.invalid("3DS endurance failed: \(endurance)")
                 }
             }

@@ -2,8 +2,8 @@
 """Build the pinned Azahar candidate with Vulkan for host integration work.
 
 This probe is deliberately separate from the software-rendering candidate. It
-cannot be bundled or selected by Rommio until the libretro Vulkan frontend and
-Metal presentation path are implemented and qualified.
+can be bundled only in an opted-in Debug QA build until the Vulkan frontend,
+Metal presentation, saves, and performance are qualified on iOS.
 """
 
 import argparse
@@ -16,6 +16,7 @@ import subprocess
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 PIN = pathlib.Path(__file__).with_name('azahar-candidate.json')
 PATCH = pathlib.Path(__file__).parent / 'patches/azahar.patch'
+GPU_PATCH = pathlib.Path(__file__).parent / 'patches/azahar-vulkan-probe.patch'
 EXTENSIONS = sorted((pathlib.Path(__file__).parent / 'extensions').glob('rommio_3ds_file_bundle.*'))
 
 
@@ -52,14 +53,22 @@ def build(sdk, arch):
     root = ROOT / 'build/azahar-gpu-probe' / target
     cmake = root / 'cmake'
     output = root / 'output'
-    run('cmake', '-S', source, '-B', cmake,
-        '-DCMAKE_BUILD_TYPE=Release', '-DBUILD_TESTING=OFF', '-DENABLE_QT=OFF',
-        '-DENABLE_SDL2=OFF', '-DENABLE_LIBRETRO=ON', '-DENABLE_VULKAN=ON',
-        '-DENABLE_WEB_SERVICE=OFF', f'-DCMAKE_OSX_ARCHITECTURES={arch}',
-        f'-DCMAKE_OSX_SYSROOT={sdk}',
-        f'-DCMAKE_OSX_DEPLOYMENT_TARGET={"14.0" if sdk == "macosx" else "17.0"}',
-        *(['-DCMAKE_SYSTEM_NAME=iOS'] if sdk != 'macosx' else []))
-    run('cmake', '--build', cmake, '--target', 'azahar_libretro', '-j8')
+    # Vulkan snapshots need a shader-cache refresh. The iOS simulator also
+    # requires GPU-private texel buffers with an explicit upload copy. Keep
+    # both fixes out of the separately pinned software binary.
+    run('git', '-C', source, 'apply', '--check', GPU_PATCH)
+    run('git', '-C', source, 'apply', GPU_PATCH)
+    try:
+        run('cmake', '-S', source, '-B', cmake,
+            '-DCMAKE_BUILD_TYPE=Release', '-DBUILD_TESTING=OFF', '-DENABLE_QT=OFF',
+            '-DENABLE_SDL2=OFF', '-DENABLE_LIBRETRO=ON', '-DENABLE_VULKAN=ON',
+            '-DENABLE_WEB_SERVICE=OFF', f'-DCMAKE_OSX_ARCHITECTURES={arch}',
+            f'-DCMAKE_OSX_SYSROOT={sdk}',
+            f'-DCMAKE_OSX_DEPLOYMENT_TARGET={"14.0" if sdk == "macosx" else "17.0"}',
+            *(['-DCMAKE_SYSTEM_NAME=iOS'] if sdk != 'macosx' else []))
+        run('cmake', '--build', cmake, '--target', 'azahar_libretro', '-j8')
+    finally:
+        run('git', '-C', source, 'apply', '--reverse', GPU_PATCH)
 
     binary = cmake / 'bin/Release/azahar_libretro.dylib'
     if 'Using Vulkan hw renderer' not in read('strings', binary):
@@ -83,6 +92,9 @@ def build(sdk, arch):
         'architecture': arch,
         'sourceRevision': pin['revision'],
         'patchSha256': sha256(PATCH),
+        'gpuPatchSha256': sha256(GPU_PATCH),
+        'extensionSha256': extension_hash,
+        'persistenceExtension': pin['persistenceExtension'],
         'sha256': sha256(result),
         'bundledInApp': False,
     }

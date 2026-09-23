@@ -251,6 +251,7 @@ public final class IOSLibretroPlayerEngine: ProgressPlayerEngine, @unchecked Sen
     public func stop() async {
         if session?.ownsProgress != true { _ = try? await persistSaveRAM() }
         audioEngine?.stop()
+        locked { latestFrameSnapshot = nil }
         bridge?.stop()
         running = false
         paused = false
@@ -261,6 +262,7 @@ public final class IOSLibretroPlayerEngine: ProgressPlayerEngine, @unchecked Sen
         try withBridge { try NativeProgressCapture.read($0, includeState: includeState) }
     }
     public func restoreProgress(memory: [Int: Data], state: Data?) async throws {
+        locked { latestFrameSnapshot = nil }
         try withBridge { try $0.restoreProgress(Dictionary(uniqueKeysWithValues: memory.map { (NSNumber(value: $0.key), $0.value) }), state: state) }
     }
     public func persistSaveRAM() async throws -> URL? {
@@ -299,6 +301,7 @@ public final class IOSLibretroPlayerEngine: ProgressPlayerEngine, @unchecked Sen
             throw PlayerEngineError.sessionNotPrepared
         }
         let state = try Data(contentsOf: url)
+        locked { latestFrameSnapshot = nil }
         return try withBridge { bridge in
             try bridge.unserializeState(state)
             return true
@@ -475,7 +478,18 @@ public final class IOSLibretroPlayerEngine: ProgressPlayerEngine, @unchecked Sen
         do {
             try withBridge { bridge in
                 try bridge.runFrame()
-                if let frame = bridge.copyLatestVideoFrame() {
+                if let texture = bridge.copyLatestHardwareTexture() {
+                    self.locked {
+                        self.latestFrameSnapshot = PlayerVideoFrameSnapshot(
+                            pixelData: Data(),
+                            width: texture.width,
+                            height: texture.height,
+                            pitch: 0,
+                            pixelFormat: .formatUnknown,
+                            hardwareTexture: texture
+                        )
+                    }
+                } else if let frame = bridge.copyLatestVideoFrame() {
                     self.locked {
                         self.latestFrameSnapshot = PlayerVideoFrameSnapshot(
                             pixelData: frame.pixelData,

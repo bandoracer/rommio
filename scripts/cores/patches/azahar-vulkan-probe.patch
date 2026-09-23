@@ -1,0 +1,187 @@
+diff --git a/src/citra_libretro/citra_libretro.cpp b/src/citra_libretro/citra_libretro.cpp
+--- a/src/citra_libretro/citra_libretro.cpp
++++ b/src/citra_libretro/citra_libretro.cpp
+@@ -734,7 +734,11 @@
+ 
+     std::vector<u8> buffer(static_cast<const u8*>(data), static_cast<const u8*>(data) + size);
+     try {
+-        return system.LoadStateBuffer(std::move(buffer));
++        const bool loaded = system.LoadStateBuffer(std::move(buffer));
++        if (loaded && Settings::values.graphics_api.GetValue() == Settings::GraphicsAPI::Vulkan) {
++            system.GPU().Renderer().Rasterizer()->LoadDefaultDiskResources(false, nullptr);
++        }
++        return loaded;
+     } catch (const std::exception& e) {
+         LOG_ERROR(Frontend, "Error loading state: {}", e.what());
+         return false;
+diff --git a/src/video_core/renderer_vulkan/vk_stream_buffer.h b/src/video_core/renderer_vulkan/vk_stream_buffer.h
+--- a/src/video_core/renderer_vulkan/vk_stream_buffer.h
++++ b/src/video_core/renderer_vulkan/vk_stream_buffer.h
+@@ -41,7 +41,7 @@
+     void Commit(u32 size);
+ 
+     vk::Buffer Handle() const noexcept {
+-        return buffer;
++        return private_texel_buffer ? private_buffer : buffer;
+     }
+ 
+ private:
+@@ -65,6 +65,9 @@
+     vk::Device device;
+     vk::Buffer buffer;        ///< Mapped buffer.
+     vk::DeviceMemory memory;  ///< Memory allocation.
++    bool private_texel_buffer{};
++    vk::Buffer private_buffer;
++    vk::DeviceMemory private_memory;
+     u8* mapped{};             ///< Pointer to the mapped memory
+     u64 stream_buffer_size{}; ///< Stream buffer size.
+     vk::BufferUsageFlags usage{};
+diff --git a/src/video_core/renderer_vulkan/vk_stream_buffer.cpp b/src/video_core/renderer_vulkan/vk_stream_buffer.cpp
+--- a/src/video_core/renderer_vulkan/vk_stream_buffer.cpp
++++ b/src/video_core/renderer_vulkan/vk_stream_buffer.cpp
+@@ -8,6 +8,10 @@
+ 
+ #include <algorithm>
+ #include <limits>
++#include <stdexcept>
++#if defined(__APPLE__)
++#include <TargetConditionals.h>
++#endif
+ #include "common/alignment.h"
+ #include "common/assert.h"
+ #include "common/literals.h"
+@@ -100,6 +104,9 @@
+                            vk::BufferUsageFlags usage_, u64 size, BufferType type_)
+     : instance{instance_}, scheduler{scheduler_}, device{instance.GetDevice()},
+       stream_buffer_size{size}, usage{usage_}, type{type_} {
++#if defined(TARGET_OS_SIMULATOR) && TARGET_OS_SIMULATOR
++    private_texel_buffer = static_cast<bool>(usage & vk::BufferUsageFlagBits::eUniformTexelBuffer);
++#endif
+     CreateBuffers(size);
+     ReserveWatches(current_watches, WATCHES_INITIAL_RESERVE);
+     ReserveWatches(previous_watches, WATCHES_INITIAL_RESERVE);
+@@ -107,6 +114,8 @@
+ 
+ StreamBuffer::~StreamBuffer() {
+     device.unmapMemory(memory);
++    if (private_buffer) device.destroyBuffer(private_buffer);
++    if (private_memory) device.freeMemory(private_memory);
+     device.destroyBuffer(buffer);
+     device.freeMemory(memory);
+ }
+@@ -161,6 +170,28 @@
+         device.invalidateMappedMemoryRanges(range);
+     } else if (!is_coherent) {
+         device.flushMappedMemoryRanges(range);
++    }
++
++    if (private_texel_buffer && size) {
++        const vk::DeviceSize copy_offset = offset;
++        const vk::Buffer source = buffer;
++        const vk::Buffer destination = private_buffer;
++        scheduler.Record([source, destination, copy_offset, size](vk::CommandBuffer cmdbuf) {
++            const vk::BufferCopy copy{copy_offset, copy_offset, size};
++            cmdbuf.copyBuffer(source, destination, 1, &copy);
++            const vk::BufferMemoryBarrier barrier{
++                .srcAccessMask = vk::AccessFlagBits::eTransferWrite,
++                .dstAccessMask = vk::AccessFlagBits::eShaderRead,
++                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
++                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
++                .buffer = destination,
++                .offset = copy_offset,
++                .size = size,
++            };
++            cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
++                                   vk::PipelineStageFlagBits::eFragmentShader, {},
++                                   0, nullptr, 1, &barrier, 0, nullptr);
++        });
+     }
+ 
+     offset += size;
+@@ -198,7 +229,8 @@
+             // Create buffer with current attempt size
+             buffer = device.createBuffer({
+                 .size = attempt_size,
+-                .usage = usage,
++                .usage = private_texel_buffer
++                    ? vk::BufferUsageFlags(vk::BufferUsageFlagBits::eTransferSrc) : usage,
+             });
+ 
+             const auto requirements_chain = device.getBufferMemoryRequirements2<
+@@ -230,6 +262,30 @@
+             // Allocation succeeded, bind and map
+             device.bindBufferMemory(buffer, memory, 0);
+ 
++            if (private_texel_buffer) {
++                private_buffer = device.createBuffer({
++                    .size = attempt_size,
++                    .usage = usage | vk::BufferUsageFlagBits::eTransferDst,
++                });
++                const auto private_requirements = device.getBufferMemoryRequirements(private_buffer);
++                std::optional<u32> private_type;
++                for (u32 i = 0; i < memory_properties.memoryTypeCount; ++i) {
++                    const auto flags = memory_properties.memoryTypes[i].propertyFlags;
++                    if ((private_requirements.memoryTypeBits & (1u << i)) &&
++                        (flags & vk::MemoryPropertyFlagBits::eDeviceLocal) &&
++                        !(flags & vk::MemoryPropertyFlagBits::eHostVisible)) {
++                        private_type = i;
++                        break;
++                    }
++                }
++                if (!private_type) throw std::runtime_error("No private texel-buffer memory type");
++                private_memory = device.allocateMemory({
++                    .allocationSize = private_requirements.size,
++                    .memoryTypeIndex = *private_type,
++                });
++                device.bindBufferMemory(private_buffer, private_memory, 0);
++            }
++
+             mapped = reinterpret_cast<u8*>(
+                 device.mapMemory(memory, 0, requirements.memoryRequirements.size));
+ 
+@@ -248,11 +304,23 @@
+             }
+ 
+             return;
+-        } catch (const vk::SystemError& err) {
++        } catch (const std::exception& err) {
+             // Allocation failed, clean up and retry smaller
++            if (private_buffer) {
++                device.destroyBuffer(private_buffer);
++                private_buffer = VK_NULL_HANDLE;
++            }
++            if (private_memory) {
++                device.freeMemory(private_memory);
++                private_memory = VK_NULL_HANDLE;
++            }
+             if (buffer) {
+                 device.destroyBuffer(buffer);
+                 buffer = VK_NULL_HANDLE;
++            }
++            if (memory) {
++                device.freeMemory(memory);
++                memory = VK_NULL_HANDLE;
+             }
+ 
+             attempt_size /= 2;
+diff --git a/src/video_core/renderer_vulkan/vk_rasterizer.cpp b/src/video_core/renderer_vulkan/vk_rasterizer.cpp
+--- a/src/video_core/renderer_vulkan/vk_rasterizer.cpp
++++ b/src/video_core/renderer_vulkan/vk_rasterizer.cpp
+@@ -2,6 +2,7 @@
+ // Licensed under GPLv2 or any later version
+ // Refer to the license.txt file included.
+ 
++#include <TargetConditionals.h>
+ #include "common/alignment.h"
+ #include "common/literals.h"
+ #include "common/logging/log.h"
+@@ -583,6 +584,9 @@
+     pipeline_cache.UseFragmentShader(regs, user_config);
+ 
+     // Sync the LUTs within the texture buffer
++#if defined(TARGET_OS_SIMULATOR) && TARGET_OS_SIMULATOR
++    renderpass_cache.EndRendering();
++#endif
+     SyncAndUploadLUTs();
+     SyncAndUploadLUTsLF();
+     UploadUniforms(accelerate);
