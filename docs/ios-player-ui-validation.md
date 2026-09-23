@@ -160,12 +160,15 @@ Check each pose:
 | --- | --- | --- | --- |
 | Closed (outer display) | Vertical tab bar and Back/Play on the trailing bar; Continue playing first with ▶ quick resume | Stacked screens, controls below | Controls below |
 | Open, landscape | Vertical tab bar; Home summary beside shelves; two-column game page | Stacked centre column, side rails | Side rails; "Game and controls side by side" moves controls to the other half |
-| Open, portrait | Horizontal bars; Library sidebar overlays games | Top screen above the hinge, touch screen below, controls beside the touch screen | Controls below |
+| Open, portrait | Horizontal bars; Library sidebar overlays games | Upper screen enlarged within its half, touch screen below, controls beside the touch screen | Controls below |
 | Pause → Controls or Saved progress (open) | — | Pane beside the paused game with live touch controls | Same |
 
 Also confirm: a quick stylus tap registers on the touch screen; pausing shows
 every action including Leave game without scrolling; unfolding or folding mid-game
 keeps the session; audio is clean (the core's own sample rate, not 44.1 kHz).
+The Azahar 3DS candidate currently fails the clean-audio check in Pokémon X:
+its roughly 23–24 fps simulator run produces fewer audio frames than real-time
+playback needs. That performance gate remains open independently of layout.
 
 Beta caveats: `reservedRegions` reports no hinge in beta 1, so the DS layout falls
 back to the display midline and book-pose pad mode can't trigger automatically.

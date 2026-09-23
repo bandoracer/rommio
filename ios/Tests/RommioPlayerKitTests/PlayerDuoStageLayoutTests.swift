@@ -30,7 +30,8 @@ final class PlayerDuoStageLayoutTests: XCTestCase {
         XCTAssertTrue(touch.isTouchScreen)
         XCTAssertLessThanOrEqual(top.frame.maxY, portraitSize.height / 2)
         XCTAssertGreaterThanOrEqual(touch.frame.minY, portraitSize.height / 2)
-        XCTAssertEqual(top.frame.size, touch.frame.size)
+        XCTAssertGreaterThan(top.frame.width, touch.frame.width)
+        XCTAssertLessThanOrEqual(top.frame.width, touch.frame.width * 1.3 + 0.01)
         XCTAssertEqual(top.frame.width / top.frame.height, 4.0 / 3.0, accuracy: 0.01)
         // Controls sit beside the touch screen, entirely in the lower half.
         XCTAssertFalse(layout.deck.isPortrait)
@@ -86,6 +87,22 @@ final class PlayerDuoStageLayoutTests: XCTestCase {
         XCTAssertEqual(layout.screens[1].source, CGRect(x: 0.1, y: 0.5, width: 0.8, height: 0.5))
         XCTAssertTrue(layout.screens[1].isTouchScreen)
         XCTAssertLessThan(layout.screens[0].frame.maxY, layout.screens[1].frame.minY)
+    }
+
+    func testOpenDuoThreeDSEnlargesTheUpperScreenWithoutCrossingTheCrease() {
+        let layout = resolvePlayerStageLayout(
+            containerSize: portraitSize, safeAreaInsets: portraitInsets,
+            aspectRatio: 5.0 / 6.0, topAlignedInPortrait: true,
+            reserveTouchSpace: true,
+            stage: PlayerStageContext(dualScreen: true, threeDS: true, isPhoneFormFactor: true)
+        )
+        let (top, touch) = (layout.screens[0], layout.screens[1])
+        XCTAssertLessThanOrEqual(top.frame.maxY, portraitSize.height / 2)
+        XCTAssertGreaterThanOrEqual(touch.frame.minY, portraitSize.height / 2)
+        XCTAssertGreaterThan(top.frame.width, touch.frame.width * 1.25)
+        XCTAssertLessThanOrEqual(top.frame.width, touch.frame.width * 1.5 + 0.01)
+        XCTAssertLessThanOrEqual(layout.deck.leftOrigin + layout.deck.railWidth, touch.frame.minX)
+        XCTAssertGreaterThanOrEqual(layout.deck.rightOrigin, touch.frame.maxX)
     }
 
     func testIPadThreeDSScreensStayTogetherWithoutAnInventedHinge() {

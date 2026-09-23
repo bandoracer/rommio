@@ -259,11 +259,17 @@ private func resolveThreeDSStage(
     let gap: CGFloat = 12
     let topSource = CGRect(x: 0, y: 0, width: 1, height: 0.5)
     let bottomSource = CGRect(x: 0.1, y: 0.5, width: 0.8, height: 0.5)
-    func result(_ upper: CGRect, _ lower: CGRect, _ controls: PlayerControlDeckLayout, pad: Bool = false, compact: Bool = false) -> PlayerStageLayout {
-        let h = max(1, min(upper.width / topAspect, lower.width / bottomAspect, upper.height, lower.height))
-        let pairTop = controls.isPortrait && visible ? upper.minY : (upper.minY + lower.maxY - (2 * h + gap)) / 2
-        let top = CGRect(x: upper.midX - h * topAspect / 2, y: compact ? pairTop : upper.midY - h / 2, width: h * topAspect, height: h)
-        let bottom = CGRect(x: lower.midX - h * bottomAspect / 2, y: compact ? pairTop + h + gap : lower.midY - h / 2, width: h * bottomAspect, height: h)
+    func result(_ upper: CGRect, _ lower: CGRect, _ controls: PlayerControlDeckLayout, pad: Bool = false, compact: Bool = false, expandUpper: Bool = false) -> PlayerStageLayout {
+        let sharedHeight = max(1, min(upper.width / topAspect, lower.width / bottomAspect, upper.height, lower.height))
+        let bottomHeight = expandUpper ? max(1, min(lower.width / bottomAspect, lower.height)) : sharedHeight
+        // In the open Duo pose the top pane has more room than the touch pane.
+        // Use some of it without making the top screen dominate the pair.
+        let topHeight = expandUpper
+            ? max(1, min(upper.width / topAspect, upper.height, bottomHeight * bottomAspect * 1.5 / topAspect))
+            : sharedHeight
+        let pairTop = controls.isPortrait && visible ? upper.minY : (upper.minY + lower.maxY - (topHeight + bottomHeight + gap)) / 2
+        let top = CGRect(x: upper.midX - topHeight * topAspect / 2, y: compact ? pairTop : upper.midY - topHeight / 2, width: topHeight * topAspect, height: topHeight)
+        let bottom = CGRect(x: lower.midX - bottomHeight * bottomAspect / 2, y: compact ? pairTop + topHeight + gap : lower.midY - bottomHeight / 2, width: bottomHeight * bottomAspect, height: bottomHeight)
         return PlayerStageLayout(viewport: PlayerViewportLayout(frame: top.union(bottom), isPortrait: controls.isPortrait, screens: [
             PlayerScreenPlacement(source: topSource, frame: top),
             PlayerScreenPlacement(source: bottomSource, frame: bottom, isTouchScreen: true),
@@ -276,7 +282,7 @@ private func resolveThreeDSStage(
         let upper = CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: max(1, hinge.minY - bounds.minY))
         let lower = CGRect(x: bounds.minX, y: hinge.maxY, width: bounds.width, height: max(1, bounds.maxY - hinge.maxY))
         let controls = deck(lower, false, PlayerViewportSafeAreaInsets(top: 0, bottom: insets.bottom, left: insets.left, right: insets.right), Double(bottomAspect))
-        return result(inset(upper, PlayerViewportSafeAreaInsets(top: insets.top, bottom: 0, left: insets.left, right: insets.right), by: 4), controls.gameArea.insetBy(dx: 0, dy: 4), controls)
+        return result(inset(upper, PlayerViewportSafeAreaInsets(top: insets.top, bottom: 0, left: insets.left, right: insets.right), by: 4), controls.gameArea.insetBy(dx: 0, dy: 4), controls, expandUpper: true)
     }
     if let fold, stage.foldIsActive, stage.hasVerticalFold, visible {
         let leading = CGRect(x: bounds.minX, y: bounds.minY, width: max(1, fold.minX - bounds.minX), height: bounds.height)
@@ -340,11 +346,10 @@ private func resolveDualScreenStage(
         let controlDeck = deck(lower, false, PlayerViewportSafeAreaInsets(top: 0, bottom: insets.bottom, left: insets.left, right: insets.right), Double(screenAspect))
         let touchArea = controlDeck.gameArea.insetBy(dx: 0, dy: 4)
         let upperArea = inset(upper, PlayerViewportSafeAreaInsets(top: insets.top, bottom: 0, left: insets.left, right: insets.right), by: 4)
-        // Equal screens, sized by whichever half is tighter.
-        let width = min(touchArea.width, touchArea.height * screenAspect, upperArea.width, upperArea.height * screenAspect)
-        let height = width / screenAspect
-        let top = CGRect(x: upper.midX - width / 2, y: upperArea.maxY - height, width: width, height: height)
-        let bottom = CGRect(x: touchArea.midX - width / 2, y: touchArea.minY, width: width, height: height)
+        let touchWidth = min(touchArea.width, touchArea.height * screenAspect)
+        let topWidth = min(upperArea.width, upperArea.height * screenAspect, touchWidth * 1.3)
+        let top = CGRect(x: upper.midX - topWidth / 2, y: upperArea.maxY - topWidth / screenAspect, width: topWidth, height: topWidth / screenAspect)
+        let bottom = CGRect(x: touchArea.midX - touchWidth / 2, y: touchArea.minY, width: touchWidth, height: touchWidth / screenAspect)
         return stacked(top, bottom, controlDeck)
     }
 

@@ -252,6 +252,15 @@ and observed behavior take precedence over those descriptions.
   ccleste and Ballistica homebrew produced no audio callbacks over that same
   interval, so those fixtures do not establish a general core-audio failure.
   Physical-device sound and longer play sessions remain unqualified.
+- A later idle iPhone Duo open-portrait simulator run exposed the playable
+  performance limit behind the choppy sound: Pokémon X sustained about
+  **23–24 emulated fps** and supplied only **12,500–13,200 audio frames/s**
+  to a **32,728 frames/s** output format. The main-thread sample concentrated
+  in Azahar's interpreted CPU and software rasterizer. This is a core-speed
+  shortfall, not evidence of a clean audio experience. The Debug player now
+  logs five-second frame and audio production rates for repeatable checks.
+  Pokémon X remains blocked on performance qualification; the 3DStris
+  homebrew result below does not substitute for it.
 - Azahar now captures a 3DS-specific portable game-data inventory: SD title
   saves and extdata, homebrew data, NAND title data, and NAND per-title extdata.
   It excludes the known 3DStris diagnostic log, NAND sysdata, and `00048000` system extdata such as

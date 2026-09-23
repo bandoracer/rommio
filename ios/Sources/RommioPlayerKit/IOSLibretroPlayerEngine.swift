@@ -153,6 +153,11 @@ public final class IOSLibretroPlayerEngine: ProgressPlayerEngine, @unchecked Sen
     private var running = false
     private var statusMessage = "Preparing player"
     private var didLogFirstStepFrame = false
+    #if DEBUG
+    private var frameDiagnosticStarted = ProcessInfo.processInfo.systemUptime
+    private var frameDiagnosticCount = 0
+    private var audioDiagnosticFrames = 0
+    #endif
     private var hotkeyContinuation: AsyncStream<PlayerHotkeyAction>.Continuation?
     private var rumbleContinuation: AsyncStream<PlayerRumbleSignal>.Continuation?
 
@@ -177,6 +182,11 @@ public final class IOSLibretroPlayerEngine: ProgressPlayerEngine, @unchecked Sen
         self.paused = false
         self.running = false
         self.didLogFirstStepFrame = false
+        #if DEBUG
+        self.frameDiagnosticStarted = ProcessInfo.processInfo.systemUptime
+        self.frameDiagnosticCount = 0
+        self.audioDiagnosticFrames = 0
+        #endif
         self.surfaceController = nil
         self.statusMessage = "Ready"
     }
@@ -476,7 +486,20 @@ public final class IOSLibretroPlayerEngine: ProgressPlayerEngine, @unchecked Sen
                         )
                     }
                 }
-                audioEngine?.enqueue(bridge.drainAudioBatches())
+                let audioBatches = bridge.drainAudioBatches()
+                audioEngine?.enqueue(audioBatches)
+                #if DEBUG
+                frameDiagnosticCount += 1
+                audioDiagnosticFrames += audioBatches.reduce(0) { $0 + Int($1.frameCount) }
+                let elapsed = ProcessInfo.processInfo.systemUptime - frameDiagnosticStarted
+                if elapsed >= 5 {
+                    NSLog("[IOSLibretroPlayerEngine] frame rate %.1f fps, audio produced %.0f frames/s, core rate %.0f frames/s",
+                          Double(frameDiagnosticCount) / elapsed, Double(audioDiagnosticFrames) / elapsed, bridge.sampleRate)
+                    frameDiagnosticStarted = ProcessInfo.processInfo.systemUptime
+                    frameDiagnosticCount = 0
+                    audioDiagnosticFrames = 0
+                }
+                #endif
                 for magnitude in bridge.drainRumbleMagnitudes() {
                     let normalized = magnitude.doubleValue
                     self.rumbleContinuation?.yield(
