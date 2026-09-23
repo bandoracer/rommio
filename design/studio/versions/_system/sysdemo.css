@@ -1,0 +1,37 @@
+/* SYSTEM DEMO — plain content so the chrome is what you look at. */
+.v-sysdemo {
+  --sys-tint: #0a84ff;
+  --sys-bg: #ffffff;
+  background: var(--sys-bg);
+  color: var(--sys-label);
+  font: 17px/1.35 var(--sys-font);
+
+  &.scheme-dark { --sys-bg: #000; }
+  .sd-pad { padding: 0 20px 16px; display: grid; gap: 12px; }
+  .sd-pad h2 { font: 700 28px var(--sys-display); margin: 12px 0 0; }
+  .sd-pad p { color: var(--sys-label2); margin: 0; }
+  .sd-hero img { width: 100%; aspect-ratio: 4 / 3; border-radius: 22px; image-rendering: pixelated; }
+  .sd-actions { display: flex; gap: 10px; }
+  .sd-actions .sys-btn { flex: 1; }
+  .sd-list { list-style: none; margin: 0; padding: 0 20px; }
+  .sd-row { display: flex; align-items: center; gap: 12px; min-height: 60px; border-bottom: 0.5px solid var(--sys-sep); }
+  .sd-row.sel { background: var(--sys-lens); margin: 0 -12px; padding: 0 12px; border-radius: 12px; }
+  .sd-row img { width: 36px; height: 48px; border-radius: 6px; object-fit: cover; }
+  .sd-row span { display: grid; }
+  .sd-row small { color: var(--sys-label2); font-size: 13px; }
+  .sd-sw { width: 12px; height: 12px; border-radius: 50%; }
+  .sd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 14px; padding: 0 20px; }
+  .sd-grid img { width: 100%; aspect-ratio: 3 / 4; border-radius: 10px; object-fit: cover; }
+  .sd-grid figure { margin: 0; }
+  .sd-grid figcaption { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sd-bleed { width: 100%; height: 300px; object-fit: cover; display: block; }
+  .sd-game { object-fit: contain; background: #000; image-rendering: pixelated; }
+  .sd-stage { position: absolute; inset: 0; background: #000; font: 600 12px var(--sys-font); color: #fff; }
+  .sd-screen { position: absolute; image-rendering: pixelated; }
+  .sd-box, .sd-disc { position: absolute; display: grid; place-items: center; text-align: center; }
+  .sd-box.rail { background: rgb(80 140 255 / 0.12); outline: 1px dashed rgb(120 170 255 / 0.5); outline-offset: -1px; }
+  .sd-box.sh { border-radius: 12px; background: rgb(255 255 255 / 0.14); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.4); }
+  .sd-box.tert { border-radius: 999px; background: rgb(255 255 255 / 0.1); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.3); }
+  .sd-disc { border-radius: 50%; background: rgb(255 255 255 / 0.12); box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / 0.45); }
+  .sd-toast { position: absolute; transform: translate(-50%, -50%); padding: 6px 12px; border-radius: 999px; background: rgb(255 255 255 / 0.16); white-space: nowrap; }
+}

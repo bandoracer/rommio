@@ -27,3 +27,6 @@ third_party/libretro/
 
 # Python build helper caches
 __pycache__/
+
+# Design studio bundles (regenerate with design/studio/tools/bundle.py)
+design/studio/dist/

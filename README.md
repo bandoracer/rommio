@@ -82,6 +82,7 @@ Other useful references:
 - [Android player ownership](docs/android-application-session.md) — qualified save/resume ownership and current limits
 - [Backup bundle format](docs/progress-bundle-format.md) — format-3 save metadata and artifact transfer
 - [App remediation plan](docs/remediation-plan.md) — ordered fixes, dependencies, and validation for the structural audit
+- [UI studio](design/studio/README.md) — five full-app design directions and a mockup workbench for iterating on every screen
 - [docs/core-matrix.md](docs/core-matrix.md)
 - [docs/validation-matrix.md](docs/validation-matrix.md)
 - [app/](app)

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Art sheet</title>
+<style>
+  body { margin: 0; background: #111; color: #aaa; font: 11px ui-monospace, monospace; padding: 16px; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+  figure { margin: 0; display: grid; gap: 4px; }
+  img { display: block; border-radius: 4px; }
+  .box img { width: 120px; }
+  .wide img { width: 256px; }
+  .frame img { height: 150px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="row box" id="box"></div>
+<div class="row wide" id="wide"></div>
+<div class="row frame" id="frame"></div>
+<script src="../core/data.js"></script>
+<script src="../core/art.js"></script>
+<script>
+  const games = StudioData.games;
+  const only = location.hash.slice(1);
+  const add = (id, html) => document.getElementById(id).insertAdjacentHTML('beforeend', html);
+  const show = (id) => !only || only === id;
+  for (const id of ['box', 'wide', 'frame']) document.getElementById(id).hidden = !show(id);
+  if (show('box')) for (const g of games) add('box', `<figure><img src="${StudioArt.cover(g.id, 'box')}"><figcaption>${g.id} · ${g.art.motif}</figcaption></figure>`);
+  if (show('wide')) for (const g of games.slice(0, 12)) add('wide', `<figure><img src="${StudioArt.cover(g.id, 'wide')}"></figure>`);
+  if (show('frame')) {
+    for (const g of games) add('frame', `<figure><img src="${StudioArt.frame(g.id, 'a')}"><figcaption>${g.id} · ${g.art.play}</figcaption></figure>`);
+    const d = StudioArt.dual('pkblack', 'a');
+    add('frame', `<figure><img src="${d.top}"><img src="${d.bottom}"></figure>`);
+  }
+</script>
+</body>
+</html>

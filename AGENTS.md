@@ -29,5 +29,6 @@
 - `ios/`: iOS application, Swift package, and tests
 - `scripts/ios/`: Apple build and simulator helpers
 - `docs/`: architecture, validation, and platform notes
+- `design/studio/`: browser-based UI mockup studio (design directions for every screen; see its README)
 - `scripts/android/`: local emulator and device workflow helpers
 
