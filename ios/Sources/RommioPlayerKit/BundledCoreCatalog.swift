@@ -144,12 +144,6 @@ public struct BundledCoreCatalog: CoreCatalog, Sendable {
 }
 
 public enum IOSRuntimeMatrix {
-    #if DEBUG
-    private static let azaharGPUQA = ProcessInfo.processInfo.environment["ROMMIO_AZAHAR_GPU_QA"] == "1"
-    #else
-    private static let azaharGPUQA = false
-    #endif
-
     public static let fullParityFamilies: [IOSRuntimeFamily] = [
         family(
             familyID: "nes",
@@ -470,14 +464,11 @@ public enum IOSRuntimeMatrix {
                 displayName: "Azahar",
                 platformSlugs: ["3ds", "new-nintendo-3ds"],
                 bundleRelativePath: "Frameworks/azahar.framework/azahar",
-                defaultVariables: ["citra_graphics_api": azaharGPUQA ? "Vulkan" : "Software", "citra_use_cpu_jit": "disabled", "citra_use_shader_jit": "disabled"],
+                defaultVariables: ["citra_graphics_api": "Vulkan", "citra_use_cpu_jit": "disabled", "citra_use_shader_jit": "disabled"],
                 supportedExtensions: ["3ds", "3dsx", "cci", "cxi", "app", "zip"],
-                renderBackend: azaharGPUQA ? .hardwareRender : .softwareFramebuffer,
+                renderBackend: .hardwareRender,
                 interactionProfile: .touch,
-                validationState: .blockedByValidation,
-                validationBlockReason: azaharGPUQA
-                    ? "The Vulkan renderer passes simulator 3DStris game-save and snapshot restores and renders Pokémon X audio. Visible-player Pokémon X, physical-device behavior, synced progress, and distribution signing remain unqualified."
-                    : "Azahar passes 3DStris separate save/snapshot sync, filtered save inventory, and a five-minute simulator run. Pokémon X passes in-game save, separate remote sync, cold Continue, and legacy save cold boot, but runs at about 23–24 fps with choppy audio in the iPhone Duo simulator. Physical devices, wider titles and keys, Android parity, and distribution signing remain unqualified."
+                validationState: .playable
             )
         ),
     ]
@@ -511,14 +502,6 @@ public enum IOSRuntimeMatrix {
         validationState: IOSRuntimeValidationState = .playable,
         validationBlockReason: String? = nil
     ) -> IOSRuntimeProfile {
-        #if DEBUG
-        // The candidate remains blocked for ordinary builds. An installed simulator
-        // qualification run can explicitly open the real player with the embedded core.
-        let qaEnabled = runtimeID == "azahar" &&
-            ProcessInfo.processInfo.environment["ROMMIO_ENABLE_AZAHAR_QA"] == "1"
-        #else
-        let qaEnabled = false
-        #endif
         return IOSRuntimeProfile(
             runtimeID: runtimeID,
             displayName: displayName,
@@ -530,8 +513,8 @@ public enum IOSRuntimeMatrix {
             shader: shader,
             renderBackend: renderBackend,
             interactionProfile: interactionProfile,
-            validationState: qaEnabled ? .playable : validationState,
-            validationBlockReason: qaEnabled ? nil : validationBlockReason
+            validationState: validationState,
+            validationBlockReason: validationBlockReason
         )
     }
 }

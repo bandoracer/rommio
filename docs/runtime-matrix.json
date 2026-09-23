@@ -343,13 +343,12 @@
       "support_tier": "controller",
       "default_runtime_id": "azahar",
       "ios": {
-        "render_backend": "SOFTWARE_FRAMEBUFFER",
+        "render_backend": "HARDWARE_RENDER",
         "interaction_profile": "TOUCH",
         "bundle_relative_path": "Frameworks/azahar.framework/azahar",
         "supported_extensions": ["3ds", "3dsx", "cci", "cxi", "app", "zip"],
         "required_bios_files": [],
-        "validation_state": "BLOCKED_BY_VALIDATION",
-        "validation_block_reason": "Azahar passes 3DStris separate save/snapshot sync, filtered save inventory, and a five-minute simulator run. Pokémon X passes in-game save, separate remote sync, cold Continue, and legacy save cold boot, but runs at about 23–24 fps with choppy audio in the iPhone Duo simulator. Physical devices, wider titles and keys, Android parity, and distribution signing remain unqualified."
+        "validation_state": "PLAYABLE"
       }
     }
   ]

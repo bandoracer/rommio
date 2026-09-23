@@ -66,7 +66,7 @@ def main():
     assert rom['files'][0]['file_name'].lower().endswith('.zip'), 'This probe qualifies RomM ZIP delivery'
 
     app = ROOT / 'ios/build/Debug-iphonesimulator/Rommio.app'
-    assert (app / 'Frameworks/azahar.framework/azahar').is_file(), 'Build the opt-in Azahar simulator app first'
+    assert (app / 'Frameworks/azahar.framework/azahar').is_file(), 'Build the simulator app first'
     bundle = output('/usr/libexec/PlistBuddy', '-c', 'Print CFBundleIdentifier', str(app / 'Info.plist'))
     subprocess.run(['xcrun', 'simctl', 'install', args.simulator, str(app)], check=True)
     container = Path(output('xcrun', 'simctl', 'get_app_container', args.simulator, bundle, 'data'))
@@ -86,8 +86,7 @@ def main():
     config.chmod(0o600)
     env = os.environ.copy()
     env.update(SIMCTL_CHILD_ROMMIO_APP_ROOT=str(probe),
-               SIMCTL_CHILD_ROMMIO_PROGRESS_PROBE_CONFIG=str(config),
-               SIMCTL_CHILD_ROMMIO_ENABLE_AZAHAR_QA='1')
+               SIMCTL_CHILD_ROMMIO_PROGRESS_PROBE_CONFIG=str(config))
     try:
         output('xcrun', 'simctl', 'launch', '--terminate-running-process', args.simulator, bundle, env=env)
         result_file = probe / 'probe-result.json'

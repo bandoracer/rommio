@@ -199,10 +199,10 @@
   },
   {
     "runtime_id": "azahar",
-    "recipe_id": "azahar-candidate-2126.1.2",
+    "recipe_id": "azahar-vulkan-2126.1.2",
     "source_checkout": "build/azahar-candidate/iphoneos-arm64/source",
-    "device_artifact": "build/azahar-candidate/iphoneos-arm64/output/azahar.dylib",
-    "simulator_artifact": "build/azahar-candidate/iphonesimulator-arm64/output/azahar.dylib",
+    "device_artifact": "build/azahar-gpu-probe/iphoneos-arm64/output/azahar-vulkan-probe.dylib",
+    "simulator_artifact": "build/azahar-gpu-probe/iphonesimulator-arm64/output/azahar-vulkan-probe.dylib",
     "bundle_relative_path": "Frameworks/azahar.framework/azahar",
     "license_file": "build/azahar-candidate/iphoneos-arm64/output/LICENSE.txt"
   }

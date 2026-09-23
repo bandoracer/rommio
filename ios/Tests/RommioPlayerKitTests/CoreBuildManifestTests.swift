@@ -25,8 +25,8 @@ final class CoreBuildManifestTests: XCTestCase {
                 XCTAssertEqual(entry.simulatorArtifact, "build/cartridge-cores/\(entry.runtimeID)/iphonesimulator-arm64/output/\(entry.runtimeID).dylib")
                 XCTAssertEqual(entry.licenseFile, "build/cartridge-cores/\(entry.runtimeID)/iphoneos-arm64/output/LICENSE.txt")
             } else if entry.runtimeID == "azahar" {
-                XCTAssertEqual(entry.deviceArtifact, "build/azahar-candidate/iphoneos-arm64/output/azahar.dylib")
-                XCTAssertEqual(entry.simulatorArtifact, "build/azahar-candidate/iphonesimulator-arm64/output/azahar.dylib")
+                XCTAssertEqual(entry.deviceArtifact, "build/azahar-gpu-probe/iphoneos-arm64/output/azahar-vulkan-probe.dylib")
+                XCTAssertEqual(entry.simulatorArtifact, "build/azahar-gpu-probe/iphonesimulator-arm64/output/azahar-vulkan-probe.dylib")
                 XCTAssertEqual(entry.licenseFile, "build/azahar-candidate/iphoneos-arm64/output/LICENSE.txt")
             } else {
                 XCTAssertEqual(entry.deviceArtifact, "build/ios/iphoneos/\(entry.runtimeID).dylib")

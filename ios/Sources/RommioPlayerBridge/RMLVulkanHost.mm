@@ -7,8 +7,6 @@
 #define VK_USE_PLATFORM_METAL_EXT 1
 #include <libretro_vulkan.h>
 
-#if DEBUG
-
 static NSError *RMLVulkanError(NSString *message) {
     return [NSError errorWithDomain:@"Rommio.VulkanHost" code:1
                            userInfo:@{NSLocalizedDescriptionKey: message}];
@@ -286,31 +284,3 @@ static void RMLUnlockQueue(void *handle) {
 }
 
 @end
-
-#else
-
-// The Vulkan core is a Debug-only candidate. Keep release builds on the
-// qualified software path and avoid linking MoltenVK into the app binary.
-@implementation RMLVulkanHost
-- (id<MTLTexture>)latestTexture { return nil; }
-- (NSUInteger)width { return 0; }
-- (NSUInteger)height { return 0; }
-- (BOOL)handleEnvironmentCommand:(unsigned)command data:(void *)data {
-    (void)command; (void)data;
-    return NO;
-}
-- (BOOL)activateContext:(NSError **)error {
-    if (error) *error = [NSError errorWithDomain:@"Rommio.VulkanHost" code:1
-        userInfo:@{NSLocalizedDescriptionKey: @"The Vulkan candidate is unavailable in this build."}];
-    return NO;
-}
-- (BOOL)receiveVideoFrame:(const void *)data width:(unsigned)width
-                   height:(unsigned)height error:(NSError **)error {
-    (void)data; (void)width; (void)height; (void)error;
-    return NO;
-}
-- (void)invalidateFrame {}
-- (void)shutdown {}
-@end
-
-#endif

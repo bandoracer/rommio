@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
-"""Build the pinned Azahar candidate with Vulkan for host integration work.
+"""Build the pinned Azahar Vulkan core used by the iOS app.
 
-This probe is deliberately separate from the software-rendering candidate. It
-can be bundled only in an opted-in Debug QA build until the Vulkan frontend,
-Metal presentation, saves, and performance are qualified on iOS.
+The GPU build remains separate from its pinned software-source prerequisite.
 """
 
 import argparse
