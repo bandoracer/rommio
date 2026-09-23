@@ -248,8 +248,10 @@ separate; see `docs/player-controls-validation.md`.
 
 Azahar is a blocked, opt-in Debug candidate. Build its simulator framework
 into the app with `ROMMIO_INCLUDE_AZAHAR_CANDIDATE=1 scripts/ios/build_simulator_app.sh`.
-The normal player catalog keeps 3DS
-blocked; `ROMMIO_ENABLE_AZAHAR_QA=1` opens it only in a Debug QA launch.
+The separate Vulkan core build probe and the remaining iOS GPU-host contract
+are documented in [3DS GPU renderer integration](../docs/ios-3ds-gpu-renderer.md).
+The normal player catalog keeps 3DS blocked; `ROMMIO_ENABLE_AZAHAR_QA=1` opens
+it only in a Debug QA launch.
 Release builds do not include that override.
 
 The reproducible simulator probe uses the separately obtained MIT-licensed
