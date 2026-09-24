@@ -24,6 +24,8 @@ import io.github.bandoracer.rommio.domain.player.LibretroCoreInstaller
 import io.github.bandoracer.rommio.domain.player.LibretroPlayerEngine
 import io.github.bandoracer.rommio.domain.storage.AppManagedLibraryStore
 import io.github.bandoracer.rommio.domain.sync.RommSyncBridge
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 
 class AppContainer(appContext: Context, progressEngineFactory: () -> io.github.bandoracer.rommio.domain.player.PlayerEngine = { LibretroPlayerEngine() }) {
     private val appContextFilesForRecovery = appContext.noBackupFilesDir
@@ -47,6 +49,7 @@ class AppContainer(appContext: Context, progressEngineFactory: () -> io.github.b
         AppDatabase.MIGRATION_10_11,
         AppDatabase.MIGRATION_11_12,
         AppDatabase.MIGRATION_12_13,
+        AppDatabase.MIGRATION_13_14,
     )
         .build()
 
@@ -67,10 +70,16 @@ class AppContainer(appContext: Context, progressEngineFactory: () -> io.github.b
     val gameSyncJournalDao = database.gameSyncJournalDao()
     val saveStateSyncJournalDao = database.saveStateSyncJournalDao()
     val recoveryStateDao = database.recoveryStateDao()
+    /** Local-only play data (docs/play-data-local.md): sessions, save-state names and thumbnails. */
+    val playDataDao = database.playDataDao()
+    val saveThumbnails = io.github.bandoracer.rommio.data.playdata.SaveThumbnailStore(java.io.File(appContext.noBackupFilesDir, "save-previews"))
+    val localPlayData = io.github.bandoracer.rommio.data.playdata.LocalPlayData(playDataDao, saveThumbnails)
     val secretStore = AuthSecretStore(appContext)
     val authJsonCodec = AuthJsonCodec()
     val controlsJsonCodec = ControlsJsonCodec()
     val controlsPreferencesStore = PlayerControlsPreferencesStore(appContext)
+    /** Device-local theme and light/dark choice; deliberately not part of migration bundles. */
+    val appearancePreferencesStore = io.github.bandoracer.rommio.data.input.AppearancePreferencesStore(appContext)
     val externalControllerMonitor = ExternalControllerMonitor(appContext)
     val connectivityMonitor = ConnectivityMonitor(appContext)
     val authDiscovery = AuthDiscovery()
@@ -92,7 +101,8 @@ class AppContainer(appContext: Context, progressEngineFactory: () -> io.github.b
         },
     )
     val thumbnailCacheStore = ThumbnailCacheStore(appContext, mediaCacheEntryDao)
-    private val progressStorage = io.github.bandoracer.rommio.domain.progress.ApplicationProgressStorage(
+    /** Internal so instrumentation fixtures can seed the store (e.g. a synced two-branch conflict). */
+    internal val progressStorage = io.github.bandoracer.rommio.domain.progress.ApplicationProgressStorage(
         database, java.io.File(appContext.noBackupFilesDir, "progress-v2"),
     )
     val migrationBundleManager = MigrationBundleManager(
@@ -158,7 +168,7 @@ class AppContainer(appContext: Context, progressEngineFactory: () -> io.github.b
         beforePrepare = { progressSync.beforeLaunch(requireNotNull(it.progressBinding)) },
         afterCommit = { result ->
             if (result?.stateRejected == true) android.widget.Toast.makeText(appContext,
-                result.stateError ?: "Game save saved. Resume snapshot failed; the previous snapshot is preserved.", android.widget.Toast.LENGTH_LONG).show()
+                result.stateError ?: "Game-save data saved. Resume snapshot failed; the previous snapshot is preserved.", android.widget.Toast.LENGTH_LONG).show()
             progressSync.request()
         },
         deviceId = { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -167,6 +177,44 @@ class AppContainer(appContext: Context, progressEngineFactory: () -> io.github.b
                 check(preferences.edit().putString("device-id", it).commit()) { "Unable to persist the device identity." }
             }
         } },
+        playData = localPlayData,
+    )
+    /** Play data changes while no game is running; pages re-read then (never mid-game, off the core lane). */
+    val playDataChanges: kotlinx.coroutines.flow.Flow<Long> =
+        kotlinx.coroutines.flow.combine(localPlayData.changes, progressSessions.active) { revision, active -> revision.takeIf { active == null } }
+            .filterNotNull().distinctUntilChanged()
+    private val activeVerifiedAccount: suspend () -> io.github.bandoracer.rommio.data.auth.VerifiedAccount? = {
+        authManager.getActiveProfile()?.let { profile ->
+            authManager.verifiedAccount(profile.id)?.takeIf { it.baseUrl == profile.baseUrl }
+        }
+    }
+    // Read-only: never creates the identity. No identity means nothing was played here yet.
+    private val existingDeviceId: suspend () -> String? = {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            appContext.getSharedPreferences("progress-installation", Context.MODE_PRIVATE).getString("device-id", null)
+        }
+    }
+    /** Stats: recorded play sessions, with play before the first recorded session derived from checkpoints. */
+    val playActivity = io.github.bandoracer.rommio.data.stats.PlayActivityRepository(
+        storeProvider = { progressStorage.get() },
+        accountProvider = activeVerifiedAccount,
+        localDeviceId = existingDeviceId,
+        recordedSessions = { serverKey, accountId ->
+            playDataDao.sessionsFor(serverKey, accountId).map { row ->
+                io.github.bandoracer.rommio.domain.stats.RecordedPlaySession(row.sessionId, row.romId, row.deviceId, row.platformSlug,
+                    row.startedAtEpochMs, row.endedAtEpochMs, row.lastHeartbeatEpochMs, row.activeDurationMs,
+                    io.github.bandoracer.rommio.domain.playdata.PlaySessionEndReason.fromKey(row.endReason))
+            }
+        },
+    )
+    /** Recent saves and a game's saved progress, read-only from the progress store. */
+    val savedProgress = io.github.bandoracer.rommio.data.playdata.SavedProgressRepository(
+        storeProvider = { progressStorage.get() },
+        accountProvider = activeVerifiedAccount,
+        localDeviceId = existingDeviceId,
+        dao = playDataDao,
+        thumbnails = saveThumbnails,
+        formFactor = { io.github.bandoracer.rommio.data.playdata.DeviceFormFactors.resolve(appContext) },
     )
     val coreResolver = CoreCatalogResolver(appContext, libraryStore, firmwareStore, coreArtifacts, packagedCores)
     val controlProfileResolver = PlatformControlProfileResolver()

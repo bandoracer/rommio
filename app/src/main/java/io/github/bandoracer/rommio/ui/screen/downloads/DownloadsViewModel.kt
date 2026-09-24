@@ -12,6 +12,11 @@ import kotlinx.coroutines.launch
 
 data class DownloadsUiState(
     val records: List<DownloadRecord> = emptyList(),
+    /** Cover paths by ROM id, from the cached catalogue. */
+    val covers: Map<Int, String?> = emptyMap(),
+    val isOffline: Boolean = false,
+    /** The last download action that couldn't reach the queue; the list shown is the saved one. */
+    val staleMessage: String? = null,
 )
 
 class DownloadsViewModel(
@@ -26,21 +31,37 @@ class DownloadsViewModel(
                 _uiState.update { it.copy(records = records) }
             }
         }
+        viewModelScope.launch {
+            repository.observeCachedRoms().collect { roms ->
+                _uiState.update { it.copy(covers = roms.associate { rom -> rom.id to rom.urlCover }) }
+            }
+        }
+        viewModelScope.launch {
+            repository.observeOfflineState().collect { offline ->
+                _uiState.update { it.copy(isOffline = offline.isOffline) }
+            }
+        }
     }
 
-    fun cancel(record: DownloadRecord) {
-        viewModelScope.launch { repository.cancelDownload(record) }
-    }
+    fun cancel(record: DownloadRecord) = act { repository.cancelDownload(record) }
 
-    fun retry(record: DownloadRecord) {
-        viewModelScope.launch { repository.retryDownload(record) }
-    }
+    fun retry(record: DownloadRecord) = act { repository.retryDownload(record) }
 
-    fun downloadNow(record: DownloadRecord) {
-        viewModelScope.launch { repository.downloadNow(record) }
-    }
+    fun downloadNow(record: DownloadRecord) = act { repository.downloadNow(record) }
 
-    fun deleteLocal(record: DownloadRecord) {
-        viewModelScope.launch { repository.deleteLocalDownload(record) }
+    fun deleteLocal(record: DownloadRecord) = act { repository.deleteLocalDownload(record) }
+
+    /** Runs a queue action; a failure keeps the saved list and says why (the "stale" group). */
+    private fun act(block: suspend () -> Unit) {
+        viewModelScope.launch {
+            try {
+                block()
+                _uiState.update { it.copy(staleMessage = null) }
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _uiState.update { it.copy(staleMessage = error.message ?: "Couldn't update downloads.") }
+            }
+        }
     }
 }

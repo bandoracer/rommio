@@ -793,6 +793,17 @@ class RommRepository(
 
 
 
+    /** Every cached game for the active profile, for offline search and name lookups. */
+    fun observeCachedRoms(): Flow<List<RomDto>> {
+        return activeProfileFlow().flatMapLatest { profile ->
+            if (profile == null) {
+                flowOf(emptyList())
+            } else {
+                cachedRomDao.observeAll(profile.id).map { roms -> roms.map { it.toDomain(cacheCodec) } }
+            }
+        }
+    }
+
     fun observeLibraryStorageSummary(): Flow<LibraryStorageSummary> {
         return observeInstalledLibrary().map(::summarizeInstalledLibrary)
     }
@@ -882,6 +893,12 @@ class RommRepository(
     fun resolveCoreSupport(rom: RomDto, file: RomFileDto?): CoreResolution {
         return coreResolver.resolve(rom.platformSlug, file?.effectiveFileExtension)
     }
+
+    /** Settings › Cores and BIOS: every platform family's core, resolved on this device (disk reads). */
+    suspend fun coreInventory(): List<io.github.bandoracer.rommio.domain.player.CoreInventoryEntry> =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            io.github.bandoracer.rommio.domain.player.CoreInventory.resolve(coreResolver)
+        }
 
     fun embeddedPlayerSupport(rom: RomDto): CoreResolution {
         return resolveCoreSupport(rom, rom.files.firstOrNull())
@@ -1114,6 +1131,7 @@ class RommRepository(
                     },
             variables = profile.defaultVariables,
             initialSaveRam = if (seedLegacySave) saveRamFile.takeIf { it.exists() }?.readBytes() else null,
+            platformSlug = installation.platformSlug,
         )
     } }
 
@@ -2450,6 +2468,7 @@ private fun CachedRomEntity.toDomain(codec: OfflineCacheJsonCodec): RomDto {
         files = codec.decodeFiles(filesJson),
         siblings = codec.decodeSiblings(siblingsJson),
         urlCover = usableCachedUri(coverCachedUri) ?: urlCover,
+        cachedMetadata = codec.decodeMetadata(metadataJson),
     )
 }
 

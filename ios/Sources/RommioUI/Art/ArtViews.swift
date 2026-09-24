@@ -1,0 +1,311 @@
+import SwiftUI
+
+/// The light a page takes from the game it is about (Aurora): the cover's
+/// lights and the cover itself, blurred into the page ground.
+struct PageLight: Hashable, Sendable {
+    let lights: AuroraLights
+    let artURL: URL?
+}
+
+// MARK: Lighting a page
+
+/// Lights everything below with one or more games' covers (Aurora only): page
+/// ground, lights, tint and glows. Riso and games without usable colour keep
+/// the theme's own light.
+private struct LitByModifier: ViewModifier {
+    @Environment(\.rommioTheme) private var theme
+    @Environment(\.artworkPipeline) private var pipeline
+    let urls: [URL]
+    let artURL: URL?
+    @State private var loaded: (key: [URL], palettes: [CoverPalette])?
+
+    func body(content: Content) -> some View {
+        let light = pageLight
+        let lit = theme.lit(by: light)
+        content
+            .environment(\.rommioTheme, lit)
+            // The system tint colours text (bar and list buttons): readable on the lit ground.
+            .tint(lit.readableTint)
+            .animation(.easeInOut(duration: 0.45), value: light)
+            .task(id: urls.map(\.absoluteString).joined(separator: "|") + (theme.isGlass ? "#glass" : "#paper")) {
+                guard theme.isGlass, !urls.isEmpty else { return }
+                var palettes: [CoverPalette] = []
+                for url in urls.prefix(3) {
+                    if let palette = await pipeline.palette(for: url), !palette.isNeutral { palettes.append(palette) }
+                }
+                if !Task.isCancelled { loaded = (urls, palettes) }
+            }
+    }
+
+    private var pageLight: PageLight? {
+        guard theme.isGlass, let loaded, loaded.key == urls,
+              let lights = AuroraLights.derive(palettes: loaded.palettes, dark: theme.isDark) else { return nil }
+        return PageLight(lights: lights, artURL: artURL)
+    }
+}
+
+extension View {
+    /// Aurora: light the page with this game's cover (ground, lights, tint) and
+    /// blur the cover into the page background.
+    func litBy(_ url: URL?) -> some View {
+        modifier(LitByModifier(urls: url.map { [$0] } ?? [], artURL: url))
+    }
+
+    /// Aurora: light the page with several games (up to three lights); `art` is
+    /// blurred into the background.
+    func litBy(_ urls: [URL], art: URL?) -> some View {
+        modifier(LitByModifier(urls: urls, artURL: art))
+    }
+}
+
+// MARK: Page backgrounds
+
+/// Where the lights sit (the studio's `.a-field` variants): the room of Play, a
+/// page with a hero (Game, Stats), the quieter lists, the welcome fan.
+enum PageLightStyle: Sendable {
+    case room, page, quiet, welcome
+
+    struct Spot {
+        let centre: CGPoint
+        let radii: CGSize
+        let fade: CGFloat
+    }
+
+    /// Centres and radii as fractions of the page (radial-gradient(sx sy at px py, …, transparent 70–72%)).
+    var spots: [Spot] {
+        switch self {
+        case .room:
+            [Spot(centre: CGPoint(x: 0.26, y: 0.24), radii: CGSize(width: 0.9, height: 0.46), fade: 0.7),
+             Spot(centre: CGPoint(x: 0.96, y: 0.06), radii: CGSize(width: 0.7, height: 0.34), fade: 0.7),
+             Spot(centre: CGPoint(x: 0.4, y: 0.86), radii: CGSize(width: 1.1, height: 0.4), fade: 0.72)]
+        case .page:
+            [Spot(centre: CGPoint(x: 0.08, y: 0), radii: CGSize(width: 0.8, height: 0.3), fade: 0.7),
+             Spot(centre: CGPoint(x: 0.96, y: 0.04), radii: CGSize(width: 0.7, height: 0.3), fade: 0.7),
+             Spot(centre: CGPoint(x: 0.5, y: 0.26), radii: CGSize(width: 1.1, height: 0.26), fade: 0.72)]
+        case .quiet:
+            [Spot(centre: CGPoint(x: 0.1, y: 0), radii: CGSize(width: 0.8, height: 0.26), fade: 0.7),
+             Spot(centre: CGPoint(x: 0.96, y: 0.02), radii: CGSize(width: 0.6, height: 0.24), fade: 0.7),
+             Spot(centre: CGPoint(x: 0.5, y: 0.2), radii: CGSize(width: 1.0, height: 0.18), fade: 0.72)]
+        case .welcome:
+            [Spot(centre: CGPoint(x: 0.14, y: 0.18), radii: CGSize(width: 0.8, height: 0.4), fade: 0.7),
+             Spot(centre: CGPoint(x: 0.94, y: 0.3), radii: CGSize(width: 0.7, height: 0.4), fade: 0.7),
+             Spot(centre: CGPoint(x: 0.5, y: 0.5), radii: CGSize(width: 1.0, height: 0.44), fade: 0.72)]
+        }
+    }
+
+    /// The veil that settles the light into the ground: (location, ground opacity).
+    var veil: [(CGFloat, Double)] {
+        switch self {
+        case .room: [(0, 0), (0.48, 0), (0.76, 0.55), (1, 0.88)]
+        case .page: [(0, 0), (0.3, 0.4), (0.58, 0.82), (0.86, 1), (1, 1)]
+        case .quiet: [(0, 0), (0.36, 0.7), (0.66, 1), (1, 1)]
+        case .welcome: [(0, 0), (0.42, 0.3), (0.76, 0.86), (1, 1)]
+        }
+    }
+
+    /// The whole field's opacity (quiet pages are dimmer).
+    var opacity: Double { self == .quiet ? 0.62 : 1 }
+}
+
+/// Aurora's ambient field: the ground, the blurred cover, three radial lights and
+/// a veil (studio `.a-field`). Riso: paper stock with a fine grain.
+struct PageBackground: View {
+    @Environment(\.rommioTheme) private var theme
+    var style: PageLightStyle = .quiet
+
+    var body: some View {
+        ZStack {
+            theme.ground
+            if theme.isGlass {
+                AuroraField(style: theme.light == nil && style != .welcome ? .quiet : style)
+            } else {
+                PaperGrain()
+            }
+        }
+        .ignoresSafeArea()
+        .accessibilityHidden(true)
+        .allowsHitTesting(false)
+    }
+}
+
+private struct AuroraField: View {
+    @Environment(\.rommioTheme) private var theme
+    let style: PageLightStyle
+
+    var body: some View {
+        GeometryReader { proxy in
+            let size = proxy.size
+            let lights = theme.lights
+            ZStack(alignment: .topLeading) {
+                if let url = theme.light?.artURL {
+                    BlurredCover(url: url, dark: theme.isDark)
+                        .frame(width: size.width * 1.5, height: size.height * 0.78)
+                        // A CSS blur spills past the image's box; fade the baked
+                        // blur out instead of ending on a hard edge.
+                        .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.55),
+                                                     .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
+                        .offset(x: -size.width * 0.25, y: -size.height * 0.12)
+                        .opacity(Double(theme.isDark ? AuroraArtTokens.backdropOpacityDark : AuroraArtTokens.backdropOpacityLight))
+                }
+                Canvas { context, canvas in
+                    let colours = [lights.l1, lights.l2, lights.l3].map { $0.themeColor.color }
+                    for (spot, colour) in zip(style.spots, colours) {
+                        let rx = max(1, spot.radii.width * canvas.width)
+                        let ry = max(1, spot.radii.height * canvas.height)
+                        var layer = context
+                        layer.translateBy(x: spot.centre.x * canvas.width, y: spot.centre.y * canvas.height)
+                        layer.scaleBy(x: 1, y: ry / rx)
+                        let rect = CGRect(x: -rx, y: -rx, width: rx * 2, height: rx * 2)
+                        layer.fill(Path(ellipseIn: rect), with: .radialGradient(
+                            Gradient(stops: [.init(color: colour, location: 0), .init(color: colour.opacity(0), location: spot.fade)]),
+                            center: .zero, startRadius: 0, endRadius: rx))
+                    }
+                }
+                .opacity(Double(theme.isDark ? AuroraArtTokens.lightOpacityDark : AuroraArtTokens.lightOpacityLight))
+                .blendMode(theme.isDark ? .screen : .normal)
+                LinearGradient(stops: style.veil.map { .init(color: theme.ground.opacity($0.1), location: $0.0) },
+                               startPoint: .top, endPoint: .bottom)
+            }
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
+            .clipped()
+        }
+        .opacity(style.opacity)
+    }
+}
+
+/// The cover blurred, saturated and brightened into light (studio
+/// `.a-field-art`, `--art-filter`), baked once by the artwork pipeline.
+struct BlurredCover: View {
+    @Environment(\.artworkPipeline) private var pipeline
+    let url: URL
+    let dark: Bool
+    @State private var image: (key: String, image: DecodedArtwork)?
+
+    var body: some View {
+        let key = url.absoluteString + (dark ? "#d" : "#l")
+        ZStack {
+            if let image, image.key == key {
+                Image(decorative: image.image.cgImage, scale: 1)
+                    .resizable()
+                    .interpolation(.high)
+                    .transition(.opacity)
+            }
+        }
+        .task(id: key) {
+            if let art = await pipeline.backdrop(for: url, dark: dark), !Task.isCancelled {
+                withAnimation(.easeOut(duration: 0.35)) { image = (key, art) }
+            }
+        }
+    }
+}
+
+/// Riso paper stock: a fine, deterministic grain over the ground.
+struct PaperGrain: View {
+    @Environment(\.rommioTheme) private var theme
+
+    var body: some View {
+        // The tile is white stock with dark specks: multiplied onto paper by
+        // day; inverted (black with light specks) and screened by night.
+        if theme.isDark {
+            Image(decorative: GrainTexture.image, scale: 2)
+                .resizable(resizingMode: .tile)
+                .colorInvert()
+                .opacity(0.5)
+                .blendMode(.screen)
+        } else {
+            Image(decorative: GrainTexture.image, scale: 2)
+                .resizable(resizingMode: .tile)
+                .opacity(0.35)
+                .blendMode(.multiply)
+        }
+    }
+}
+
+enum GrainTexture {
+    /// 180 px of seeded noise (studio `StudioArt.grain(0.06, 180)`).
+    static let image: CGImage = {
+        let size = 180
+        var state: UInt32 = 0x9E37_79B9
+        var bytes = [UInt8](repeating: 0, count: size * size * 4)
+        for index in 0 ..< size * size {
+            state ^= state << 13
+            state ^= state >> 17
+            state ^= state << 5
+            let noise = Double(state % 1000) / 1000
+            // Mostly neutral with sparse specks, so the paper reads as stock, not static.
+            let value = UInt8(max(0, min(255, 255 - Int(noise * noise * 0.12 * 255 * 2.2))))
+            bytes[index * 4] = value
+            bytes[index * 4 + 1] = value
+            bytes[index * 4 + 2] = value
+            bytes[index * 4 + 3] = 255
+        }
+        let provider = CGDataProvider(data: Data(bytes) as CFData)!
+        return CGImage(width: size, height: size, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: size * 4,
+                       space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+                       provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
+    }()
+}
+
+// MARK: Covers
+
+/// A cover with the theme's art treatment: Aurora shows it as it is; Riso prints
+/// it in two inks. Gameplay frames and save-state previews never come here.
+struct TreatedCover<Placeholder: View>: View {
+    @Environment(\.rommioTheme) private var theme
+    let url: URL?
+    var maxPointSize: CGFloat = 320
+    @ViewBuilder var placeholder: () -> Placeholder
+
+    var body: some View {
+        if theme.isRiso {
+            RisoPrintImage(url: url, maxPointSize: maxPointSize, placeholder: placeholder)
+        } else {
+            ArtworkImage(url: url, maxPointSize: maxPointSize, placeholder: placeholder)
+        }
+    }
+}
+
+/// A cover printed in two inks, off register (Riso).
+struct RisoPrintImage<Placeholder: View>: View {
+    @Environment(\.rommioTheme) private var theme
+    @Environment(\.artworkPipeline) private var pipeline
+    @Environment(\.displayScale) private var displayScale
+    let url: URL?
+    var maxPointSize: CGFloat = 320
+    @ViewBuilder var placeholder: () -> Placeholder
+    @State private var loaded: (key: String, image: DecodedArtwork)?
+
+    var body: some View {
+        let key = "\(url?.absoluteString ?? "")#\(theme.identity)#\(Int(maxPointSize))"
+        ZStack {
+            if let loaded, loaded.key == key {
+                Image(decorative: loaded.image.cgImage, scale: displayScale)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .transition(.opacity)
+            } else {
+                placeholder()
+            }
+        }
+        .task(id: key) {
+            guard let url else { loaded = nil; return }
+            let colours = theme.colors
+            let style = RisoPrintStyle(
+                plateA: ArtRGB(red: colours.accent1.red, green: colours.accent1.green, blue: colours.accent1.blue),
+                plateB: ArtRGB(red: colours.accent2.red, green: colours.accent2.green, blue: colours.accent2.blue),
+                paper: theme.isDark ? ArtRGB(red: 0, green: 0, blue: 0)
+                                    : ArtRGB(red: colours.ground.red, green: colours.ground.green, blue: colours.ground.blue),
+                dark: theme.isDark)
+            let pixels = Int(maxPointSize * displayScale)
+            // Misregistration and the dot pitch are in points; the print is in pixels.
+            let image = await pipeline.risoPrint(for: url, maxPixelSize: pixels, style: style,
+                                                 misregistration: Double(RisoArtTokens.misregistration * displayScale),
+                                                 halftone: Double(RisoArtTokens.halftone),
+                                                 dotWidth: Double(max(3, min(5, maxPointSize / 60)) * displayScale))
+            if let image, !Task.isCancelled {
+                withAnimation(.easeOut(duration: 0.2)) { loaded = (key, image) }
+            }
+        }
+    }
+}

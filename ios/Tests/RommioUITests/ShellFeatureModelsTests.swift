@@ -42,7 +42,7 @@ final class ShellFeatureModelsTests: XCTestCase {
             )
         )
 
-        let feature = HomeFeatureModel(services: harness.services)
+        let feature = PlayFeatureModel(services: harness.services)
         await feature.refresh(refreshCatalog: false)
 
         XCTAssertEqual(feature.snapshot.continuePlaying.map(\.id), [rom.id])
@@ -354,12 +354,13 @@ final class ShellFeatureModelsTests: XCTestCase {
         XCTAssertEqual(playableState.actionDeck.primary?.kind, .play)
         XCTAssertEqual(playableState.actionDeck.secondary.map(\.kind), [.deleteLocal])
         XCTAssertEqual(feature.selectedFileState?.file.id, playableFile.id)
-        XCTAssertEqual(feature.heroPresentation.statusText, "Installed locally")
+        XCTAssertEqual(feature.heroPresentation.statusText, "On this device")
+        XCTAssertEqual(feature.heroPresentation.statusTone, .ok)
         XCTAssertTrue(feature.showsSegmentedFileSelection)
         XCTAssertEqual(feature.fileSelectionOptions.map(\.id), [playableFile.id, failedFile.id])
         let selectedPresentation = try XCTUnwrap(feature.selectedFilePresentation)
         XCTAssertEqual(selectedPresentation.title, playableFile.fileName)
-        XCTAssertEqual(selectedPresentation.availabilityLabel, "Installed locally")
+        XCTAssertEqual(selectedPresentation.availabilityLabel, "On this device")
         XCTAssertEqual(selectedPresentation.playabilityLabel, "Touch")
 
         let failedState = try XCTUnwrap(feature.fileStates.first(where: { $0.file.id == failedFile.id }))
@@ -370,6 +371,8 @@ final class ShellFeatureModelsTests: XCTestCase {
         await feature.selectFile(failedFile.id)
         XCTAssertEqual(feature.selectedFileState?.file.id, failedFile.id)
         XCTAssertEqual(feature.selectedFilePresentation?.title, failedFile.fileName)
+        XCTAssertEqual(feature.selectedFilePresentation?.availabilityLabel, "Download failed")
+        XCTAssertEqual(feature.heroPresentation.statusText, "Download failed")
         XCTAssertEqual(feature.actionDeckPresentation?.primary?.kind, .retryCoreSetup)
         XCTAssertEqual(feature.actionDeckPresentation?.secondary.map(\.kind), [.retry])
         XCTAssertEqual(feature.actionDeckPresentation?.badge, "Core setup failed")

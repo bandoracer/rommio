@@ -53,7 +53,8 @@ let package = Package(
         ),
         .target(
             name: "RommioUI",
-            dependencies: ["RommioFoundation", "RommioPlayerKit"]
+            dependencies: ["RommioFoundation", "RommioPlayerKit"],
+            resources: [.copy("Resources/Fonts")]
         ),
         .testTarget(
             name: "RommioContractTests",

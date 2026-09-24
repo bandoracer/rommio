@@ -7,8 +7,9 @@ import CoreImage.CIFilterBuiltins
 #endif
 
 struct OneTouchSetupView: View {
+    @Environment(\.rommioTheme) private var theme
     let appModel: RommioAppModel
-    @State private var setup = OneTouchSetupModel()
+    @State private var setup = OneTouchSetupModel(service: SetupCodeService.current())
     @State private var showsApproval = false
     @Environment(\.dismiss) private var dismiss
 
@@ -16,9 +17,10 @@ struct OneTouchSetupView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 22) {
-                    Image(systemName: "gamecontroller.fill")
-                        .font(.system(size: 36)).foregroundStyle(.tint).accessibilityHidden(true)
-                    Text("Set up this device").font(.title.bold())
+                    AppMark(size: theme.isRiso ? 16 : 36)
+                        .accessibilityHidden(true)
+                    DisplayText(text: "Set up this device", role: theme.isRiso ? .display : .title, size: theme.isRiso ? 40 : 30, lineLimit: 2)
+                        .multilineTextAlignment(.center)
                     if let pairing = setup.pairing {
                         // Short, wide sheets (iPhone Duo open) put the QR code beside
                         // the code instead of below the visible area.
@@ -34,17 +36,20 @@ struct OneTouchSetupView: View {
                         }
                     }
                     if let error = setup.errorMessage {
-                        Text(error).foregroundStyle(.red).multilineTextAlignment(.center)
+                        Text(error).themeText(.secondary).foregroundStyle(theme.badText).multilineTextAlignment(.center)
                             .accessibilityIdentifier("oneTouch.error")
                         Button("Try Again") { setup.cancel(); start() }
-                            .buttonStyle(.borderedProminent).accessibilityIdentifier("oneTouch.retry")
+                            .buttonStyle(PrimaryButtonStyle(fullWidth: false)).accessibilityIdentifier("oneTouch.retry")
                     } else {
                         ProgressView(setup.isApplying ? "Connecting to RomM…" : setup.pairing == nil ? "Creating setup code…" : "Waiting for approval…")
+                            .themeText(.secondary)
+                            .foregroundStyle(theme.inkSecondary)
                     }
                 }
                 .padding(24).frame(maxWidth: 500).frame(maxWidth: .infinity)
             }
-            .navigationTitle("One-touch setup")
+            .themedPage(.welcome)
+            .navigationTitle("Setup code")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -71,17 +76,17 @@ struct OneTouchSetupView: View {
     private func codeColumn(_ pairing: SetupPairing) -> some View {
         VStack(spacing: 18) {
             Text("Approve access to your server. Your connection settings will be added automatically.")
-                .multilineTextAlignment(.center).foregroundStyle(.secondary)
-            Text(pairing.code).font(.system(size: 32, weight: .bold, design: .monospaced))
+                .themeText(.body)
+                .multilineTextAlignment(.center).foregroundStyle(theme.inkSecondary)
+            Text(pairing.code).themeText(.numeral, size: 32).foregroundStyle(theme.ink)
                 .textSelection(.enabled).accessibilityIdentifier("oneTouch.code")
             #if canImport(UIKit)
             Button {
                 showsApproval = true
             } label: {
                 Label("Approve on This Device", systemImage: "safari")
-                    .frame(maxWidth: .infinity).padding(.vertical, 8)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(PrimaryButtonStyle())
             .disabled(setup.isApplying || setup.errorMessage != nil)
             .accessibilityIdentifier("oneTouch.approve")
             #else
@@ -97,13 +102,14 @@ struct OneTouchSetupView: View {
             if let qr = qrImage(pairing.approveUrl.absoluteString) {
                 Image(uiImage: qr).interpolation(.none).resizable().scaledToFit()
                     .frame(width: 170, height: 170).padding(12).background(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .clipShape(RoundedRectangle(cornerRadius: theme.isRiso ? 0 : 12))
+                    .overlay { if theme.isRiso { Rectangle().strokeBorder(theme.ink, lineWidth: 1.5) } }
                     .accessibilityLabel("Scan on another device to approve setup")
             }
             #endif
-            Text("Or scan the code on another device.").font(.footnote).foregroundStyle(.secondary)
+            Text("Or scan the code on another device.").themeText(.caption).foregroundStyle(theme.inkSecondary)
             Link(pairing.approveUrl.absoluteString, destination: pairing.approveUrl)
-                .font(.caption).multilineTextAlignment(.center)
+                .themeText(.caption).multilineTextAlignment(.center)
         }
     }
 
@@ -126,6 +132,30 @@ struct OneTouchSetupView: View {
               let image = CIContext().createCGImage(output.transformed(by: CGAffineTransform(scaleX: 8, y: 8)),
                                                    from: output.extent.applying(CGAffineTransform(scaleX: 8, y: 8))) else { return nil }
         return UIImage(cgImage: image)
+    }
+    #endif
+}
+
+/// The setup-code service: the real pairing service, or in a Debug build with
+/// `ROMMIO_SETUP_STUB=1` a fixed code that stays pending and makes no request
+/// (screenshots against the mock server; the production service is never called).
+enum SetupCodeService {
+    static func current() -> any OneTouchSetupServing {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["ROMMIO_SETUP_STUB"] == "1" { return Stub() }
+        #endif
+        return OneTouchSetupClient()
+    }
+
+    #if DEBUG
+    private struct Stub: OneTouchSetupServing {
+        func start(deviceName: String) async throws -> SetupPairing {
+            let json = #"{"code":"RMX4K7","secret":"STUBSTUBSTUBSTUBSTUBSTUBSTUBSTUB","approveUrl":"https://rommio-setup.borchetta.xyz/a/RMX4K7","expiresInSeconds":600,"pollIntervalSeconds":30}"#
+            return try JSONDecoder().decode(SetupPairing.self, from: Data(json.utf8))
+        }
+        func poll(_ pairing: SetupPairing) async throws -> SetupPollResult { .pending }
+        func complete(_ pairing: SetupPairing) async throws {}
+        func cancel(_ pairing: SetupPairing) async {}
     }
     #endif
 }

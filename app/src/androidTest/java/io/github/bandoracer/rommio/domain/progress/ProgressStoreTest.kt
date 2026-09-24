@@ -26,7 +26,7 @@ class ProgressStoreTest {
     private lateinit var original: ProgressOperation
     private lateinit var identity: ProgressIdentity
     private lateinit var sources: Map<String, File>
-    private fun openDatabase() = Room.databaseBuilder(context, AppDatabase::class.java, databaseName).addMigrations(AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10, AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13).build()
+    private fun openDatabase() = Room.databaseBuilder(context, AppDatabase::class.java, databaseName).addMigrations(AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10, AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13, AppDatabase.MIGRATION_13_14).build()
     @Before fun setUp() = runBlocking {
         root = File(context.filesDir, "progress-test-${UUID.randomUUID()}").apply { mkdirs() }
         databaseName = "progress-test-${UUID.randomUUID()}.sqlite"

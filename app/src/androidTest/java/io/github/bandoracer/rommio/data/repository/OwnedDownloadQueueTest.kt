@@ -40,7 +40,7 @@ class OwnedDownloadQueueTest {
     @Volatile private var downloadAuthorization: String? = null
     private val bytes = byteArrayOf(1, 2, 3, 4)
     private fun openDatabase() = Room.databaseBuilder(context, AppDatabase::class.java, databaseName)
-        .addMigrations(AppDatabase.MIGRATION_9_10, AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13).build()
+        .addMigrations(AppDatabase.MIGRATION_9_10, AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13, AppDatabase.MIGRATION_13_14).build()
     private fun manager() = AuthManager(db.serverProfileDao(), secrets, AuthDiscovery(), AuthJsonCodec())
     private fun queue(transfer: DownloadTransfer? = null): OwnedDownloadQueue = if (transfer == null) {
         OwnedDownloadQueue(db, auth, library, DownloadClient(auth))

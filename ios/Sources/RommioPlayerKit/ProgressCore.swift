@@ -23,6 +23,20 @@ public protocol ProgressPlayerEngine: PlayerEngine {
     func startProgress(paused: Bool) async throws
     func captureProgress(includeState: Bool) async throws -> NativeProgressCapture
     func restoreProgress(memory: [Int: Data], state: Data?) async throws
+    /// The frame on screen, for a save preview (docs/play-data-local.md §2). Called
+    /// while the engine is paused for a capture; nil when there is none. Never fails a save.
+    func previewFrame() -> PlayDataFrame?
+}
+
+public extension ProgressPlayerEngine {
+    func previewFrame() -> PlayDataFrame? { nil }
+}
+
+/// Save previews from a core's software frame: the pixel copy is taken now, the image made later.
+public enum PlayerPreviewFrames {
+    public static func software(data: Data, width: Int, height: Int, pitch: Int, format: RMLLibretroPixelFormat) -> PlayDataFrame {
+        PlayDataFrame { PlayerFrameImage.make(data: data, width: width, height: height, pitch: pitch, format: format) }
+    }
 }
 
 public struct CartridgePersistence: Sendable {

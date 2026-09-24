@@ -31,12 +31,20 @@ manifest_resource_paths =
         []
     end
 
+# Asset catalogs (AppIcon, AccentColor) are one folder reference each; their
+# contents are compiled by actool, not copied file by file.
+asset_catalog_paths = Dir[File.join(resource_root, '**', '*.xcassets')].sort.map do |path|
+    path.delete_prefix(resource_root + '/')
+end
+
 resource_paths = (
     Dir[File.join(resource_root, '**', '*')].sort.map do |path|
         next if File.directory?(path)
+        next if path.include?('.xcassets/')
 
         path.delete_prefix(resource_root + '/')
     end.compact +
+    asset_catalog_paths +
     manifest_resource_paths +
     ['Cores/CoreLicenses.json']
 ).uniq.reject { |path| path.end_with?('.dylib') }.sort

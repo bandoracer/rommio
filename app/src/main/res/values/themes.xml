@@ -1,9 +1,8 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <style name="Theme.RommNative.Base" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <item name="android:windowBackground">@color/brand_canvas</item>
+        <item name="android:windowBackground">@color/window_ground</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">@color/brand_canvas</item>
-        <item name="android:windowLightStatusBar" tools:targetApi="m">false</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
     <style name="Theme.RommNative" parent="Theme.RommNative.Base" />
 </resources>

@@ -293,9 +293,12 @@ public actor ProgressStore {
     public func history(_ identity: ProgressIdentity) throws -> [ProgressHistoryEntry] {
         var seen = Set<String>(); var result: [ProgressHistoryEntry] = []
         for payload in try payloads(identity).reversed() {
-            for cp in try ProgressProtocol.decode(payload).checkpoints where seen.insert(cp.checkpointId).inserted {
+            let op = try ProgressProtocol.decode(payload)
+            for cp in op.checkpoints where seen.insert(cp.checkpointId).inserted {
                 let pinned = try database.read { try Bool.fetchOne($0, sql: "SELECT EXISTS(SELECT 1 FROM progress_pins WHERE namespaceId = ? AND contentId = ? AND checkpointId = ?)", arguments: [identity.namespaceId, identity.contentId, cp.checkpointId])! }
-                result.append(ProgressHistoryEntry(checkpoint: cp, pinned: pinned || cp.captureReason == "import"))
+                // Manual: the player made it (reason "manual" or a slot reference in the committing operation).
+                let manual = cp.captureReason == "manual" || op.changes.contains { $0.checkpointId == cp.checkpointId && ($0.reference.hasPrefix("state/slot/") || $0.reference.hasPrefix("slot/")) }
+                result.append(ProgressHistoryEntry(checkpoint: cp, pinned: pinned || cp.captureReason == "import", operationId: op.operationId, manual: manual))
             }
         }
         return result
@@ -333,4 +336,8 @@ public struct ProgressHistoryEntry: Sendable, Identifiable {
     public var id: String { checkpoint.checkpointId }
     public let checkpoint: ProgressCheckpoint
     public let pinned: Bool
+    /// The operation that first committed this checkpoint (its outbox row gives the sync status).
+    public var operationId: String = ""
+    /// Made by the player: a manual capture or a slot reference.
+    public var manual: Bool = false
 }

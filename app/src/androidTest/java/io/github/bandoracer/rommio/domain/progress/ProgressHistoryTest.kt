@@ -25,7 +25,7 @@ class ProgressHistoryTest {
     private lateinit var template: ProgressOperation
     private lateinit var identity: ProgressIdentity
     private val sources = mutableMapOf<String, File>()
-    private fun open() = Room.databaseBuilder(context, AppDatabase::class.java, name).addMigrations(AppDatabase.MIGRATION_12_13).build()
+    private fun open() = Room.databaseBuilder(context, AppDatabase::class.java, name).addMigrations(AppDatabase.MIGRATION_12_13, AppDatabase.MIGRATION_13_14).build()
     @Before fun setup() = runBlocking {
         root.mkdirs(); db = open(); store = ProgressStore(db, File(root, "store"))
         template = ProgressProtocol.decode(InstrumentationRegistry.getInstrumentation().context.assets.open("sram-only.json").use { it.readBytes() })

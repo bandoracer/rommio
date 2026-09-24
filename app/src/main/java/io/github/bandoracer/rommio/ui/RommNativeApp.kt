@@ -24,6 +24,11 @@ import io.github.bandoracer.rommio.ui.screen.auth.InteractiveAuthScreen
 import io.github.bandoracer.rommio.ui.screen.auth.OnboardingSuccessScreen
 import io.github.bandoracer.rommio.ui.screen.auth.OnboardingWelcomeScreen
 import io.github.bandoracer.rommio.ui.screen.auth.ServerAccessScreen
+import io.github.bandoracer.rommio.ui.screen.auth.SetupCodeSheet
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import io.github.bandoracer.rommio.ui.screen.login.LoginScreen
 import io.github.bandoracer.rommio.ui.screen.player.PlayerScreen
 
@@ -63,20 +68,33 @@ fun RommNativeApp() {
                 onResolved = { route -> navController.resetRoot(route) },
             )
         }
+        // Setup pages are pushed (Welcome → Connect → Sign in) so back returns step by step.
         composable(NavRoutes.ONBOARDING_WELCOME) {
+            var showsSetupCode by rememberSaveable { mutableStateOf(false) }
             OnboardingWelcomeScreen(
                 hasProfile = activeProfile != null,
-                onStart = { navController.resetRoot(NavRoutes.ONBOARDING_SERVER) },
+                onStart = { navController.navigate(NavRoutes.ONBOARDING_SERVER) { launchSingleTop = true } },
                 onResume = {
-                    navController.resetRoot(
+                    navController.navigate(
                         if (activeProfile?.serverAccess?.status == ServerAccessStatus.READY) {
                             NavRoutes.ONBOARDING_LOGIN
                         } else {
                             NavRoutes.ONBOARDING_SERVER
                         },
-                    )
+                    ) { launchSingleTop = true }
                 },
+                onSetupCode = { showsSetupCode = true },
             )
+            if (showsSetupCode) {
+                SetupCodeSheet(
+                    apply = { io.github.bandoracer.rommio.ui.screen.auth.applyOneTouchConfiguration(app.container, it) },
+                    onDone = {
+                        showsSetupCode = false
+                        navController.navigate(NavRoutes.ONBOARDING_LOGIN) { launchSingleTop = true }
+                    },
+                    onDismiss = { showsSetupCode = false },
+                )
+            }
         }
         composable(NavRoutes.ONBOARDING_SERVER) {
             ServerAccessScreen(
@@ -85,7 +103,13 @@ fun RommNativeApp() {
                     navController.navigate(NavRoutes.interactive(provider))
                 },
                 onContinueToLogin = {
-                    navController.resetRoot(NavRoutes.ONBOARDING_LOGIN)
+                    navController.navigate(NavRoutes.ONBOARDING_LOGIN) { launchSingleTop = true }
+                },
+                onProfileSelected = { navController.resetRoot(NavRoutes.GATE) },
+                onBack = if (navController.previousBackStackEntry != null) {
+                    { navController.popBackStack() }
+                } else {
+                    null
                 },
             )
         }
@@ -93,7 +117,13 @@ fun RommNativeApp() {
             LoginScreen(
                 container = app.container,
                 onBackToServerAccess = {
-                    navController.resetRoot(NavRoutes.ONBOARDING_SERVER)
+                    if (navController.previousBackStackEntry?.destination?.route == NavRoutes.ONBOARDING_SERVER) {
+                        navController.popBackStack()
+                    } else {
+                        navController.navigate(NavRoutes.ONBOARDING_SERVER) {
+                            popUpTo(NavRoutes.ONBOARDING_LOGIN) { inclusive = true }
+                        }
+                    }
                 },
                 onInteractiveAuthRequested = { provider ->
                     navController.navigate(NavRoutes.interactive(provider))
@@ -106,6 +136,7 @@ fun RommNativeApp() {
         composable(NavRoutes.ONBOARDING_SUCCESS) {
             OnboardingSuccessScreen(
                 onContinue = { navController.resetRoot(NavRoutes.APP) },
+                container = app.container,
             )
         }
         composable(
@@ -122,7 +153,10 @@ fun RommNativeApp() {
                 provider = provider,
                 onCancel = { navController.popBackStack() },
                 onEdgeFinished = {
-                    navController.resetRoot(NavRoutes.ONBOARDING_SERVER)
+                    // Back to Connect (still on the stack when it opened the browser login).
+                    if (!navController.popBackStack(NavRoutes.ONBOARDING_SERVER, inclusive = false)) {
+                        navController.resetRoot(NavRoutes.ONBOARDING_SERVER)
+                    }
                 },
                 onOriginFinished = {
                     navController.resetRoot(NavRoutes.ONBOARDING_SUCCESS)
@@ -146,8 +180,8 @@ fun RommNativeApp() {
                 onProfileActivated = {
                     navController.resetRoot(NavRoutes.GATE)
                 },
-                onLaunchPlayer = { romId, fileId ->
-                    navController.navigate(NavRoutes.player(romId, fileId))
+                onOpenPlayer = { romId, fileId, keep, start ->
+                    navController.navigate(NavRoutes.player(romId, fileId, keep, start?.routeValue))
                 },
             )
         }
@@ -156,12 +190,16 @@ fun RommNativeApp() {
             arguments = listOf(
                 navArgument("romId") { type = NavType.IntType },
                 navArgument("fileId") { type = NavType.IntType },
+                navArgument("keep") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("start") { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
         ) { entry ->
             PlayerScreen(
                 container = app.container,
                 romId = entry.arguments?.getInt("romId") ?: 0,
                 fileId = entry.arguments?.getInt("fileId") ?: 0,
+                keepResume = entry.arguments?.getString("keep"),
+                start = io.github.bandoracer.rommio.domain.playdata.LaunchStart.fromRoute(entry.arguments?.getString("start")),
                 onBack = { navController.popBackStack() },
             )
         }

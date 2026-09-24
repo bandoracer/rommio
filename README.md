@@ -14,20 +14,25 @@ Rommio requires your own RomM server. It does not provide ROMs, BIOS files, or e
 
 ## Screenshots
 
+Two themes, each in light and dark: **Aurora** (glass over light taken from your games) and **Riso** (two-ink print on paper). Pick one in Settings › Appearance.
+
 <table>
   <tr>
-    <td><img src="docs/images/readme/home.png" alt="Rommio home screen" width="240" /></td>
-    <td><img src="docs/images/readme/library.png" alt="Rommio library screen" width="240" /></td>
+    <td><img src="docs/images/readme/play-aurora-android.png" alt="Play tab in the Aurora theme on Android" width="240" /></td>
+    <td><img src="docs/images/readme/play-riso-ios.png" alt="Play tab in the Riso theme on iPhone" width="240" /></td>
+    <td><img src="docs/images/readme/library-aurora-dark-android.png" alt="Library by release era in the Aurora theme, dark, on Android" width="240" /></td>
   </tr>
   <tr>
-    <td><img src="docs/images/readme/collections.png" alt="Rommio collections screen" width="240" /></td>
-    <td><img src="docs/images/readme/game-detail.png" alt="Rommio game detail screen" width="240" /></td>
+    <td><img src="docs/images/readme/stats-aurora-ios.png" alt="Stats in the Aurora theme on iPhone" width="240" /></td>
+    <td><img src="docs/images/readme/stats-riso-dark-android.png" alt="Stats in the Riso theme, dark, on Android" width="240" /></td>
+    <td><img src="docs/images/readme/game-riso-ios.png" alt="Game page in the Riso theme on iPhone" width="240" /></td>
   </tr>
 </table>
 
 ## Why Rommio
 
-- Native Android shell with a real app layout instead of a wrapped web view
+- Native Android and iOS apps with platform navigation: Play, Library, Search, Stats and Settings
+- Two designed themes, Aurora and Riso, each in light and dark
 - Offline-first browsing once a profile has been hydrated online at least once
 - Download queue management with progress, retry, cancel, and local install tracking
 - Embedded libretro play for supported platform families
@@ -48,19 +53,20 @@ Rommio uses three support tiers in the app:
 
 - `Touch`: embedded runtime plus first-class touch controls
 - `Controller`: embedded runtime exists, but the platform is still controller-first
-- `Unsupported`: browseable in RomM, but not enabled for embedded playback in Rommio
+- `Browse only`: browseable in RomM, but not enabled for embedded playback in Rommio
 
 The current runtime matrix, recommended cores, and validation status live in [docs/core-matrix.md](docs/core-matrix.md).
 
 ## Offline And Player Highlights
 
-- Browse Home, Library, Collections, platform detail, collection detail, and game detail from local cache
+- Browse Play, Library (platforms and collections), Search, Stats, and game detail from local cache
+- See recent saves across games with preview frames, and play time from sessions recorded on this device
 - Launch installed titles without a live RomM lookup when the metadata has already been hydrated
 - Keep ROM downloads queued while offline and resume automatically when the network returns
 - Sync game saves and resume/manual snapshots independently on the qualified route, with verified readback, durable retries and preserved conflicting branches
 - Queue core download work for reconnect
 - Cache thumbnails for platforms, collections, and games locally so the app still feels complete offline
-- Tune the player with touch layout options, OLED black mode, and optional console-inspired control colors
+- Tune the player with touch layout options, OLED black mode, and optional console-inspired control colors; controls follow the chosen theme
 
 ## Acknowledgements And Licensing
 

@@ -9,6 +9,14 @@ import RommioPlayerKit
 import UIKit
 #endif
 
+/// A conflicted reference and the head chosen on the Conflict sheet.
+struct PendingProgressResolution: Sendable {
+    let identity: ProgressIdentity
+    let reference: String
+    let selected: String
+    let expected: [String]
+}
+
 @MainActor
 @Observable
 public final class PlayerFeatureModel: Identifiable {
@@ -20,6 +28,8 @@ public final class PlayerFeatureModel: Identifiable {
     var cloudMessage: String?
     var progressHistory: [ProgressHistoryEntry] = []
     var progressReferences: [String: [ProgressHead]] = [:]
+    /// The session's history as saves (kind, name, device, sync, preview) for the Save states sheet.
+    var progressSaves: [SaveEntry] = []
     var progressSyncMessage = "Cloud progress not checked"
     var pendingRestoreID: String?
     var preferColdBoot = false
@@ -75,6 +85,9 @@ public final class PlayerFeatureModel: Identifiable {
     private var initialLaunchTarget: PlayerLaunchTarget?
     @ObservationIgnored
     private var sessionStartedAtEpochMS: Int64?
+    /// Chosen on the Conflict sheet; applied once, before the session starts.
+    @ObservationIgnored
+    private var resolution: PendingProgressResolution?
 
     init(
         presentation: PlayerPresentationState,
@@ -86,12 +99,14 @@ public final class PlayerFeatureModel: Identifiable {
         installation: InstalledROMReference,
         runtimeID: String,
         progressOwner: ProgressSessionOwner? = nil,
+        resolution: PendingProgressResolution? = nil,
         cloudMessage: String? = nil,
         legacyProgressFiles: [URL] = [],
         onLeave: @escaping @MainActor (String?) async -> Void
     ) {
         self.legacyProgressFiles = legacyProgressFiles
         self.progressOwner = progressOwner
+        self.resolution = resolution
         self.cloudMessage = cloudMessage
         self.id = presentation.id
         self.presentation = presentation
@@ -109,8 +124,11 @@ public final class PlayerFeatureModel: Identifiable {
         }
     }
 
+    /// The app theme in effect where the player is shown; set by the player view.
+    var appTheme = RommioTheme(.aurora, dark: true)
+
     var theme: PlayerVisualTheme {
-        resolvePlayerVisualTheme(controls: controlsState)
+        resolvePlayerVisualTheme(controls: controlsState, appTheme: appTheme)
     }
 
     var orientationPolicy: PlayerOrientationPolicy {
@@ -128,14 +146,6 @@ public final class PlayerFeatureModel: Identifiable {
 
     var isDualScreen: Bool { ["nds", "3ds"].contains(controlsState?.platformProfile.familyID ?? "") }
     var isThreeDS: Bool { controlsState?.platformProfile.familyID == "3ds" }
-
-    /// Game on one half of a wide display and a full-size pad on the other.
-    var prefersSplitPad: Bool = UserDefaults.standard.bool(forKey: "player.splitPad") {
-        didSet {
-            UserDefaults.standard.set(prefersSplitPad, forKey: "player.splitPad")
-            recomputeStage()
-        }
-    }
 
     func updateWindowFold(_ fold: CGRect?, isActive: Bool) {
         windowFold = fold
@@ -162,8 +172,7 @@ public final class PlayerFeatureModel: Identifiable {
             isPhoneFormFactor: isPhoneFormFactor,
             prefersPortrait: orientationPolicy == .auto ? nil : orientationPolicy == .portraitOnly,
             trailingPaneWidth: sidePaneWidth,
-            leftHanded: controlsState?.touchLayout?.leftHanded ?? false,
-            prefersSplitPad: prefersSplitPad && !isDualScreen
+            foldable: windowFold != nil
         )
         guard next != stageContext else { return }
         stageContext = next
@@ -220,6 +229,11 @@ public final class PlayerFeatureModel: Identifiable {
             #if DEBUG && canImport(UIKit)
             initiallyPaused = ProcessInfo.processInfo.environment["ROMMIO_PROGRESS_PROBE_PAUSED"] == "1"
             #endif
+            if let progressOwner, let choice = resolution {
+                // The Conflict sheet's choice: the same resolution as choosing the branch here.
+                resolution = nil
+                try await progressOwner.resolve(reference: choice.reference, selected: choice.selected, expected: choice.expected)
+            }
             if let progressOwner { noticeMessage = try await progressOwner.launch(coldBoot: preferColdBoot, startPaused: initiallyPaused); isPaused = initiallyPaused }
             else { try await engine.start() }
             hasStarted = true
@@ -311,7 +325,7 @@ public final class PlayerFeatureModel: Identifiable {
                 )
             }
             lastSavedStateURL = url
-            noticeMessage = "Saved Save slot 0."
+            noticeMessage = "Save state saved."
             await refreshStateBrowser()
         } catch {
             errorMessage = error.localizedDescription
@@ -747,7 +761,26 @@ public final class PlayerFeatureModel: Identifiable {
             progressReferences = try await progressOwner.references()
             progressSyncMessage = await services.progress.status(progressOwner.identity)
         } catch { errorMessage = error.localizedDescription }
+        await describeProgress()
     }
+
+    /// Decorates the history with names, previews, devices and sync (never fails the sheet).
+    private func describeProgress() async {
+        guard let progressOwner else { return }
+        await services.playData.flush()
+        progressSaves = (try? await services.savedProgress.describe(progressOwner.identity, history: progressHistory)) ?? []
+    }
+
+    /// Names a save state on this device; blank removes the name.
+    func renameSave(_ entry: SaveEntry, to name: String) async {
+        do {
+            let label = try await services.savedProgress.rename(entry.key, to: name)
+            progressSaves = progressSaves.map { $0.key == entry.key ? relabelled($0, label) : $0 }
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    /// The game's cover, standing in for saves without a preview.
+    var coverURL: URL? { backdropURL }
     func continueLocal(coldBoot: Bool = false) async {
         preferColdBoot = coldBoot; cloudMessage = nil
         await startIfNeeded()

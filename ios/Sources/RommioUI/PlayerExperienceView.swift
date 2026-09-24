@@ -8,13 +8,15 @@ import UIKit
 struct PlayerExperienceView: View {
     let feature: PlayerFeatureModel
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    /// On a wide display (iPhone Duo open), controls and saved progress open in a
-    /// pane beside the game instead of a sheet over it.
+    @Environment(\.rommioTheme) private var appTheme
+    /// On a wide display (iPhone Duo open), Pause, Controls and Save states open
+    /// as a floating inspector beside the game instead of a sheet over it
+    /// (`PlayerPanelPresentation`); the game stays uncovered.
     @State private var usesSidePanes = false
     @State private var arrangedGameWidth: CGFloat?
 
     private var sidePaneVisible: Bool {
-        usesSidePanes && (feature.controlsSheetPresented || feature.stateBrowserPresented)
+        usesSidePanes && (feature.pauseSheetPresented || feature.controlsSheetPresented || feature.stateBrowserPresented)
     }
 
     var body: some View {
@@ -67,9 +69,9 @@ struct PlayerExperienceView: View {
                     feature.updateWindowFold(region?.frame, isActive: region?.isActive ?? false)
                 }
                 .onChange(of: size.width, initial: true) { _, width in
-                    usesSidePanes = horizontalSizeClass == .regular && width >= 700
+                    usesSidePanes = PlayerPanelPresentation.resolve(regularWidth: horizontalSizeClass == .regular, windowWidth: width) == .sidePane
                 }
-                .onChange(of: sidePaneVisible ? (arrangedGameWidth.map { size.width - $0 } ?? min(380, size.width * 0.45)) : 0, initial: true) { _, width in
+                .onChange(of: sidePaneVisible ? (arrangedGameWidth.map { size.width - $0 } ?? PlayerPanelPresentation.paneWidth(windowWidth: size.width)) : 0, initial: true) { _, width in
                     feature.updateSidePaneWidth(width)
                 }
         }
@@ -113,6 +115,9 @@ struct PlayerExperienceView: View {
         .task(id: feature.id) {
             await feature.startIfNeeded()
         }
+        .onChange(of: appTheme.identity, initial: true) { _, _ in
+            feature.appTheme = appTheme
+        }
         // Touch-free controller play shouldn't let the display sleep mid-game.
         .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
@@ -122,8 +127,11 @@ struct PlayerExperienceView: View {
     private var sidePaneContent: some View {
         if feature.controlsSheetPresented {
             PlayerControlsSheet(feature: feature)
-        } else {
+        } else if feature.stateBrowserPresented {
             stateBrowserContent
+        } else {
+            PlayerPauseSheet(feature: feature)
+                .accessibilityIdentifier("player.pause.sheet")
         }
     }
 
@@ -166,7 +174,7 @@ struct PlayerExperienceView: View {
 
     private var pauseSheetBinding: Binding<Bool> {
         Binding(
-            get: { feature.pauseSheetPresented },
+            get: { feature.pauseSheetPresented && !usesSidePanes },
             set: { feature.pauseSheetPresented = $0 }
         )
     }
@@ -211,7 +219,7 @@ private struct PlayerSidePaneArrangement<Pane: View>: View {
             } else {
                 HStack(spacing: 0) {
                     gamePlaceholder
-                    paneBody.frame(width: min(380, size.width * 0.45))
+                    paneBody.frame(width: PlayerPanelPresentation.paneWidth(windowWidth: size.width))
                 }
             }
         }
@@ -247,8 +255,10 @@ private struct PlayerSheetBars: ViewModifier {
     }
 }
 
-/// Soft game artwork behind any letterbox or pillarbox padding.
+/// Aurora bias lighting: the game's art, blurred and brightened, spills into the
+/// rails behind the controls. Riso prints on black stock, so there is none.
 private struct PlayerBackdrop: View {
+    @Environment(\.rommioTheme) private var theme
     let url: URL?
     let enabled: Bool
 
@@ -257,14 +267,14 @@ private struct PlayerBackdrop: View {
         // on its own would grow the player's stage to the artwork's shape.
         Color.clear
             .overlay {
-                if enabled, let url {
-                    AsyncImage(url: url) { image in
-                        image.resizable().scaledToFill()
-                            .blur(radius: 48)
-                            .opacity(0.35)
-                    } placeholder: {
-                        Color.clear
-                    }
+                if enabled, theme.isGlass, let url {
+                    BlurredCover(url: url, dark: theme.isDark)
+                        .scaledToFill()
+                        .opacity(0.85)
+                        .overlay {
+                            RadialGradient(colors: [.clear, theme.player.ground.color.opacity(0.55)], center: .center,
+                                           startRadius: 40, endRadius: 520)
+                        }
                 }
             }
             .clipped()
@@ -1178,60 +1188,180 @@ private func systemGroupHeight(count: Int, buttonHeight: CGFloat, gap: CGFloat) 
     return (buttonHeight * CGFloat(count)) + (gap * CGFloat(max(count - 1, 0)))
 }
 
+/// Pause for a running player.
 private struct PlayerPauseSheet: View {
     let feature: PlayerFeatureModel
 
     var body: some View {
-        List {
-            Button("Resume") {
-                Task { await feature.resumeGame() }
+        PlayerPausePanel(
+            title: feature.presentation.romTitle,
+            platformSlug: feature.presentation.platformSlug,
+            runtimeName: feature.presentation.runtimeName,
+            actions: PlayerPauseActions(
+                resume: { await feature.resumeGame() },
+                quickSave: { await feature.quickSave() },
+                savedProgress: { await feature.openStateBrowser() },
+                controls: {
+                    feature.pauseSheetPresented = false
+                    feature.controlsSheetPresented = true
+                },
+                sync: { await feature.syncSaves() },
+                reset: { await feature.resetCore() },
+                leave: { await feature.leaveGame() }
+            )
+        )
+    }
+}
+
+/// What the Pause panel's buttons do.
+struct PlayerPauseActions {
+    let resume: () async -> Void
+    let quickSave: () async -> Void
+    let savedProgress: () async -> Void
+    let controls: () -> Void
+    let sync: () async -> Void
+    let reset: () async -> Void
+    let leave: () async -> Void
+}
+
+/// Pause: the game, Resume, and the actions as tiles. Aurora: glass tiles.
+/// Riso: a numbered manual page, Leave game printed in pink. The action titles
+/// and identifiers are the player's contract and never change. A sheet over the
+/// game, or the floating inspector beside it on a wide window.
+struct PlayerPausePanel: View {
+    @Environment(\.rommioTheme) private var theme
+    let title: String
+    let platformSlug: String
+    let runtimeName: String
+    let actions: PlayerPauseActions
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            header
+            Button {
+                Task { await actions.resume() }
+            } label: {
+                Label("Resume", systemImage: "play.fill")
             }
+            .buttonStyle(PrimaryButtonStyle(large: false))
             .accessibilityIdentifier("player.pause.resume")
 
-            Button("Controls") {
-                feature.pauseSheetPresented = false
-                feature.controlsSheetPresented = true
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                PauseTile(number: 1, title: "Save snapshot", symbol: "camera") {
+                    Task { await actions.quickSave() }
+                }
+                .accessibilityIdentifier("player.pause.quickSave")
+                PauseTile(number: 2, title: "Saved progress", symbol: "square.stack.3d.up") {
+                    Task { await actions.savedProgress() }
+                }
+                .accessibilityIdentifier("player.pause.stateBrowser")
+                PauseTile(number: 3, title: "Controls", symbol: "gamecontroller") {
+                    actions.controls()
+                }
+                .accessibilityIdentifier("player.pause.controls")
+                PauseTile(number: 4, title: "Sync game saves and snapshots", symbol: "arrow.triangle.2.circlepath") {
+                    Task { await actions.sync() }
+                }
+                .accessibilityIdentifier("player.pause.sync")
+                PauseTile(number: 5, title: "Reset core", symbol: "arrow.counterclockwise") {
+                    Task { await actions.reset() }
+                }
+                .accessibilityIdentifier("player.pause.reset")
+                PauseTile(number: 6, title: "Leave game", symbol: "rectangle.portrait.and.arrow.right", destructive: true) {
+                    Task { await actions.leave() }
+                }
+                .accessibilityIdentifier("player.pause.leave")
             }
-            .accessibilityIdentifier("player.pause.controls")
-
-            Button("Save snapshot") {
-                Task { await feature.quickSave() }
-            }
-            .accessibilityIdentifier("player.pause.quickSave")
-
-            Button("Saved progress") {
-                Task { await feature.openStateBrowser() }
-            }
-            .accessibilityIdentifier("player.pause.stateBrowser")
-
-            Button("Sync game saves and snapshots") {
-                Task { await feature.syncSaves() }
-            }
-            .accessibilityIdentifier("player.pause.sync")
-
-            Button("Reset core") {
-                Task { await feature.resetCore() }
-            }
-            .accessibilityIdentifier("player.pause.reset")
-
-            Button("Leave game", role: .destructive) {
-                Task { await feature.leaveGame() }
-            }
-            .accessibilityIdentifier("player.pause.leave")
         }
-        .scrollContentBackground(.hidden)
-        .background(feature.theme.panelColor.ignoresSafeArea())
+        .padding(.horizontal, theme.spacing.gutter)
+        .padding(.top, 22)
+        .padding(.bottom, 12)
+        .frame(maxWidth: 620, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity)
+        .background { PageBackground(style: .quiet) }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("player.pause.actions")
+    }
+
+    @ViewBuilder
+    private var header: some View {
+        if theme.isRiso {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Paused")
+                    Spacer()
+                    Text("\(platformSlug.uppercased()) · \(runtimeName)").foregroundStyle(theme.inkSecondary)
+                }
+                .themeText(.label, size: 10.5)
+                .foregroundStyle(theme.ink)
+                .padding(.bottom, 6)
+                .overlay(alignment: .bottom) { Rectangle().fill(theme.ink).frame(height: 3) }
+                Text(title).themeText(.headline, size: 26).foregroundStyle(theme.ink).lineLimit(1)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Paused").themeText(.section).foregroundStyle(theme.inkSecondary)
+                Text(title).themeText(.headline).foregroundStyle(theme.ink).lineLimit(1)
+            }
+        }
+    }
+}
+
+/// One pause action.
+private struct PauseTile: View {
+    @Environment(\.rommioTheme) private var theme
+    let number: Int
+    let title: String
+    let symbol: String
+    var destructive = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .center, spacing: 10) {
+                if theme.isRiso {
+                    Text("\(number)").themeText(.statValue, size: 26).foregroundStyle(destructive ? theme.onAccent : theme.accent2)
+                        .frame(width: 20)
+                }
+                Image(systemName: symbol)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(destructive ? (theme.isRiso ? theme.onAccent : theme.badText) : (theme.isRiso ? theme.ink : theme.readableTint))
+                    .frame(width: 22)
+                Text(title)
+                    .themeText(theme.isRiso ? .section : .bodyEmphasis, size: theme.isRiso ? 15 : 15)
+                    .foregroundStyle(destructive ? (theme.isRiso ? theme.onAccent : theme.badText) : theme.ink)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
+            .background {
+                if theme.isRiso {
+                    Rectangle().fill(destructive ? theme.accent1 : theme.surface)
+                    if !destructive { Rectangle().strokeBorder(theme.ink, lineWidth: theme.material.strokeWidth) }
+                } else {
+                    GlassFill(shape: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    GlassEdge(shape: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
     }
 }
 
 private struct PlayerControlsSheet: View {
+    @Environment(\.rommioTheme) private var theme
     let feature: PlayerFeatureModel
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Touch controls") {
+            List {
+                Section {
                     Toggle("Show touch controls", isOn: Binding(
                         get: { feature.controlsState?.preferences.touchControlsEnabled ?? true },
                         set: { value in Task { await feature.setTouchControlsEnabled(value) } }
@@ -1264,21 +1394,12 @@ private struct PlayerControlsSheet: View {
                         ),
                         range: 0.92...1.3
                     )
+                } header: {
+                    SectionHeader(title: "Touch controls")
                 }
+                .themedRow()
 
-                if !feature.isDualScreen && feature.supportTier == .touchSupported {
-                    Section {
-                        Toggle("Game and controls side by side", isOn: Binding(
-                            get: { feature.prefersSplitPad },
-                            set: { feature.prefersSplitPad = $0 }
-                        ))
-                        .accessibilityIdentifier("player.controls.splitPad")
-                    } footer: {
-                        Text("On a wide display such as iPhone Duo open, the game takes one half and full-size controls the other. Folding the device like a book does this automatically.")
-                    }
-                }
-
-                Section("Controller") {
+                Section {
                     LabeledSlider(
                         title: "Deadzone",
                         value: Binding(
@@ -1306,9 +1427,12 @@ private struct PlayerControlsSheet: View {
                         get: { feature.controlsState?.preferences.rumbleToDeviceEnabled ?? true },
                         set: { value in Task { await feature.setRumbleToDeviceEnabled(value) } }
                     ))
+                } header: {
+                    SectionHeader(title: "Controller")
                 }
+                .themedRow()
 
-                Section("Theme") {
+                Section {
                     Toggle("OLED black mode", isOn: Binding(
                         get: { feature.controlsState?.preferences.oledBlackModeEnabled ?? false },
                         set: { value in Task { await feature.setOLEDBlackModeEnabled(value) } }
@@ -1318,14 +1442,22 @@ private struct PlayerControlsSheet: View {
                         get: { feature.controlsState?.preferences.consoleColorsEnabled ?? false },
                         set: { value in Task { await feature.setConsoleColorsEnabled(value) } }
                     )).accessibilityIdentifier("player.controls.consoleColors")
+                } header: {
+                    SectionHeader(title: "Display")
                 }
+                .themedRow()
 
                 Section {
                     Button("Reset control tuning", role: .destructive) {
                         Task { await feature.resetControlTuning() }
                     }
+                    .foregroundStyle(theme.badText)
                 }
+                .themedRow()
             }
+            .themeText(.body, size: 16)
+            .tint(theme.readableTint)
+            .themedList()
             .navigationTitle("Controls")
             .accessibilityIdentifier("player.controls.form")
             .toolbar {
@@ -1340,6 +1472,7 @@ private struct PlayerControlsSheet: View {
 }
 
 private struct LabeledSlider: View {
+    @Environment(\.rommioTheme) private var theme
     let title: String
     @Binding var value: Double
     let range: ClosedRange<Double>
@@ -1347,27 +1480,49 @@ private struct LabeledSlider: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(title)
+                Text(title).foregroundStyle(theme.ink)
                 Spacer()
-                Text(value.formatted(.number.precision(.fractionLength(2))))
-                    .foregroundStyle(.secondary)
+                Text(value.formatted(.percent.precision(.fractionLength(0))))
+                    .themeText(.numeral, size: 13)
+                    .foregroundStyle(theme.inkSecondary)
             }
             Slider(value: $value, in: range)
         }
     }
 }
 
+/// Notices and errors over the game: a dark glass pill (Aurora) or a paper
+/// ticket with a yellow plate (Riso).
 private struct PlayerBanner: View {
+    @Environment(\.rommioTheme) private var theme
     let message: String
     let isError: Bool
 
     var body: some View {
-        Text(message)
-            .font(.footnote.weight(.semibold))
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(isError ? Color.red.opacity(0.92) : Color.blue.opacity(0.92), in: Capsule())
-            .foregroundStyle(.white)
+        let label = theme.tokens.type.playerLabel
+        HStack(spacing: 8) {
+            Image(systemName: isError ? "exclamationmark.triangle.fill" : "checkmark")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(theme.isRiso ? theme.player.toastInk.color : (isError ? DarkFrame.bad : DarkFrame.ink))
+                .padding(theme.isRiso ? 3 : 0)
+                .background(theme.isRiso ? (isError ? theme.accent1 : theme.accent4) : .clear)
+            Text(message)
+                .themeText(.playerLabel, size: theme.isRiso ? label.size : 13)
+                .foregroundStyle(theme.isRiso ? theme.player.toastInk.color : DarkFrame.ink)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background {
+            if theme.isRiso {
+                Rectangle().fill(theme.player.toastFill.color)
+                    .background(Rectangle().fill(isError ? theme.accent1 : theme.accent3).offset(x: 3, y: 3))
+            } else {
+                Capsule().fill(DarkFrame.glass.opacity(0.62))
+                    .background(Capsule().fill(.ultraThinMaterial))
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 

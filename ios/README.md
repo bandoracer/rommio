@@ -22,11 +22,13 @@ Keep the core and runtime packaging rules in:
 
 ## Sign-in
 
-Onboarding follows Marquee's two-screen pattern: server address → Connect →
-RomM sign-in → library. Connect runs discovery and native access verification;
-optional gateway settings are in the Access profile sheet. Returning from browser
-access automatically rechecks the server. Usernames support password autofill,
-errors stay beside the form, and successful sign-in has no extra confirmation page.
+Onboarding: Welcome (first launch) → Connect (server address) → Sign in → First
+sync → Play. Connect runs discovery and native access verification; optional
+gateway settings are in the Access method sheet, and a setup code (QR) can be
+scanned from Welcome or Connect. Returning from browser access automatically
+rechecks the server. Usernames support password autofill and errors stay beside
+the form. First sync appears only while a new profile's library is fetched for the
+first time, and Start playing skips ahead.
 Both mobile clients request player permissions rather than administrator-only user
 management permissions, so normal RomM viewer accounts can sign in.
 
@@ -36,8 +38,26 @@ management permissions, so normal RomM viewer accounts can sign in.
 - `RommioFoundation`: URLSession client, library storage, sync bridge, and secret-storage abstractions
 - `RommioPlayerBridge`: Objective-C++ libretro host bridge for bundled iOS cores
 - `RommioPlayerKit`: iOS player engine, bundled-core verification, and player surface
-- `RommioUI`: SwiftUI onboarding and authenticated shell scaffold
-- `App/`: native SwiftUI app entry point consumed by the generated Xcode project
+- `RommioUI`: SwiftUI onboarding, the authenticated shell (Play · Library ·
+  Search · Stats · Settings), one file per page under `Pages/`, shared
+  `Components/`, and the theme (`Theme/`)
+- `App/`: native SwiftUI app entry point consumed by the generated Xcode project;
+  `App/Resources/Assets.xcassets` holds the app icon and accent colour
+
+## Themes
+
+Aurora (default) and Riso are presentation only; see
+[`../docs/theme-experiences-plan.md`](../docs/theme-experiences-plan.md).
+`Theme/ThemeTokens.swift` is generated from `design/tokens/themes.json` by
+`python3 scripts/generate_theme_tokens.py` (never edit it by hand). Pages read
+the resolved theme from `@Environment(\.rommioTheme)` and style text with
+`.themeText(role)`. Pages take colours only from the theme's roles
+(`theme.ink`, `theme.badText`, `theme.readableTint`, …) and from components under
+`Components/`, never literal colours; things drawn on a dark game frame or over the
+game use `DarkFrame` (Aurora's dark tokens). The bundled fonts in `Sources/RommioUI/Resources/Fonts` register
+at launch. Settings › Appearance stores the theme and light/dark choice in
+`UserDefaults` (`appearance.theme`, `appearance.scheme`); they stay on the device
+and are not part of backups.
 
 ## Local validation
 

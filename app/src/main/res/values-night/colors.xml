@@ -1,0 +1,4 @@
+<resources>
+    <!-- Window ground before Compose draws: Aurora dark ground (design/tokens/themes.json). -->
+    <color name="window_ground">#07070C</color>
+</resources>

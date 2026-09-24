@@ -39,8 +39,6 @@ public struct PlayerOverlaySnapshot: Hashable, Sendable {
     public let rightRailInset: CGFloat?
     /// Where the DS touch screen is drawn; stylus input maps from here.
     public var touchScreenFrame: CGRect? = nil
-    /// Game and controls share a folded display half and half.
-    public var isPadMode = false
 
     public init(
         viewportFrame: CGRect,
@@ -95,14 +93,13 @@ public func resolvePlayerOverlaySnapshot(
     }
     var snapshot = PlayerOverlaySnapshot(viewportFrame: viewport.frame, isPortrait: viewport.isPortrait,
         primaryControlsPlacement: visible ? (deck.isPortrait ? .bottomBand : .sideRails) : .hiddenControllerFirst,
-        menuPlacement: deck.isPortrait ? .utilityRow : (menuX < containerSize.width / 2 ? .landscapeLowerLeading : .landscapeLowerTrailing),
-        systemPlacement: utility.isEmpty ? .none : (deck.isPortrait ? .utilityRow : .sideRails),
+        menuPlacement: deck.usesUtilityRow ? .utilityRow : (menuX < containerSize.width / 2 ? .landscapeLowerLeading : .landscapeLowerTrailing),
+        systemPlacement: utility.isEmpty ? .none : (deck.usesUtilityRow ? .utilityRow : .sideRails),
         showsGameplayTouchControls: visible, showsPointerOverlay: ["nds", "3ds"].contains(controlsState.platformProfile.familyID) && visible,
         menuCenter: CGPoint(x: deck.utilityX(index: menuIndex, count: utility.count + 1, width: containerSize.width), y: deck.utilityY),
         systemFrame: systemTargets.isEmpty ? nil : systemTargets.reduce(CGRect.null) { $0.union($1) },
         leftRailInset: visible ? deck.leftOrigin : nil,
         rightRailInset: visible ? containerSize.width - deck.rightOrigin - deck.railWidth : nil)
     snapshot.touchScreenFrame = stageLayout.touchScreen?.frame
-    snapshot.isPadMode = stageLayout.isPadMode
     return snapshot
 }

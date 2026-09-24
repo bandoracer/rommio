@@ -1,32 +1,56 @@
 package io.github.bandoracer.rommio.ui.screen.collection
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Collections
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.bandoracer.rommio.AppContainer
-import io.github.bandoracer.rommio.domain.player.EmbeddedSupportTier
 import io.github.bandoracer.rommio.model.RomDto
-import io.github.bandoracer.rommio.ui.component.EmptyStatePanel
-import io.github.bandoracer.rommio.ui.component.FeaturePanel
-import io.github.bandoracer.rommio.ui.component.LoadingSkeletonPanel
-import io.github.bandoracer.rommio.ui.component.RomPosterCard
-import io.github.bandoracer.rommio.ui.component.SectionHeader
+import io.github.bandoracer.rommio.ui.component.EmptyState
+import io.github.bandoracer.rommio.ui.component.GameCover
+import io.github.bandoracer.rommio.ui.component.PageArtSubject
+import io.github.bandoracer.rommio.ui.component.PageFieldStyle
+import io.github.bandoracer.rommio.ui.component.PageHeader
+import io.github.bandoracer.rommio.ui.component.PlayFormat
+import io.github.bandoracer.rommio.ui.component.PrintRule
+import io.github.bandoracer.rommio.ui.component.RoleText
+import io.github.bandoracer.rommio.ui.component.RuleWeight
+import io.github.bandoracer.rommio.ui.component.isRegularWidth
 import io.github.bandoracer.rommio.ui.screen.collectAsStateWithLifecycleCompat
+import io.github.bandoracer.rommio.ui.theme.RommioTheme
+import io.github.bandoracer.rommio.util.resolveRemoteAssetUrl
 import java.net.URLDecoder
 
+/**
+ * Collection (docs/theme-layouts.md "Collection — one layout"): its description and games, lit by
+ * the first game. Aurora: a cover grid. Riso: numbered volumes under a 3 dp rule.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CollectionDetailScreen(
     container: AppContainer,
@@ -43,123 +67,102 @@ fun CollectionDetailScreen(
         },
     )
     val state by viewModel.uiState.collectAsStateWithLifecycleCompat()
+    val theme = RommioTheme.current
+    val c = theme.colors
+    val roms = (state.touchSupportedRoms + state.controllerSupportedRoms + state.unsupportedRoms)
+        .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.displayName })
+    val cover: (RomDto) -> String? = { resolveRemoteAssetUrl(imageBaseUrl, it.urlCover) }
+    PageArtSubject(roms.firstOrNull()?.let(cover), PageFieldStyle.PAGE)
+    val name = state.collection?.name ?: runCatching { URLDecoder.decode(collectionName, Charsets.UTF_8.name()) }.getOrDefault(collectionName)
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+    io.github.bandoracer.rommio.ui.component.RefreshBox(
+        refreshing = state.isRefreshing,
+        onRefresh = viewModel::refresh,
+        modifier = Modifier.fillMaxSize().testTag("screen.collection"),
     ) {
-        item {
-            FeaturePanel(
-                title = state.collection?.name ?: URLDecoder.decode(collectionName, Charsets.UTF_8.name()),
-                subtitle = state.collection?.description?.takeIf { it.isNotBlank() }
-                    ?: "Collection view powered directly by the connected RomM server with denser poster browsing.",
-                badge = when {
-                    state.collection?.isVirtual == true -> "Auto-generated"
-                    state.collection?.isSmart == true -> "Smart collection"
-                    else -> "Collection"
-                },
-                eyebrow = "Collection",
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+            Column(
+                Modifier
+                    .widthIn(max = 980.dp)
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = theme.spacing.gutter)
+                    .padding(top = 4.dp, bottom = 40.dp),
+                verticalArrangement = Arrangement.spacedBy(theme.spacing.section),
             ) {
-                Text(
-                    "${state.touchSupportedRoms.size} touch • ${state.controllerSupportedRoms.size} controller • ${state.unsupportedRoms.size} unsupported",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                PageHeader(title = name)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    RoleText(PlayFormat.games(maxOf(state.collection?.romCount ?: 0, roms.size)), theme.type.section, color = c.inkSecondary)
+                    state.collection?.description?.takeIf { it.isNotBlank() }?.let {
+                        RoleText(it, theme.type.body, size = if (theme.isRiso) 18f else 16f, italic = theme.isRiso, color = c.ink)
+                    }
+                }
+                if (roms.isEmpty()) {
+                    EmptyState(
+                        title = if (state.isLoading) "Loading games" else "Nothing here yet",
+                        message = if (state.isLoading) "" else state.errorMessage ?: "This collection has no games on your server yet.",
+                        icon = Icons.Outlined.Collections,
+                    )
+                } else {
+                    GameShelf(roms, cover, onRomSelected, "collection.game")
+                }
             }
-        }
-        if (state.isLoading) {
-            item { LoadingSkeletonPanel(showArtwork = true, lines = 4) }
-        }
-        if (state.touchSupportedRoms.isNotEmpty()) {
-            item {
-                SectionHeader(
-                    title = "Touch-ready in app",
-                    meta = state.touchSupportedRoms.size.toString(),
-                    supportingText = "These entries have embedded runtime support plus first-class mobile controls.",
-                )
-            }
-        }
-        items(state.touchSupportedRoms.chunked(2), key = { chunk -> chunk.joinToString("-") { it.id.toString() } }) { row ->
-            CollectionRomGridRow(
-                roms = row,
-                imageBaseUrl = imageBaseUrl,
-                supportTier = EmbeddedSupportTier.TOUCH_SUPPORTED,
-                onRomSelected = onRomSelected,
-            )
-        }
-        if (state.controllerSupportedRoms.isNotEmpty()) {
-            item {
-                SectionHeader(
-                    title = "Controller play in app",
-                    meta = state.controllerSupportedRoms.size.toString(),
-                    supportingText = "These entries can run in the embedded player, but they still need controller-first validation.",
-                )
-            }
-        }
-        items(state.controllerSupportedRoms.chunked(2), key = { chunk -> "controller-" + chunk.joinToString("-") { it.id.toString() } }) { row ->
-            CollectionRomGridRow(
-                roms = row,
-                imageBaseUrl = imageBaseUrl,
-                supportTier = EmbeddedSupportTier.CONTROLLER_SUPPORTED,
-                onRomSelected = onRomSelected,
-            )
-        }
-        if (state.unsupportedRoms.isNotEmpty()) {
-            item {
-                SectionHeader(
-                    title = "Not supported in app yet",
-                    meta = state.unsupportedRoms.size.toString(),
-                    supportingText = "These collection entries stay visible for browsing and download, but the embedded player does not support them yet.",
-                )
-            }
-        }
-        items(state.unsupportedRoms.chunked(2), key = { chunk -> "unsupported-" + chunk.joinToString("-") { it.id.toString() } }) { row ->
-            CollectionRomGridRow(
-                roms = row,
-                imageBaseUrl = imageBaseUrl,
-                supportTier = EmbeddedSupportTier.UNSUPPORTED,
-                onRomSelected = onRomSelected,
-            )
-        }
-        if (!state.isLoading && state.touchSupportedRoms.isEmpty() && state.controllerSupportedRoms.isEmpty() && state.unsupportedRoms.isEmpty() && state.errorMessage == null) {
-            item {
-                EmptyStatePanel(
-                    title = "Nothing here yet",
-                    subtitle = "This collection is available, but it does not currently expose any ROMs to the app.",
-                    badge = "Empty",
-                    supportingText = "Add games on the server or pick a populated collection to browse artwork, download actions, and playable titles here.",
-                )
-            }
-        }
-        state.errorMessage?.let { message ->
-            item { Text(message, color = MaterialTheme.colorScheme.error) }
         }
     }
 }
 
+/** Games as a cover grid (Aurora) or numbered volumes with a printed cover (Riso). */
 @Composable
-private fun CollectionRomGridRow(
-    roms: List<RomDto>,
-    imageBaseUrl: String?,
-    supportTier: EmbeddedSupportTier,
-    onRomSelected: (RomDto) -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        roms.forEach { rom ->
-            RomPosterCard(
-                rom = rom,
-                imageBaseUrl = imageBaseUrl,
-                installed = false,
-                supportTier = supportTier,
-                onClick = { onRomSelected(rom) },
-                modifier = Modifier.weight(1f),
-            )
+fun GameShelf(roms: List<RomDto>, cover: (RomDto) -> String?, onOpen: (RomDto) -> Unit, tagPrefix: String) {
+    val theme = RommioTheme.current
+    val c = theme.colors
+    if (theme.isRiso) {
+        Column {
+            PrintRule(weight = RuleWeight.HEAVY)
+            roms.forEachIndexed { index, rom ->
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable(role = Role.Button, onClickLabel = "Open ${rom.displayName}") { onOpen(rom) }
+                        .testTag("$tagPrefix.${rom.id}"),
+                ) {
+                    Row(Modifier.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        RoleText("${index + 1}", theme.type.statValue, size = 34f, color = c.accent2, modifier = Modifier.width(34.dp))
+                        GameCover(cover(rom), rom.displayName, Modifier.size(56.dp, 75.dp), aspect = null)
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            RoleText(rom.displayName, theme.type.headline, size = 22f, color = c.ink, maxLines = 2)
+                            RoleText(listOfNotNull(rom.platformName, rom.metadata.releaseYear?.toString()).joinToString(" · "), theme.type.label, size = 10f, color = c.inkSecondary)
+                        }
+                    }
+                    PrintRule(weight = RuleWeight.HAIRLINE)
+                }
+            }
         }
-        if (roms.size == 1) {
-            androidx.compose.foundation.layout.Spacer(modifier = Modifier.weight(1f))
+        return
+    }
+    val minCell = if (isRegularWidth()) 132.dp else 104.dp
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val columns = maxOf(1, ((maxWidth + 14.dp) / (minCell + 14.dp)).toInt())
+        Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            roms.chunked(columns).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    row.forEach { rom ->
+                        Column(
+                            Modifier
+                                .weight(1f)
+                                .clickable(role = Role.Button, onClickLabel = "Open ${rom.displayName}") { onOpen(rom) }
+                                .semantics(mergeDescendants = true) {}
+                                .testTag("$tagPrefix.${rom.id}"),
+                            verticalArrangement = Arrangement.spacedBy(7.dp),
+                        ) {
+                            GameCover(cover(rom), rom.displayName, Modifier.fillMaxWidth())
+                            RoleText(rom.displayName, theme.type.bodyEmphasis, size = 14f, color = c.ink, maxLines = 2)
+                            RoleText(listOfNotNull(rom.platformName, rom.metadata.releaseYear?.toString()).joinToString(" · "), theme.type.caption, size = 12f, color = c.inkSecondary, maxLines = 1)
+                        }
+                    }
+                    repeat(columns - row.size) { Box(Modifier.weight(1f)) }
+                }
+            }
         }
     }
 }

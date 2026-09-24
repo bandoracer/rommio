@@ -86,7 +86,7 @@ fun StateBrowserContent(
         )
 
         onClose?.let { close ->
-            Button(
+            Button(shape = io.github.bandoracer.rommio.ui.theme.RommioTheme.radius.buttonShape,
                 onClick = close,
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -168,7 +168,7 @@ private fun ResumeStateCard(
                 )
             }
             if (resume?.available == true && onUseResume != null) {
-                OutlinedButton(onClick = onUseResume) {
+                OutlinedButton(shape = io.github.bandoracer.rommio.ui.theme.RommioTheme.radius.buttonShape, onClick = onUseResume) {
                     Text(
                         when (resume.statusKind) {
                             ResumeStateStatusKind.SYNCED_REMOTE_SOURCE,
@@ -243,7 +243,7 @@ private fun StateEntryCard(
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onLoadState) {
+                OutlinedButton(shape = io.github.bandoracer.rommio.ui.theme.RommioTheme.radius.buttonShape, onClick = onLoadState) {
                     Text("Load")
                 }
                 onDeleteState?.let { deleteState ->
@@ -263,7 +263,7 @@ private fun stateSubtitle(entry: BrowsableGameState): String {
         BrowsableGameStateOrigin.IMPORTED_PLAYABLE -> "Imported cloud"
         BrowsableGameStateOrigin.AUTO_SNAPSHOT -> "Snapshot"
     }
-    return "$prefix • $timestamp"
+    return "$prefix · $timestamp"
 }
 
 private fun formatStateTimestamp(epochMs: Long): String {

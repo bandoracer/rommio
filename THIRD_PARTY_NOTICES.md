@@ -8,13 +8,14 @@ It is not an exhaustive catalog of every transient dependency in the Android bui
 
 | Project / Library | Used for | License | Upstream |
 | --- | --- | --- | --- |
-| AndroidX / Jetpack (Compose, Navigation, Lifecycle, Room, WorkManager, DataStore, Security) | App UI, navigation, lifecycle, persistence, background work, encrypted preferences | Apache-2.0 | https://developer.android.com/jetpack |
+| AndroidX / Jetpack (Compose, Navigation, Lifecycle, Room, WorkManager, DataStore, Security, Browser) | App UI, navigation, lifecycle, persistence, background work, encrypted preferences, Custom Tabs | Apache-2.0 | https://developer.android.com/jetpack |
 | Material Components for Android | Material 3 and supporting UI components | Apache-2.0 | https://github.com/material-components/material-components-android |
 | Kotlin Coroutines | Async work and Flow-based state handling | Apache-2.0 | https://github.com/Kotlin/kotlinx.coroutines |
 | Retrofit | Typed HTTP API client | Apache-2.0 | https://github.com/square/retrofit |
 | OkHttp | HTTP transport and logging interceptor | Apache-2.0 | https://github.com/square/okhttp |
 | Moshi | JSON serialization and parsing | Apache-2.0 | https://github.com/square/moshi |
 | Coil | Image loading, caching, and SVG decoding | Apache-2.0 | https://github.com/coil-kt/coil |
+| ZXing (core) | The setup code's QR code (Android) | Apache-2.0 | https://github.com/zxing/zxing |
 | FCEUmm | Bundled NES/Famicom core, built from pinned source | GNU GPL v2; see source headers | https://github.com/libretro/libretro-fceumm |
 | Gambatte | Bundled GB/GBC cartridge core | GNU GPL v2 | https://github.com/libretro/gambatte-libretro |
 | mGBA | Bundled GBA cartridge core | MPL-2.0; see source headers | https://github.com/libretro/mgba |
@@ -25,6 +26,18 @@ It is not an exhaustive catalog of every transient dependency in the Android bui
 | Mupen64Plus-Next | Bundled Nintendo 64 core | GPL-2.0 and embedded dependency notices | https://github.com/libretro/mupen64plus-libretro-nx |
 | PPSSPP | Bundled PSP core, fonts, compatibility data, and VFPU tables | GPL-2.0-or-later and embedded dependency notices | https://github.com/hrydgard/ppsspp |
 | LibretroDroid | Embedded libretro frontend bridge used by the in-app player | GPL-3.0 | https://github.com/Swordfish90/LibretroDroid |
+
+## Bundled Fonts
+
+The Aurora and Riso themes bundle these typefaces on Android (`app/src/main/res/font`) and iOS (`ios/Sources/RommioUI/Resources/Fonts`). All are licensed under the SIL Open Font License 1.1; the license text for each is in [third_party/fonts](third_party/fonts) and in each font file's metadata.
+
+| Typeface | Used for | License | Upstream |
+| --- | --- | --- | --- |
+| Bricolage Grotesque (SemiCondensed instances) | Aurora display type | OFL-1.1 | https://github.com/ateliertriay/bricolage |
+| Figtree | Aurora interface type | OFL-1.1 | https://github.com/erikdkennedy/figtree |
+| Big Shoulders Display | Riso display type | OFL-1.1 | https://github.com/xotypeco/big_shoulders |
+| Newsreader | Riso text type | OFL-1.1 | https://github.com/productiontype/Newsreader |
+| IBM Plex Mono | Riso data type | OFL-1.1 | https://github.com/IBM/plex |
 
 ## Related Upstream Projects
 

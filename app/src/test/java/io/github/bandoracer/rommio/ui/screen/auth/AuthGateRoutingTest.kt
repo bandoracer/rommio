@@ -25,6 +25,13 @@ class AuthGateRoutingTest {
     }
 
     @Test
+    fun theSignedInShellOpensOnThePlayTab() {
+        assertEquals(NavRoutes.APP, authRouteForProfile(profile(access = ServerAccessStatus.READY, auth = AuthStatus.CONNECTED)))
+        assertEquals(NavRoutes.PLAY, io.github.bandoracer.rommio.ui.navigation.ShellStartRoute)
+        assertEquals("Play", io.github.bandoracer.rommio.ui.navigation.TopLevelDestinations.first().label)
+    }
+
+    @Test
     fun readyButUnauthedProfileRoutesToLogin() {
         assertEquals(
             NavRoutes.ONBOARDING_LOGIN,

@@ -16,6 +16,7 @@
 
 ## Build and test
 
+- Theme tokens: edit `design/tokens/themes.json`, then run `python3 scripts/generate_theme_tokens.py` (writes the Kotlin and Swift token files; never hand-edit them). CI runs it with `--check`.
 - Android build: `./gradlew assembleDebug`
 - iOS native test prerequisite: `python3 scripts/ios/build_pinned_core.py --sdk macosx --arch "$(uname -m)"`
 - iOS package tests: `swift test --package-path ios`
@@ -30,5 +31,6 @@
 - `scripts/ios/`: Apple build and simulator helpers
 - `docs/`: architecture, validation, and platform notes
 - `design/studio/`: browser-based UI mockup studio (design directions for every screen; see its README)
+- `design/tokens/`: the Aurora and Riso theme tokens shared by both apps (see `docs/theme-layouts.md`)
 - `scripts/android/`: local emulator and device workflow helpers
 

@@ -57,9 +57,25 @@ data class RomDto(
     val files: List<RomFileDto> = emptyList(),
     val siblings: List<RomSiblingDto>? = null,
     @Json(name = "url_cover") val urlCover: String? = null,
+    // RomM metadata, decoded leniently (see RomMetadata). Absent on older servers and partial payloads.
+    // Typed as Any so an unexpected shape is ignored by RomMetadata instead of failing the payload.
+    @Json(name = "metadatum") val metadatumJson: Any? = null,
+    @Json(name = "merged_screenshots") val mergedScreenshotsJson: Any? = null,
+    @Json(name = "regions") val regionsJson: Any? = null,
+    @Json(name = "languages") val languagesJson: Any? = null,
+    /** Set when read from the local catalogue cache; never sent by the server. */
+    @Json(ignore = true) val cachedMetadata: RomMetadata? = null,
 ) {
     val displayName: String
         get() = name ?: fsName
+
+    /** Year, genres, companies, players, rating, screenshots, regions and languages when known. */
+    val metadata: RomMetadata
+        get() = cachedMetadata ?: RomMetadata.fromRemote(metadatumJson, mergedScreenshotsJson, regionsJson, languagesJson)
+
+    /** True when this payload carried any metadata field (so a cache write should replace them). */
+    val carriesMetadata: Boolean
+        get() = metadatumJson != null || mergedScreenshotsJson != null || regionsJson != null || languagesJson != null
 }
 
 data class HeartbeatDto(

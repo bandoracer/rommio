@@ -12,6 +12,8 @@ on:
       - "docs/core-matrix-ios.md"
       - "docs/runtime-matrix.json"
       - "docs/save-sync-spec.md"
+      - "design/tokens/**"
+      - "scripts/generate_theme_tokens.py"
       - "tests/fixtures/**"
       - ".github/workflows/ios-validate.yml"
   workflow_dispatch:
@@ -24,6 +26,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Check generated theme tokens are current
+        run: python3 scripts/generate_theme_tokens.py --check
 
       - name: Install host build tools
         run: command -v cmake >/dev/null || brew install cmake

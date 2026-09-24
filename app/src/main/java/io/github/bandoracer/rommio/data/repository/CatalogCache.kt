@@ -91,6 +91,11 @@ internal class CatalogCache(
                     urlCover = rom.urlCover,
                     coverCachedUri = absoluteCover?.let { resolveCachedUri(profile.id, it) },
                     updatedAtEpochMs = now,
+                    // Partial payloads keep what an earlier (detail) fetch stored, field by field.
+                    metadataJson = if (!rom.carriesMetadata) previous?.metadataJson ?: "{}" else cacheCodec.encodeMetadata(
+                        RomMetadata.merge(previous?.metadataJson?.let(cacheCodec::decodeMetadata),
+                            rom.metadatumJson, rom.mergedScreenshotsJson, rom.regionsJson, rom.languagesJson),
+                    ),
                 )
             },
         )

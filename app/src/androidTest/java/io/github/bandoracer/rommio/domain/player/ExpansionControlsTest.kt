@@ -31,13 +31,14 @@ class ExpansionControlsTest {
         var mirrored by mutableStateOf(false)
         val digital = mutableListOf<Pair<Int,Boolean>>()
         val motion = mutableListOf<Triple<PlayerMotionSource,Float,Float>>()
-        ui.setContent { MaterialTheme {
+        ui.setContent { io.github.bandoracer.rommio.ui.theme.RommioTheme(io.github.bandoracer.rommio.ThemeUnderTest.preferences) {
+            val appTheme = io.github.bandoracer.rommio.ui.theme.RommioTheme.current
             BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF0D1015))) {
             val controls = ExpansionControls.controls(family)!!
             val aspect = PlatformControlProfileResolver().supportedProfiles().first { it.familyId == family }.preferredViewportAspectRatio
             val deck = PlayerControlDeckLayout(maxWidth.value, maxHeight.value, bottomInset = 16f, deckHeight = ExpansionControls.deckHeight(controls), visible = !hidden, aspectRatio = aspect, utilityCount = if (hidden) 1 else controls.count { it.center } + 1)
             Box(Modifier.offset(deck.gameLeft.dp, deck.gameTop.dp).size((deck.gameRight - deck.gameLeft).dp, (deck.gameBottom - deck.gameTop).dp).background(Color(0xFF1F303D)).testTag("qa.viewport"))
-            ExpansionControlsOverlay(controls, mirrored, 1f, 1f, !hidden, 16.dp, theme = resolvePlayerVisualTheme(null, family), aspectRatio = aspect,
+            ExpansionControlsOverlay(controls, mirrored, 1f, 1f, !hidden, 16.dp, theme = resolvePlayerVisualTheme(null, family, appTheme), aspectRatio = aspect,
                 onDigital = { k,p -> digital.add(k to p) }, onMotion = { s,x,y -> motion.add(Triple(s,x,y)) }, onMenu = { hidden = !hidden })
             }
         } }
@@ -84,7 +85,7 @@ class ExpansionControlsTest {
             ui.runOnIdle { mirrored = true }
             ui.onNodeWithTag("player.control.Up").assertIsDisplayed()
             val screenshot = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
-            java.io.File(ui.activity.getExternalFilesDir(null), "deck-$slug-landscape.png").outputStream().use { screenshot.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            java.io.File(ui.activity.getExternalFilesDir(null), "deck-$slug-${io.github.bandoracer.rommio.ThemeUnderTest.label}-landscape.png").outputStream().use { screenshot.compress(Bitmap.CompressFormat.PNG, 100, it) }
             ui.runOnIdle { ui.activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
             ui.waitForIdle()
             controls.forEach { control ->
@@ -92,10 +93,10 @@ class ExpansionControlsTest {
                 assertFalse("Portrait overlaps game $slug ${control.label}", bounds.overlaps(ui.onNodeWithTag("qa.viewport").fetchSemanticsNode().boundsInRoot))
             }
             val portrait = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
-            java.io.File(ui.activity.getExternalFilesDir(null), "deck-$slug-portrait.png").outputStream().use { portrait.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            java.io.File(ui.activity.getExternalFilesDir(null), "deck-$slug-${io.github.bandoracer.rommio.ThemeUnderTest.label}-portrait.png").outputStream().use { portrait.compress(Bitmap.CompressFormat.PNG, 100, it) }
             ui.runOnIdle { ui.activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
             ui.waitForIdle()
-            println("PASS console controls $slug: press/release/cancel, analog, multi-touch, menu, mirror")
+            println("PASS console controls $slug (${io.github.bandoracer.rommio.ThemeUnderTest.label}): press/release/cancel, analog, multi-touch, menu, mirror")
         }
     }
 }

@@ -49,16 +49,19 @@ public typealias PlayerEngineFactory = @Sendable () -> PlayerEngine
 @Observable
 public final class RommioAppModel {
     private let logger = Logger(subsystem: "io.github.mattsays.rommio.ios", category: "AppModel")
+    /// One navigation structure for every theme: Play · Library · Search · Stats · Settings.
     public enum ShellTab: String, Hashable, CaseIterable, Sendable {
-        case home
+        case play
         case library
-        case collections
-        case downloads
+        case search
+        case stats
         case settings
     }
 
     public var route: AppRoute = .gate
-    public var selectedTab: ShellTab = .home
+    public var selectedTab: ShellTab = .play
+    /// First sync after signing in: the library is being fetched for the first time.
+    public var isFirstSync = false
 
     public var serverURL: String = "" {
         didSet {
@@ -79,11 +82,18 @@ public final class RommioAppModel {
     public var serverAccessResult: ServerAccessResult?
     public var offlineState = OfflineState(connectivity: .online)
     public var activePlayer: PlayerFeatureModel?
-    let homeFeature: HomeFeatureModel
+    let playFeature: PlayFeatureModel
     let libraryFeature: LibraryFeatureModel
     let collectionsFeature: CollectionsFeatureModel
     let downloadsFeature: DownloadsFeatureModel
     let settingsFeature: SettingsFeatureModel
+    let statsFeature: StatsFeatureModel
+    let searchFeature: SearchFeatureModel
+    /// Recent saves and conflicts across games (Play, Conflict sheet).
+    let savesFeature: SavedProgressFeatureModel
+    /// Cover art, fetched with the active profile's request decoration.
+    @ObservationIgnored
+    let artworkPipeline: ArtworkPipeline
 
     public var isBusy = false
     public var isRefreshing = false
@@ -108,6 +118,23 @@ public final class RommioAppModel {
     private var downloadPollingTask: Task<Void, Never>?
     @ObservationIgnored
     private var provisioningRuntimeIDs: Set<String> = []
+    /// A Conflict-sheet choice for the next player of that game.
+    @ObservationIgnored
+    private var pendingResolution: PendingProgressResolution?
+    /// The Launch choice sheet: Start options (Play, Game), or a player that is
+    /// prepared but would stop to ask how to start (docs/theme-layouts.md, Launch choice).
+    var launchChoice: LaunchChoicePresentation? {
+        didSet { if let launchChoice { presentedLaunch = launchChoice } }
+    }
+    /// The sheet last shown, handled when it has closed.
+    @ObservationIgnored
+    private var presentedLaunch: LaunchChoicePresentation?
+    /// The option confirmed in the sheet, applied when it has closed.
+    @ObservationIgnored
+    private var confirmedLaunch: LaunchChoice.Option?
+    /// A Start options choice for the next player (Resume or Start with game save).
+    @ObservationIgnored
+    private var pendingStartOption: LaunchChoice.Option?
 
     public init(
         services: RommioServices,
@@ -123,7 +150,7 @@ public final class RommioAppModel {
         self.coreInstaller = coreInstaller
         self.coreBundle = coreBundle
         self.playerEngineFactory = playerEngineFactory
-        self.homeFeature = HomeFeatureModel(services: services)
+        self.playFeature = PlayFeatureModel(services: services)
         self.libraryFeature = LibraryFeatureModel(
             services: services,
             resolveProfile: { Self.availableControlProfile(for: $0, services: services, catalog: coreCatalog, installer: coreInstaller, bundle: coreBundle) }
@@ -141,6 +168,14 @@ public final class RommioAppModel {
             coreInstaller: coreInstaller,
             coreBundle: coreBundle
         )
+        self.statsFeature = StatsFeatureModel(services: services)
+        self.searchFeature = SearchFeatureModel(services: services)
+        self.savesFeature = SavedProgressFeatureModel(services: services)
+        let authController = services.authController
+        self.artworkPipeline = ArtworkPipeline { url in
+            guard let client = try await authController.activeClient() else { return try await ArtworkPipeline.plainLoader(url) }
+            return try await client.fetchAsset(url)
+        }
         self.offlineState.connectivity = services.networkMonitor.connectivity
         self.settingsFeature.configureActions(
             onReconfigure: { [weak self] in
@@ -195,6 +230,7 @@ public final class RommioAppModel {
         transitionFromGateDecision()
         #if DEBUG && canImport(UIKit)
         Task { await self.runProgressProbe(services: self.services) }
+        Task { await self.seedResumeConflictIfRequested(services: self.services) }
         #endif
     }
 
@@ -313,13 +349,13 @@ public final class RommioAppModel {
             } else if model.requiresInteractiveEdgeAuth,
                       access.responseKind == .html || access.responseKind == .unauthorized {
                 guard model.interactiveAuthenticator != nil else {
-                    model.errorMessage = "This server requires a browser login. Open Access profile to choose another connection method."
+                    model.errorMessage = "This server requires a browser login. Open Access options to choose another access option."
                     return
                 }
                 try await model.services.authController.beginEdgeAccess(profileID: profile.id)
                 model.route = .interactive(InteractiveAuthContext(provider: .edge, returnRoute: .serverAccess))
             } else {
-                model.errorMessage = "Could not connect to RomM. Check the address and your network, or configure an access profile."
+                model.errorMessage = "Could not connect to RomM. Check the address and your network, or choose an access option."
             }
         }
     }
@@ -523,7 +559,7 @@ public final class RommioAppModel {
                 await reloadProfiles()
                 route = .onboarding(access.status == .ready ? .login : .serverAccess)
                 if access.status != .ready {
-                    errorMessage = "Browser sign-in finished, but Rommio still cannot reach the server. Check your access profile and try again."
+                    errorMessage = "Browser sign-in finished, but Rommio still cannot reach the server. Check your access option and try again."
                 }
             case .origin:
                 let status = try await services.authController.completeInteractiveLogin(
@@ -584,9 +620,11 @@ public final class RommioAppModel {
     }
 
     public func enterApp() async {
-        selectedTab = .home
+        selectedTab = .play
+        isFirstSync = !offlineState.catalogReady
         route = .app
         await refreshShell(forceRemote: true)
+        isFirstSync = false
     }
 
     public func switchProfile(to profile: ServerProfile) async {
@@ -640,11 +678,14 @@ public final class RommioAppModel {
             }
         }
 
-        await homeFeature.refresh(refreshCatalog: forceRemote)
+        await playFeature.refresh(refreshCatalog: forceRemote)
         await libraryFeature.refresh(forceRemote: forceRemote)
         await collectionsFeature.refresh(forceRemote: forceRemote)
         await downloadsFeature.refresh()
         await settingsFeature.refresh()
+        await statsFeature.refresh()
+        await savesFeature.refresh()
+        await searchFeature.refresh(recentlyPlayed: playFeature.snapshot.continuePlaying, stats: statsFeature.stats)
         updateDownloadPollingState()
 
         errorMessage = failures.isEmpty ? nil : failures.joined(separator: "\n")
@@ -653,7 +694,7 @@ public final class RommioAppModel {
     private func refreshDownloads() async {
         await resumeDownloads()
         await downloadsFeature.refresh()
-        await homeFeature.refresh(refreshCatalog: false)
+        await playFeature.refresh(refreshCatalog: false)
         updateDownloadPollingState()
     }
 
@@ -662,7 +703,7 @@ public final class RommioAppModel {
             try await model.services.downloadQueue.enqueue(rom: rom, file: file)
             let provisioningMessage = try await model.autoProvisionCoreIfNeededForDownload(rom: rom, file: file)
             await model.downloadsFeature.refresh()
-            await model.homeFeature.refresh(refreshCatalog: false)
+            await model.playFeature.refresh(refreshCatalog: false)
             model.updateDownloadPollingState()
             if let provisioningMessage {
                 model.noticeMessage = "Queued \(file.fileName). \(provisioningMessage)"
@@ -676,7 +717,7 @@ public final class RommioAppModel {
         await performBusyOperation { model in
             try await model.services.downloadQueue.retry(recordID: recordID)
             await model.downloadsFeature.refresh()
-            await model.homeFeature.refresh(refreshCatalog: false)
+            await model.playFeature.refresh(refreshCatalog: false)
             model.updateDownloadPollingState()
         }
     }
@@ -685,7 +726,7 @@ public final class RommioAppModel {
         await performBusyOperation { model in
             try await model.services.downloadQueue.cancel(recordID: recordID)
             await model.downloadsFeature.refresh()
-            await model.homeFeature.refresh(refreshCatalog: false)
+            await model.playFeature.refresh(refreshCatalog: false)
             model.updateDownloadPollingState()
         }
     }
@@ -694,7 +735,7 @@ public final class RommioAppModel {
         await performBusyOperation { model in
             try await model.services.downloadQueue.deleteLocalContent(recordID: recordID)
             await model.downloadsFeature.refresh()
-            await model.homeFeature.refresh(refreshCatalog: false)
+            await model.playFeature.refresh(refreshCatalog: false)
         }
     }
 
@@ -826,6 +867,113 @@ public final class RommioAppModel {
             return
         }
         await detail.playFromResume()
+    }
+
+    // MARK: Launch choice
+
+    /// What Start options can offer for a game (Play's context menu).
+    enum StartOptionsOutcome {
+        case choice(LaunchChoice)
+        /// Its resume point is in conflict: the Conflict sheet asks instead.
+        case conflict
+        /// Nothing saved to choose between: it just starts.
+        case nothingToChoose
+    }
+
+    func startOptions(for rom: RomDTO) async -> StartOptionsOutcome {
+        guard let account = await services.activeProgressAccount() else { return .nothingToChoose }
+        await services.playData.flush()
+        guard let saves = try? await services.savedProgress.gameSaves(account, romId: Int64(rom.id)) else { return .nothingToChoose }
+        if saves.resumeConflict { return .conflict }
+        guard LaunchChoice.offersStartOptions(saves),
+              let choice = LaunchChoice.make(rom: rom, artworkURL: artworkURL(path: rom.urlCover), saves: saves) else { return .nothingToChoose }
+        return .choice(choice)
+    }
+
+    /// Opens the Launch choice sheet for a game that is not running yet.
+    func showLaunchChoice(_ choice: LaunchChoice) {
+        confirmedLaunch = nil
+        launchChoice = LaunchChoicePresentation(choice: choice, prepared: nil)
+    }
+
+    /// The sheet's primary button: remembered and applied once the sheet has closed.
+    func confirmLaunchChoice(_ option: LaunchChoice.Option) {
+        confirmedLaunch = option
+        launchChoice = nil
+    }
+
+    /// The sheet closed ("Not now", a swipe, or after the primary button).
+    func launchChoiceClosed() async {
+        guard launchChoice == nil, let presentation = presentedLaunch else { return }
+        presentedLaunch = nil
+        let option = confirmedLaunch
+        confirmedLaunch = nil
+        if let player = presentation.prepared {
+            guard let option else {
+                // Not now: the prepared session closes without starting (nothing is captured).
+                await player.leaveGame()
+                return
+            }
+            player.preferColdBoot = option == .gameSave
+            player.cloudMessage = nil
+            activePlayer = player
+            noticeMessage = "Launching \(presentation.choice.rom.displayName)."
+        } else if let option {
+            await startGame(presentation.choice.rom, option: option)
+        }
+    }
+
+    /// Starts a game with a chosen option (Resume or Start with game save).
+    func startGame(_ rom: RomDTO, option: LaunchChoice.Option) async {
+        pendingStartOption = option
+        await quickResume(rom: rom)
+        pendingStartOption = nil
+    }
+
+    /// "Check again" in the sheet when the cloud check had not finished: rechecks,
+    /// then starts at once if nothing is left to ask.
+    func retryLaunchCloudCheck() async {
+        guard let presentation = launchChoice, let player = presentation.prepared, let owner = player.progressOwner else { return }
+        do {
+            let result = try await services.progress.synchronize(owner.identity)
+            player.cloudMessage = result.errors.isEmpty ? nil : result.message
+        } catch {
+            player.cloudMessage = error.localizedDescription
+        }
+        let rom = presentation.choice.rom
+        if let choice = await preLaunchChoice(rom: rom, owner: owner, cloudMessage: player.cloudMessage, fileID: player.presentation.fileID,
+                                              preferred: presentation.choice.preferred) {
+            launchChoice = LaunchChoicePresentation(choice: choice, prepared: player)
+        } else {
+            confirmLaunchChoice(presentation.choice.preferred ?? .resume)
+        }
+    }
+
+    /// Before the player opens: the Launch choice when the launch would otherwise
+    /// stop inside the player to ask (the cloud check did not finish, or no resume
+    /// point can be loaded with the current game-save data). A Conflict-sheet
+    /// resolution and conflicted resume points are left to the player.
+    private func preLaunchChoice(rom: RomDTO, owner: ProgressSessionOwner, cloudMessage: String?, fileID: Int,
+                                 preferred: LaunchChoice.Option?) async -> LaunchChoice? {
+        var unavailable: String?
+        if case let .resumeUnavailable(reason) = (try? await owner.launchQuestion()) ?? .none { unavailable = reason }
+        guard cloudMessage != nil || unavailable != nil, let account = await services.activeProgressAccount() else { return nil }
+        await services.playData.flush()
+        let record = try? await services.downloadQueue.records(profileID: activeProfile?.id).first { $0.romID == rom.id && $0.fileID == fileID }
+        guard let saves = try? await services.savedProgress.gameSaves(account, romId: Int64(rom.id), fileId: Int64(fileID),
+                                                                      contentSha256: record?.contentSHA256) else { return nil }
+        return LaunchChoice.make(rom: rom, artworkURL: artworkURL(path: rom.urlCover), saves: saves, resumeUnavailable: unavailable,
+                                 note: cloudMessage, preferred: preferred)
+    }
+
+    /// Conflict sheet › Keep playing: opens the game; its player resolves the reference
+    /// to the chosen head before it starts (the same call as choosing in the player).
+    func keepPlaying(_ conflict: ProgressConflict, choice: ProgressConflict.Choice) async {
+        pendingResolution = PendingProgressResolution(identity: conflict.identity, reference: conflict.reference,
+                                                      selected: choice.operationId, expected: conflict.choices.map(\.operationId))
+        let rom = (try? await services.libraryRepository.cachedRom(id: Int(conflict.romId))) ?? savesFeature.game(conflict.romId)
+        await quickResume(rom: rom)
+        pendingResolution = nil
     }
 
     func makeGameDetailFeature(rom: RomDTO) -> GameDetailFeatureModel {
@@ -975,7 +1123,7 @@ public final class RommioAppModel {
                 prepareServerAccessDraft(from: activeProfile)
             }
         case .app:
-            selectedTab = .home
+            selectedTab = .play
         }
     }
 
@@ -1071,7 +1219,7 @@ public final class RommioAppModel {
                 try? await Task.sleep(for: .seconds(1))
                 guard let self else { return }
                 await self.downloadsFeature.refresh()
-                await self.homeFeature.refresh(refreshCatalog: false)
+                await self.playFeature.refresh(refreshCatalog: false)
                 let stillActive = !self.downloadsFeature.activeRecords.isEmpty
                 if !stillActive {
                     self.downloadPollingTask = nil
@@ -1250,7 +1398,8 @@ public final class RommioAppModel {
                 guard let engine = playerEngine as? any ProgressPlayerEngine else { throw ProgressStoreError.invalid("The player does not implement coherent persistence") }
                 let capture = try await engine.captureProgress(includeState: false)
                 let qualification = try CartridgePersistence(capture: capture, coreSHA256: coreDigest, systemFiles: systemFiles)
-                progressOwner = ProgressSessionOwner(identity: identity, sessionID: sessionID, qualification: qualification, store: try await services.progress.store(), engine: engine, deviceID: try await services.progress.deviceID(), captureRoot: services.progress.root.appending(path: "captures/\(identity.contentId)"), workspace: workspace, sync: services.progress, preparedSession: session)
+                progressOwner = ProgressSessionOwner(identity: identity, sessionID: sessionID, qualification: qualification, store: try await services.progress.store(), engine: engine, deviceID: try await services.progress.deviceID(), captureRoot: services.progress.root.appending(path: "captures/\(identity.contentId)"), workspace: workspace, sync: services.progress, preparedSession: session,
+                                                     playData: services.playData, platformSlug: rom.platformSlug)
             }
             guard activeProfile?.id == launchProfileID else { throw CancellationError() }
             logger.info("player prepare complete")
@@ -1274,7 +1423,7 @@ public final class RommioAppModel {
             runtimeName: runtime.displayName,
             supportsSaveStates: runtime.supportsSaveStates
         )
-        self.activePlayer = PlayerFeatureModel(
+        let player = PlayerFeatureModel(
             presentation: presentation,
             launchPreparation: launchPreparation,
             engine: playerEngine,
@@ -1284,13 +1433,27 @@ public final class RommioAppModel {
             installation: installation,
             runtimeID: runtime.runtimeID,
             progressOwner: progressOwner,
+            resolution: progressIdentity.flatMap { identity in
+                pendingResolution.flatMap { $0.identity.contentId == identity.contentId && $0.identity.namespaceId == identity.namespaceId ? $0 : nil }
+            },
             cloudMessage: cloudMessage,
             legacyProgressFiles: legacyProgressFiles,
             onLeave: { [weak self] message in
                 await self?.closePlayer(noticeMessage: message)
             }
         )
-        activePlayer?.backdropURL = artworkURL(path: rom.urlCover)
+        player.backdropURL = artworkURL(path: rom.urlCover)
+        let chosen = pendingStartOption
+        pendingStartOption = nil
+        // The choice is made before the player opens (docs/theme-layouts.md, Launch choice).
+        if let progressOwner, pendingResolution == nil,
+           let choice = await preLaunchChoice(rom: rom, owner: progressOwner, cloudMessage: cloudMessage, fileID: file.id, preferred: chosen) {
+            confirmedLaunch = nil
+            launchChoice = LaunchChoicePresentation(choice: choice, prepared: player)
+            return
+        }
+        if let chosen { player.preferColdBoot = chosen == .gameSave }
+        self.activePlayer = player
         self.noticeMessage = "Launching \(rom.displayName) with \(runtime.displayName)."
     }
 
@@ -1332,10 +1495,17 @@ public final class RommioAppModel {
     }
 
     private func closePlayer(noticeMessage: String?) async {
+        // A player dismissed without leaving (sign-out, profile removal) ends its play session as "quit".
+        await activePlayer?.progressOwner?.endPlayData()
         if let lease = progressPlayerLease { await services.progress.endPlayer(lease); progressPlayerLease = nil }
         activePlayer = nil
         if let noticeMessage {
             self.noticeMessage = noticeMessage
+        }
+        // The session row, new saves and previews show up on Play and Stats.
+        Task { [weak self] in
+            await self?.statsFeature.refresh()
+            await self?.savesFeature.refresh()
         }
     }
 

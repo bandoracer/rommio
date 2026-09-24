@@ -47,7 +47,7 @@ public struct DownloadQueueSummary: Hashable, Sendable {
 
 @MainActor
 @Observable
-public final class HomeFeatureModel {
+public final class PlayFeatureModel {
     public var activeProfile: ServerProfile?
     public var snapshot = HomeSnapshot()
     public var downloads: [DownloadRecord] = []

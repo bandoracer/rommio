@@ -27,6 +27,8 @@ class ProgressSessionCoordinator(
     private val saveIntervalMs: Long = 30_000,
     private val stateIntervalMs: Long = 120_000,
     private val onNativeClosed: suspend () -> Unit = {},
+    /** Observes each commit in order on this lane (local play data only); must not throw or block. */
+    private val onCommitted: (CheckpointWriteResult) -> Unit = {},
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val queue = Channel<suspend () -> Unit>(Channel.UNLIMITED)
@@ -88,6 +90,7 @@ class ProgressSessionCoordinator(
     }
     private fun committed(result: CheckpointWriteResult) {
         mutableStatus.value = mutableStatus.value.copy(lastCommitted = result)
+        try { onCommitted(result) } catch (_: Exception) {} // Observers never affect a durable commit.
     }
     private suspend fun capture(reason: String, includeState: Boolean = true, slotId: String? = null): CheckpointWriteResult {
         failedRequest = CaptureRequest(reason, includeState, slotId)

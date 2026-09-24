@@ -96,7 +96,7 @@ public final class AppDatabase: @unchecked Sendable {
     public init(rootDirectory: URL) throws {
         try FileManager.default.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
         dbQueue = try DatabaseQueue(path: rootDirectory.appending(path: "rommio.sqlite").path)
-        try migrator.migrate(dbQueue)
+        try Self.migrator.migrate(dbQueue)
     }
 
     public func read<T>(_ value: (Database) throws -> T) throws -> T {
@@ -115,7 +115,8 @@ public final class AppDatabase: @unchecked Sendable {
         try decoder.decode(type, from: data)
     }
 
-    private var migrator: DatabaseMigrator {
+    /// Every schema version in order. Tests migrate a real older schema with `migrate(_:upTo:)`.
+    static var migrator: DatabaseMigrator {
         var migrator = DatabaseMigrator()
 
         migrator.registerMigration("v1") { db in
@@ -289,6 +290,41 @@ public final class AppDatabase: @unchecked Sendable {
         }
         migrator.registerMigration("v6_progress_import") { db in
             try db.execute(sql: "CREATE TABLE progress_import_generation (singleton INTEGER PRIMARY KEY CHECK(singleton = 1), generation TEXT NOT NULL)")
+        }
+        // Local play data (docs/play-data-local.md): play sessions and save-state names.
+        // Local only; never part of a checkpoint, the outbox or a progress backup.
+        migrator.registerMigration("v7_play_data") { db in
+            try db.execute(sql: """
+                CREATE TABLE play_sessions (
+                    sessionId TEXT PRIMARY KEY NOT NULL,
+                    namespaceId TEXT NOT NULL,
+                    contentId TEXT NOT NULL,
+                    serverKey TEXT NOT NULL,
+                    accountId TEXT NOT NULL,
+                    romId INTEGER NOT NULL,
+                    fileId INTEGER,
+                    platformSlug TEXT,
+                    deviceId TEXT NOT NULL,
+                    coreId TEXT,
+                    startedAtEpochMs INTEGER NOT NULL,
+                    endedAtEpochMs INTEGER,
+                    lastHeartbeatEpochMs INTEGER NOT NULL,
+                    activeDurationMs INTEGER NOT NULL,
+                    endReason TEXT
+                )
+                """)
+            try db.execute(sql: "CREATE INDEX index_play_sessions_serverKey_accountId_startedAtEpochMs ON play_sessions(serverKey, accountId, startedAtEpochMs)")
+            try db.execute(sql: "CREATE INDEX index_play_sessions_endedAtEpochMs ON play_sessions(endedAtEpochMs)")
+            try db.execute(sql: """
+                CREATE TABLE save_state_labels (
+                    namespaceId TEXT NOT NULL,
+                    contentId TEXT NOT NULL,
+                    checkpointId TEXT NOT NULL,
+                    label TEXT NOT NULL,
+                    updatedAtEpochMs INTEGER NOT NULL,
+                    PRIMARY KEY (namespaceId, contentId, checkpointId)
+                )
+                """)
         }
         return migrator
     }

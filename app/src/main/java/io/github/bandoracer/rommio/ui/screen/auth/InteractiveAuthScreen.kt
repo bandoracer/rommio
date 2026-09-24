@@ -1,5 +1,7 @@
 package io.github.bandoracer.rommio.ui.screen.auth
 
+import io.github.bandoracer.rommio.ui.component.TextAction
+import io.github.bandoracer.rommio.ui.component.PrimaryButton
 import android.graphics.Bitmap
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import android.webkit.WebChromeClient
@@ -61,7 +63,9 @@ fun InteractiveAuthScreen(
     var pageSubtitle by remember { mutableStateOf("Finish the login step in the web view, then return to the app.") }
 
     LaunchedEffect(activeProfile?.id, provider) {
-        val profile = activeProfile
+        // The profile flow starts as null before its first read; confirm with storage before
+        // treating the sign-in as cancelled, or the screen closes as soon as it opens.
+        val profile = activeProfile ?: runCatching { container.repository.currentProfile() }.getOrNull()
         if (profile == null) {
             onCancel()
             return@LaunchedEffect
@@ -130,9 +134,10 @@ fun InteractiveAuthScreen(
             TopAppBar(
                 title = { Text(pageTitle) },
                 actions = {
-                    TextButton(onClick = onCancel, enabled = !isCompleting) {
-                        Text("Cancel")
-                    }
+                    TextAction(
+    text = "Cancel",
+    onClick = onCancel, enabled = !isCompleting,
+)
                 },
             )
         },
@@ -153,9 +158,10 @@ fun InteractiveAuthScreen(
                     modifier = Modifier.padding(top = 16.dp),
                 )
                 if (errorMessage != null) {
-                    TextButton(onClick = onCancel, modifier = Modifier.padding(top = 8.dp)) {
-                        Text("Back")
-                    }
+                    TextAction(
+    text = "Back",
+    onClick = onCancel, modifier = Modifier.padding(top = 8.dp),
+)
                 }
             }
             return@Scaffold
@@ -186,8 +192,9 @@ fun InteractiveAuthScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.End,
             ) {
-                Button(
-                    onClick = {
+                PrimaryButton(
+    text = if (provider == InteractiveSessionProvider.EDGE) "Return to access test" else "Done",
+    onClick = {
                         if (provider == InteractiveSessionProvider.EDGE) {
                             finishEdge()
                         } else {
@@ -195,9 +202,7 @@ fun InteractiveAuthScreen(
                         }
                     },
                     enabled = !isCompleting,
-                ) {
-                    Text(if (provider == InteractiveSessionProvider.EDGE) "Return to access test" else "Done")
-                }
+)
             }
             key(loadedConfig.cookieContext?.storeName) {
                 AndroidView(

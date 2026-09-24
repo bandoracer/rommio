@@ -12,7 +12,7 @@ public enum EmbeddedSupportTier: String, Codable, Sendable, CaseIterable {
         case .controllerSupported:
             "Controller"
         case .unsupported:
-            "Unsupported"
+            "Browse only"
         }
     }
 }

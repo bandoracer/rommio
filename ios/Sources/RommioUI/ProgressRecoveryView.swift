@@ -25,9 +25,11 @@ struct ProgressRecoveryView: View {
                 Button("Restore a backup") { repairChoice = nil; importing = true }
                 Text("Exit the player first. Restore preserves the current progress as a recoverable previous version. Imported legacy files need an explicit game/account choice in the player.").font(.footnote)
             }
-            if let message { Section { Text(message).foregroundStyle(.secondary) } }
-            if let error { Section("Recovery needs attention") { Text(error); Button("Retry interrupted import") { perform { try await service.recoverImport(); message = "Import recovery completed." } } } }
-            Section("Recovery items") {
+            .themedRow()
+            if let message { Section { Text(message).foregroundStyle(.secondary) }.themedRow() }
+            if let error { Section("Recovery needs attention") { Text(error); Button("Retry interrupted import") { perform { try await service.recoverImport(); message = "Import recovery completed." } } }.themedRow() }
+            // "Recovery" as on Android; "Progress backup" is iOS-only (see docs/theme-experiences-plan.md).
+            Section("Recovery") {
                 if items.isEmpty { Text("No recovery items found.").foregroundStyle(.secondary) }
                 ForEach(items) { item in
                     VStack(alignment: .leading, spacing: 8) {
@@ -55,7 +57,10 @@ struct ProgressRecoveryView: View {
                     }
                 }
             }
+            .themedRow()
         }
+        .themeText(.body, size: 15)
+        .themedList()
         .navigationTitle("Backup and recovery")
         .disabled(busy)
         .overlay { if busy { ProgressView("Preserving progress…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) } }

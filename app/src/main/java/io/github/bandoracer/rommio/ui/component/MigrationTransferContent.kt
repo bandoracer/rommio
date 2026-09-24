@@ -1,5 +1,7 @@
 package io.github.bandoracer.rommio.ui.component
 
+import io.github.bandoracer.rommio.ui.component.SecondaryButton
+import io.github.bandoracer.rommio.ui.component.PrimaryButton
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -57,13 +59,12 @@ fun MigrationExportContent(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Button(
-            onClick = { exportLauncher.launch(suggestedFileName) },
+        PrimaryButton(
+    text = buttonLabel,
+    onClick = { exportLauncher.launch(suggestedFileName) },
             enabled = !isWorking,
             modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(buttonLabel)
-        }
+)
         if (isWorking) {
             CircularProgressIndicator()
         }
@@ -144,13 +145,12 @@ fun MigrationImportContent(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Button(
-            onClick = { importLauncher.launch(arrayOf("application/zip")) },
+        PrimaryButton(
+    text = buttonLabel,
+    onClick = { importLauncher.launch(arrayOf("application/zip")) },
             enabled = !isWorking,
             modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(buttonLabel)
-        }
+)
         if (isWorking) {
             CircularProgressIndicator()
         }
@@ -167,12 +167,11 @@ fun MigrationImportContent(
             )
             ProgressTransferSummary(summary.progressCheckpointCount, summary.progressBytes, summary.progressArtifactIssues)
             if (onContinueAfterSuccess != null) {
-                OutlinedButton(
-                    onClick = onContinueAfterSuccess,
+                SecondaryButton(
+    text = continueLabel,
+    onClick = onContinueAfterSuccess,
                     modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(continueLabel)
-                }
+)
             }
         }
         errorMessage?.let {
@@ -220,7 +219,7 @@ fun MigrationImportContent(
                 }
             },
             confirmButton = {
-                Button(
+                Button(shape = io.github.bandoracer.rommio.ui.theme.RommioTheme.radius.buttonShape,
                     onClick = {
                         val uri = pendingUri ?: return@Button
                         launchImport(uri, replaceExisting = bundleInspection.requiresReplace)
@@ -230,7 +229,7 @@ fun MigrationImportContent(
                 }
             },
             dismissButton = {
-                OutlinedButton(
+                OutlinedButton(shape = io.github.bandoracer.rommio.ui.theme.RommioTheme.radius.buttonShape,
                     onClick = {
                         inspection = null
                         pendingUri = null

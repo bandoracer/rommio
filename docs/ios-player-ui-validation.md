@@ -72,6 +72,37 @@ Action example (labels must match the current screen):
 ]
 ```
 
+Other actions: `{"touch": "identifier", "x": "0.5", "y": "0.5"}` taps any element by identifier,
+`{"search": "text"}` types into the first search field, `{"type": "text"}` types into the focused
+field, `{"swipe": "up"}`, and `{"tapIfPresent": "label", "timeout": "4"}` taps a button only when it
+appears (for example `launch.start` on the Launch choice sheet, which opens before the player when
+the cloud check did not finish; the player's own fallback buttons are `player.start.resume`,
+`player.start.gameSave` and `player.start.back`).
+
+The controls QA harness (`ROMMIO_CONTROLS_QA=<family>` in a Debug build, e.g.
+`SIMCTL_CHILD_ROMMIO_CONTROLS_QA=snes xcrun simctl launch UDID io.github.mattsays.rommio.ios`) draws
+the player style of the stored Settings › Appearance (theme and light/dark), so both themes'
+controls can be checked without a ROM. Add `ROMMIO_CONTROLS_QA_PAUSE=1` to open Pause the way the
+player presents it (`PlayerPanelPresentation`): a sheet on narrow windows, and on a wide window
+(iPhone Duo open, iPad; regular width and at least 700 pt) the floating inspector beside the game
+(`player.sidePane` containing `player.pause.sheet`), with the stage keeping the game viewport
+(`qa.viewport`) clear of it. The menu button then opens and closes Pause instead of hiding the
+controls; the pause buttons only log to `qa.events`.
+
+The resume-conflict seed (`ROMMIO_SEED_RESUME_CONFLICT=1`, Debug builds only; `ConflictSeedProbe.swift`)
+exists to exercise the Conflict sheet against the mock server, which has no progress endpoints.
+**Use it with test accounts only.** At launch it writes into the real local progress store of the
+signed-in account: for every game whose automatic-resume reference has a single head with a parent,
+it commits a sibling head on that reference, a copy of an earlier state checkpoint attributed to a
+fixed other device id (`00000000-0000-4000-8000-00000000d0e0`) and dated up to an hour before the
+current head. The commit is local only (never published), nothing is deleted, and the Conflict sheet
+or the player's branch choice resolves it like a real conflict; the copied checkpoint then stays in
+the game's history.
+
+For screenshots of the Setup code sheet, `ROMMIO_SETUP_STUB=1` (Debug builds only) replaces the
+one-touch pairing service with a fixed code that stays pending and makes no request, so captures
+never contact the production setup service.
+
 Captures and accessibility dumps are written to `/tmp/rommio-ui-NAME.{png,txt}` and screenshots attach to the XCTest result under `ios/build/player-ui-runner/Logs/Test`. For visual review after rotation, use `xcrun simctl io UDID screenshot PATH`: Early XCTest app screenshots on this simulator had stale orientation/cropped content; the runner now uses the full-screen screenshot API. The native simulator screenshot is an independent orientation check. A successful runner exit establishes that requested controls were found and operated, not that game content was semantically correct; review screenshots and the game itself.
 
 ## Additional simulator cores
@@ -158,9 +189,10 @@ Check each pose:
 
 | Pose | Shell | DS player | Single-screen player |
 | --- | --- | --- | --- |
-| Closed (outer display) | Vertical tab bar and Back/Play on the trailing bar; Continue playing first with ▶ quick resume | Stacked screens, controls below | Controls below |
-| Open, landscape | Vertical tab bar; Home summary beside shelves; two-column game page | Stacked centre column, side rails | Side rails; "Game and controls side by side" moves controls to the other half |
-| Open, portrait | Horizontal bars; Library sidebar overlays games | Upper screen enlarged within its half, touch screen below, controls beside the touch screen | Controls below |
+| Closed (outer display) | Vertical tab bar and Back/Play on the trailing bar; Continue playing first with ▶ quick resume | Stacked screens, controls in a band below | Portrait: game on top, controls in a band below. Landscape: game centred between side rails, clusters low, Select · Menu · Start under the game |
+| Open, landscape | Vertical tab bar; Play summary beside shelves; two-column game page | Stacked centre column, clusters in the bottom corners, utility row between them | Game centred between side rails (across the fold), clusters at about 0.7 of the height, Select · Menu · Start under the game |
+| Open, portrait | Horizontal bars; Library sidebar overlays games | Upper screen enlarged above the fold, touch screen below it, clusters in the bottom corners beside it | Game full width at the top (may cross the flat fold), controls in a band beneath |
+| Book or laptop pose | — | Same as open | Book: same as open landscape (no pad half). Laptop: the game stays above the bend |
 | Pause → Controls or Saved progress (open) | — | Pane beside the paused game with live touch controls | Same |
 
 Also confirm: a quick stylus tap registers on the touch screen; pausing shows
@@ -171,9 +203,17 @@ simulator. Azahar Vulkan is now the default; a native 1,200-frame probe ran at
 93.3 emulated fps with non-silent audio. Clean audio in the visible player
 remains a separate check from layout and native-core throughput.
 
+On every pose, no control may sit over a game screen, and the D-pad and face
+clusters sit low where thumbs rest (the studio stage rules; `design/studio/tools/shoot.sh
+shot-sysdemo-player-duo-open` and the `-player-portrait`, `-dual` and `-duo-closed`
+variants show the reference wireframes). The book-pose pad half and the "Game and
+controls side by side" setting were removed on 2026-09-23.
+
 Beta caveats: `reservedRegions` reports no hinge in beta 1, so the DS layout falls
-back to the display midline and book-pose pad mode can't trigger automatically.
+back to the display midline in open portrait, and iPhone Duo is recognised from a
+phone window wider than any slab iPhone (466 pt closed, 669 pt open).
 With the open device rotated to portrait, Device Hub delivers clicks as pointer
 events that some buttons ignore; start a game from the closed display and unfold
 mid-game instead. Layout rules are covered at these sizes by
-`PlayerDuoStageLayoutTests`.
+`PlayerDuoStageLayoutTests`, and for every touch family's real control targets by
+`PlayerLayoutParityTests.testDuoControlsNeverOverlapAGameScreenAndClustersSitLow`.

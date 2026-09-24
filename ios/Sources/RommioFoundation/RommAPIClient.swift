@@ -184,6 +184,20 @@ public final class RommAPIClient: RommServicing, @unchecked Sendable {
         return try AtomicFileInstaller.installDownload(at: temporaryURL, response: response, to: destinationURL, expectedBytes: expectedBytes)
     }
 
+    /// Fetches an asset (cover art, screenshots) with the same request
+    /// decoration as API calls: edge credentials, cookies and authorization are
+    /// added only for URLs inside this server's credential scope.
+    public func fetchAsset(_ url: URL) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        let (data, response) = try await authenticatedData(for: request)
+        guard let http = response as? HTTPURLResponse else { throw RommClientError.invalidResponse }
+        guard (200 ..< 300).contains(http.statusCode) else {
+            throw RommClientError.http(status: http.statusCode, bodyPreview: "")
+        }
+        return data
+    }
+
     private func authenticatedData(for request: URLRequest) async throws -> (Data, URLResponse) {
         let decorated = try await decorator.decorate(request)
         let result = try await session.data(for: decorated, delegate: ScopedRedirectDelegate(baseURL: baseURL, decorator: decorator, original: decorated))

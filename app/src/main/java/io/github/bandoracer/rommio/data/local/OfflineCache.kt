@@ -1,5 +1,6 @@
 package io.github.bandoracer.rommio.data.local
 
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Entity
 import androidx.room.Insert
@@ -43,6 +44,8 @@ data class CachedRomEntity(
     val urlCover: String? = null,
     val coverCachedUri: String? = null,
     val updatedAtEpochMs: Long,
+    /** Encoded [io.github.bandoracer.rommio.model.RomMetadata]; "{}" when the server sent none. */
+    @ColumnInfo(defaultValue = "{}") val metadataJson: String = "{}",
 )
 
 @Entity(

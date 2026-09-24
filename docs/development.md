@@ -44,6 +44,18 @@ These can be overridden with environment variables such as `ANDROID_API_LEVEL`, 
 
 ## Build
 
+### Theme tokens
+
+The Aurora and Riso themes (colours, type roles, radii, spacing, player styles, art parameters) live in [`design/tokens/themes.json`](../design/tokens/themes.json). After editing it, regenerate the platform token files and commit them together:
+
+```bash
+python3 scripts/generate_theme_tokens.py
+```
+
+This writes `app/src/main/java/io/github/bandoracer/rommio/ui/theme/ThemeTokens.kt` and `ios/Sources/RommioUI/Theme/ThemeTokens.swift`; never edit those by hand. CI runs `python3 scripts/generate_theme_tokens.py --check`. Page layouts per theme are specified in [theme-layouts.md](theme-layouts.md); bundled fonts and their licences are listed in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
+
+### APKs
+
 Build the renamed standard debug APK from the repository root:
 
 ```bash
@@ -116,6 +128,17 @@ ANDROID_SERIAL=emulator-5580 ./gradlew connectedStandardDebugAndroidTest \
   -Pandroid.testInstrumentationRunnerArguments.class=io.github.bandoracer.rommio.domain.progress.ProgressStoreTest
 swift test --package-path ios --filter Progress
 ```
+
+UI instrumentation tests can run under a specific theme and appearance. Pass the arguments through Gradle, or with `am instrument` when you need to keep the app's data (connected Gradle runs uninstall the app afterwards):
+
+```bash
+./gradlew connectedStandardDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=io.github.bandoracer.rommio.domain.player.PlayerScreenProgressTest \
+  -Pandroid.testInstrumentationRunnerArguments.rommioTheme=riso \
+  -Pandroid.testInstrumentationRunnerArguments.rommioScheme=dark
+```
+
+`rommioTheme` is `aurora` or `riso`; `rommioScheme` is `system`, `light` or `dark`.
 
 Use the serial of an isolated emulator you created for the run; `emulator-5580` above is an example. Shared wire fixtures are packaged into both Android test source sets and read by the Swift package tests from `tests/fixtures/progress-v2`. See the [format and storage contract](progress-protocol-v2.md) for coverage and limitations. The new instrumentation cases are currently a local gate; hosted emulator execution remains to be added to release qualification.
 

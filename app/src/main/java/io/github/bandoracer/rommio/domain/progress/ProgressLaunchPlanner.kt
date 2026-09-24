@@ -183,6 +183,7 @@ class ProgressLaunchPlanner(private val store: ProgressStore) {
         publish: Boolean,
         workspace: ProgressWorkspace? = null,
         version: Int = 2,
+        onCommitted: (CheckpointWriteResult) -> Unit = {},
     ): ProgressSessionCoordinator {
         val lease = if (workspace == null) store.acquireSession(prepared.identity, prepared.checkpointId, prepared.observedHeads)
             else store.selectWorkspace(workspace, prepared)
@@ -193,7 +194,7 @@ class ProgressLaunchPlanner(private val store: ProgressStore) {
                 workspace?.sessionId ?: UUID.randomUUID().toString(), prepared.baselineParents,
                 workspace?.stagingDirectory ?: stagingRoot, engine::captureMemorySnapshot, publish, version)
             val owner = ProgressSessionCoordinator(engine, writer, MemoryCheckpointLoader(store, prepared.identity, prepared.qualification),
-                onNativeClosed = { store.releaseSession(lease, writer.committedOutputBytes) })
+                onNativeClosed = { store.releaseSession(lease, writer.committedOutputBytes) }, onCommitted = onCommitted)
             coordinator = owner
             owner.start(prepared.checkpointId, prepared.useState).await()
             return owner

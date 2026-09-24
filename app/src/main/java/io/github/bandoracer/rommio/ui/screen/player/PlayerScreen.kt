@@ -14,6 +14,9 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import io.github.bandoracer.rommio.ui.component.themedSurface
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
@@ -29,6 +32,11 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.offset
@@ -39,7 +47,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Logout
+import androidx.compose.material.icons.outlined.Layers
+import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.SportsEsports
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Sync
@@ -51,12 +63,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -109,8 +123,6 @@ import io.github.bandoracer.rommio.model.BrowsableGameState
 import io.github.bandoracer.rommio.model.BrowsableGameStateKind
 import io.github.bandoracer.rommio.ui.component.StateBrowserContent
 import io.github.bandoracer.rommio.ui.screen.collectAsStateWithLifecycleCompat
-import io.github.bandoracer.rommio.ui.theme.BrandPanel
-import io.github.bandoracer.rommio.ui.theme.BrandText
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import java.text.DateFormat
@@ -123,6 +135,10 @@ fun PlayerScreen(
     container: AppContainer,
     romId: Int,
     fileId: Int,
+    /** A resume point's checkpoint id chosen on the Conflict sheet: resolves that branch choice. */
+    keepResume: String? = null,
+    /** How the Launch choice sheet starts the game (resume, or the game save); null resumes as usual. */
+    start: io.github.bandoracer.rommio.domain.playdata.LaunchStart? = null,
     onBack: () -> Unit,
 ) {
     val viewModel: PlayerViewModel = viewModel(
@@ -140,8 +156,9 @@ fun PlayerScreen(
         },
     )
     val state by viewModel.uiState.collectAsStateWithLifecycleCompat()
-    val visualTheme = remember(state.controls) { resolvePlayerVisualTheme(state.controls) }
-    val sheetTheme = remember { resolvePlayerVisualTheme(null) }
+    val appTheme = io.github.bandoracer.rommio.ui.theme.RommioTheme.current
+    val visualTheme = remember(state.controls, appTheme) { resolvePlayerVisualTheme(state.controls, appTheme = appTheme) }
+    val sheetTheme = remember(appTheme) { resolvePlayerVisualTheme(null, appTheme = appTheme) }
     val context = LocalContext.current
     val density = LocalDensity.current
     val rootView = LocalView.current
@@ -158,6 +175,7 @@ fun PlayerScreen(
     var runtimeControllers by remember { mutableStateOf<List<PlayerControllerDescriptor>>(emptyList()) }
     val legacyEngine = remember { container.createPlayerEngine() }
     val cloudMessages by container.progressSync.messages.collectAsStateWithLifecycleCompat()
+    val profileBaseUrl = remember(container) { container.repository.activeProfileFlow() }.collectAsState(initial = null).value?.baseUrl
     val owner = state.progressSession
     val engine = owner?.engine ?: legacyEngine
     val ownerState by (owner?.state ?: remember { kotlinx.coroutines.flow.MutableStateFlow(ApplicationProgressState()) })
@@ -211,7 +229,7 @@ fun PlayerScreen(
         try {
             if (owner != null) {
                 val result = if (sessionActive) owner.checkpoint("manual").await() else owner.finishExit().await()
-                if (result.stateRejected) snackbarHostState.showSnackbar(result.stateError ?: "Game save saved. Resume snapshot failed; the previous snapshot is preserved.")
+                if (result.stateRejected) snackbarHostState.showSnackbar(result.stateError ?: "Game-save data saved. Resume snapshot failed; the previous snapshot is preserved.")
                 return true
             }
             engine.persistSaveRam()
@@ -220,7 +238,7 @@ fun PlayerScreen(
         } catch (error: kotlinx.coroutines.CancellationException) {
             throw error
         } catch (error: Exception) {
-            snackbarHostState.showSnackbar("Local save failed: ${error.message ?: "please retry before leaving"}")
+            snackbarHostState.showSnackbar("Game-save capture failed: ${error.message ?: "retry before leaving"}")
             return false
         }
         return true
@@ -347,11 +365,13 @@ fun PlayerScreen(
         }
     }
 
+    val stageCover = io.github.bandoracer.rommio.util.resolveRemoteAssetUrl(profileBaseUrl, state.rom?.urlCover)
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(visualTheme.canvasColor),
     ) {
+        PlayerStageBackdrop(visual = visualTheme, coverUrl = stageCover, modifier = Modifier.fillMaxSize())
         val availableWidth = maxWidth
         val availableHeight = maxHeight
         Box(
@@ -366,7 +386,7 @@ fun PlayerScreen(
                     Column(modifier = Modifier.align(Alignment.Center).padding(24.dp)) {
                         Text(text = nativeFailure ?: state.errorMessage ?: "Unable to prepare player.",
                             color = MaterialTheme.colorScheme.error)
-                        Button(onClick = { scope.launch { playerAction {
+                        Button(shape = io.github.bandoracer.rommio.ui.theme.RommioTheme.radius.buttonShape, onClick = { scope.launch { playerAction {
                             if (owner != null) owner.exitWithoutLatestProgress().await() else onBack()
                         } } }) { Text("Back to library") }
                     }
@@ -413,6 +433,7 @@ fun PlayerScreen(
                             owner = owner,
                             session = requireNotNull(state.preparedSession),
                             initialTarget = state.pendingLaunchTarget,
+                            start = start,
                             engine = engine,
                             modifier = Modifier
                                 .offset(x = viewportFrame.left, y = viewportFrame.top)
@@ -508,26 +529,35 @@ fun PlayerScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
-                    .padding(bottom = 16.dp),
-            )
+                    .padding(bottom = 16.dp, start = 16.dp, end = 16.dp),
+            ) { data ->
+                val message = data.visuals.message
+                PlayerToast(
+                    message = message,
+                    visual = visualTheme,
+                    isError = message.contains("failed", ignoreCase = true) || message.contains("error", ignoreCase = true),
+                )
+            }
         }
     }
 
     if (owner != null) {
         ProgressPlayerGate(owner, ownerState, onBack, onMessage = { message ->
             scope.launch { snackbarHostState.showSnackbar(message) }
-        })
+        }, keepResume = keepResume)
     }
 
     if (showPauseSheet && (owner == null || ownerState.phase == ApplicationProgressPhase.ACTIVE) && ownerState.progress?.phase != ProgressSessionPhase.SAVE_FAILED) {
         ModalBottomSheet(
             onDismissRequest = { showPauseSheet = false },
             containerColor = sheetTheme.panelColor,
-            scrimColor = Color.Black.copy(alpha = 0.72f),
+            scrimColor = io.github.bandoracer.rommio.ui.component.OverArt.shade(0.72f),
         ) {
             PauseSheet(
                 visualTheme = sheetTheme,
                 title = state.rom?.displayName ?: "Player",
+                platformSlug = state.rom?.platformSlug,
+                coreName = state.preparedSession?.runtimeProfile?.displayName,
                 currentSlot = slot,
                 syncStatus = if (owner != null) (ownerState.progress?.lastCommitted?.stateError?.let { "$it " }.orEmpty() +
                     (cloudMessages[io.github.bandoracer.rommio.domain.progress.ProgressProtocol.bindingKey(owner.workspace.identity.binding)] ?: "Game saves and resume snapshots: sync pending.")) else state.syncPresentation.takeUnless {
@@ -547,11 +577,11 @@ fun PlayerScreen(
                     scope.launch { playerAction {
                         if (owner != null) {
                             val result = owner.checkpoint("manual", slotId = java.util.UUID.nameUUIDFromBytes("rommio-slot-$slot".toByteArray()).toString()).await()
-                            snackbarHostState.showSnackbar(if (result.stateRejected) result.stateError ?: "Game save saved. Snapshot failed; the previous slot is preserved." else "Saved slot $slot.")
+                            snackbarHostState.showSnackbar(if (result.stateRejected) result.stateError ?: "Game-save data saved. Snapshot failed; the previous slot is preserved." else "Game-save data saved. Snapshot saved to slot $slot.")
                         } else {
                             val file = engine.saveState(slot)
                             viewModel.recordState(slot, file)
-                            snackbarHostState.showSnackbar("Saved slot $slot.")
+                            snackbarHostState.showSnackbar("Snapshot saved to slot $slot.")
                         }
                         slot = if (slot >= 4) 1 else slot + 1
                     } }
@@ -589,9 +619,10 @@ fun PlayerScreen(
         ModalBottomSheet(
             onDismissRequest = { showStateBrowserSheet = false },
             containerColor = sheetTheme.panelColor,
-            scrimColor = Color.Black.copy(alpha = 0.72f),
+            scrimColor = io.github.bandoracer.rommio.ui.component.OverArt.shade(0.72f),
         ) {
-            if (owner != null) ProgressHistoryContent(owner, onLoaded = {
+            if (owner != null) ProgressHistoryContent(owner, container.savedProgress,
+                io.github.bandoracer.rommio.util.resolveRemoteAssetUrl(profileBaseUrl, state.rom?.urlCover), onLoaded = {
                 showStateBrowserSheet = false
                 showPauseSheet = true
             }, onMessage = { message -> scope.launch { snackbarHostState.showSnackbar(message) } })
@@ -640,7 +671,7 @@ fun PlayerScreen(
         ModalBottomSheet(
             onDismissRequest = { showControlsSheet = false },
             containerColor = sheetTheme.panelColor,
-            scrimColor = Color.Black.copy(alpha = 0.72f),
+            scrimColor = io.github.bandoracer.rommio.ui.component.OverArt.shade(0.72f),
         ) {
             if (controls == null) {
                 Text(
@@ -705,135 +736,141 @@ private fun ControlsSheet(
     onDeadzoneChanged: (Float) -> Unit,
     onControllerTypeSelected: (Int) -> Unit,
 ) {
+    val theme = io.github.bandoracer.rommio.ui.theme.RommioTheme.current
+    // The Controls sheet (iOS wording, docs/theme-layouts.md §4): Touch controls, Controller and
+    // Display groups; sliders show percentages.
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
             .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .padding(horizontal = theme.spacing.gutter, vertical = 12.dp)
+            .testTag("player.controls.form"),
+        verticalArrangement = Arrangement.spacedBy(theme.spacing.stack),
     ) {
-        Text(
-            text = "${controls.platformProfile.displayName} controls",
-            style = MaterialTheme.typography.headlineSmall,
+        io.github.bandoracer.rommio.ui.component.RoleText(
+            text = "Controls",
+            role = theme.type.headline,
             color = visualTheme.textColor,
         )
-        Text(
-            text = "Input mode: ${controls.inputMode.label()}",
-            style = MaterialTheme.typography.bodyMedium,
-            color = visualTheme.textColor,
+        io.github.bandoracer.rommio.ui.component.RoleText(
+            text = "${controls.platformProfile.displayName} · ${controls.inputMode.label()}",
+            role = theme.type.secondary,
+            color = theme.colors.inkSecondary,
         )
-
-        ControlToggleRow(
-            label = "Touch controls",
-            checked = controls.preferences.touchControlsEnabled,
-            onCheckedChange = onTouchControlsEnabled,
-        )
-        ControlToggleRow(
-            label = "Auto-hide touch controls",
-            checked = controls.preferences.autoHideTouchOnController,
-            onCheckedChange = onAutoHideTouchControls,
-        )
-        ControlToggleRow(
-            label = "Send rumble to device",
-            checked = controls.preferences.rumbleToDeviceEnabled,
-            onCheckedChange = onRumbleToDeviceEnabled,
-        )
-        ControlToggleRow(
-            label = "OLED black mode",
-            checked = controls.preferences.oledBlackModeEnabled,
-            onCheckedChange = onOledBlackModeEnabled,
-        )
-        ControlToggleRow(
-            label = "Console colors",
-            checked = controls.preferences.consoleColorsEnabled,
-            onCheckedChange = onConsoleColorsEnabled,
-        )
-
-        Text(
-            text = "Controller deadzone",
-            style = MaterialTheme.typography.titleMedium,
-            color = visualTheme.textColor,
-        )
-        Slider(
-            value = controls.hardwareBinding.deadzone,
-            onValueChange = onDeadzoneChanged,
-            valueRange = 0f..0.5f,
-        )
-        Text(
-            text = "${(controls.hardwareBinding.deadzone * 100f).roundToInt()}%",
-            style = MaterialTheme.typography.bodySmall,
-            color = visualTheme.textColor,
-        )
-
-        if (runtimeControllers.isNotEmpty()) {
-            Text(
-                text = "Controller type",
-                style = MaterialTheme.typography.titleMedium,
-                color = visualTheme.textColor,
+        io.github.bandoracer.rommio.ui.component.ListGroup(title = "Touch controls") {
+            ControlToggleRow(
+                label = "Show touch controls",
+                checked = controls.preferences.touchControlsEnabled,
+                onCheckedChange = onTouchControlsEnabled,
             )
+            io.github.bandoracer.rommio.ui.component.ListDivider()
+            ControlToggleRow(
+                label = "Auto-hide on controller",
+                checked = controls.preferences.autoHideTouchOnController,
+                onCheckedChange = onAutoHideTouchControls,
+            )
+            if (currentLayout != null) {
+                io.github.bandoracer.rommio.ui.component.ListDivider()
+                ControlToggleRow(
+                    label = "Left-handed swap",
+                    checked = currentLayout.leftHanded,
+                    onCheckedChange = { value -> onLayoutUpdated(currentLayout.copy(leftHanded = value, updatedAtEpochMs = System.currentTimeMillis())) },
+                )
+                io.github.bandoracer.rommio.ui.component.ListDivider()
+                LabeledSlider("Opacity", currentLayout.opacity, 0.25f..1f) { opacity ->
+                    onLayoutUpdated(currentLayout.copy(opacity = opacity, updatedAtEpochMs = System.currentTimeMillis()))
+                }
+                io.github.bandoracer.rommio.ui.component.ListDivider()
+                LabeledSlider("Global size", currentLayout.globalScale, 0.92f..1.3f) { scale ->
+                    onLayoutUpdated(currentLayout.copy(globalScale = scale, updatedAtEpochMs = System.currentTimeMillis()))
+                }
+            }
+        }
+
+        io.github.bandoracer.rommio.ui.component.ListGroup(title = "Controller", modifier = Modifier.padding(top = 8.dp)) {
+            LabeledSlider("Deadzone", controls.hardwareBinding.deadzone, 0.05f..0.5f, onDeadzoneChanged)
+            io.github.bandoracer.rommio.ui.component.ListDivider()
+            ControlToggleRow(
+                label = "Rumble to device",
+                checked = controls.preferences.rumbleToDeviceEnabled,
+                onCheckedChange = onRumbleToDeviceEnabled,
+            )
+        }
+        if (runtimeControllers.isNotEmpty()) {
+            io.github.bandoracer.rommio.ui.component.SectionHeader(title = "Controller type")
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 runtimeControllers.forEach { controller ->
-                    FilterChip(
+                    io.github.bandoracer.rommio.ui.component.FilterPill(
+                        text = controller.description,
                         selected = controls.hardwareBinding.controllerTypeId == controller.id,
                         onClick = { onControllerTypeSelected(controller.id) },
-                        label = { Text(controller.description) },
                     )
                 }
             }
         }
 
-        if (currentLayout != null) {
-            Text(
-                text = "Touch layout",
-                style = MaterialTheme.typography.titleMedium,
-                color = visualTheme.textColor,
+        io.github.bandoracer.rommio.ui.component.ListGroup(title = "Display", modifier = Modifier.padding(top = 8.dp)) {
+            ControlToggleRow(
+                label = "OLED black mode",
+                checked = controls.preferences.oledBlackModeEnabled,
+                onCheckedChange = onOledBlackModeEnabled,
             )
-            Text(
-                text = "Opacity",
-                style = MaterialTheme.typography.bodyMedium,
-                color = visualTheme.textColor,
+            io.github.bandoracer.rommio.ui.component.ListDivider()
+            ControlToggleRow(
+                label = "Console colors",
+                checked = controls.preferences.consoleColorsEnabled,
+                onCheckedChange = onConsoleColorsEnabled,
+                modifier = Modifier.testTag("player.controls.consoleColors"),
             )
-            Slider(
-                value = currentLayout.opacity,
-                onValueChange = { opacity ->
-                    onLayoutUpdated(
-                        currentLayout.copy(
-                            opacity = opacity,
-                            updatedAtEpochMs = System.currentTimeMillis(),
-                        ),
-                    )
-                },
-                valueRange = 0.2f..1f,
-            )
-            Text(
-                text = "Scale",
-                style = MaterialTheme.typography.bodyMedium,
-                color = visualTheme.textColor,
-            )
-            Slider(
-                value = currentLayout.globalScale,
-                onValueChange = { scale ->
-                    onLayoutUpdated(
-                        currentLayout.copy(
-                            globalScale = scale,
-                            updatedAtEpochMs = System.currentTimeMillis(),
-                        ),
-                    )
-                },
-                valueRange = 0.92f..1.3f,
-            )
-            Button(onClick = onResetLayout, modifier = Modifier.fillMaxWidth()) {
-                Text("Reset layout")
-            }
         }
 
-        Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
-            Text("Done")
+        if (currentLayout != null) {
+            io.github.bandoracer.rommio.ui.component.SecondaryButton(
+                text = "Reset control tuning",
+                onClick = onResetLayout,
+                destructive = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
+
+        io.github.bandoracer.rommio.ui.component.PrimaryButton(
+            text = "Done",
+            onClick = onDismiss,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+/** A slider row: its title and the value as a percentage ("72%"), then the slider in the theme's tint. */
+@Composable
+private fun LabeledSlider(title: String, value: Float, range: ClosedFloatingPointRange<Float>, onValueChange: (Float) -> Unit) {
+    val theme = io.github.bandoracer.rommio.ui.theme.RommioTheme.current
+    val c = theme.colors
+    Column(Modifier.fillMaxWidth().padding(horizontal = io.github.bandoracer.rommio.ui.component.LocalRowInset.current, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            io.github.bandoracer.rommio.ui.component.RoleText(title, theme.type.body, color = c.ink, modifier = Modifier.weight(1f))
+            io.github.bandoracer.rommio.ui.component.RoleText(
+                java.text.NumberFormat.getPercentInstance().format(value.toDouble()),
+                theme.type.numeral,
+                size = 13f,
+                color = c.inkSecondary,
+            )
+        }
+        Slider(
+            value = value.coerceIn(range.start, range.endInclusive),
+            onValueChange = onValueChange,
+            valueRange = range,
+            colors = SliderDefaults.colors(
+                thumbColor = if (theme.isRiso) c.ink else theme.tintText,
+                activeTrackColor = if (theme.isRiso) c.ink else theme.tintText,
+                inactiveTrackColor = c.hairline,
+            ),
+            modifier = Modifier.semantics { contentDescription = title },
+        )
     }
 }
 
@@ -842,21 +879,14 @@ private fun ControlToggleRow(
     label: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyLarge,
-        )
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-        )
-    }
+    io.github.bandoracer.rommio.ui.component.ToggleRow(
+        title = label,
+        checked = checked,
+        onCheckedChange = onCheckedChange,
+        modifier = modifier,
+    )
 }
 
 @Composable
@@ -938,6 +968,8 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 private fun PauseSheet(
     visualTheme: PlayerVisualTheme,
     title: String,
+    platformSlug: String? = null,
+    coreName: String? = null,
     currentSlot: Int,
     syncStatus: String?,
     hasLoadableStates: Boolean,
@@ -949,121 +981,137 @@ private fun PauseSheet(
     onSync: () -> Unit,
     onLeaveGame: () -> Unit,
 ) {
-    BoxWithConstraints(
+    // docs/theme-layouts.md "Player" › Pause: a header, Resume (primary), then a two-column grid
+    // of tiles; fits 430 dp without scrolling. The action words are the player's long-standing ones.
+    val theme = io.github.bandoracer.rommio.ui.theme.RommioTheme.current
+    val c = theme.colors
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 12.dp),
+            .padding(horizontal = theme.spacing.gutter, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        val wideLayout = maxWidth >= 560.dp
-        val sheetWidth = maxWidth
-        val actionGap = 12.dp
-        val actionWidth = if (wideLayout) (maxWidth - actionGap) / 2f else maxWidth
-        Column(
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Surface(
-                color = visualTheme.panelAltColor,
-                contentColor = visualTheme.textColor,
-                shape = MaterialTheme.shapes.extraLarge,
-            ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Text(title, style = MaterialTheme.typography.headlineSmall)
-                    Text("Quick-save slot $currentSlot", style = MaterialTheme.typography.titleMedium)
-                    syncStatus?.let {
-                        Text(
-                            it,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = visualTheme.accentColor,
-                        )
-                    }
-                    Text(
-                        if (hasLoadableStates) {
-                            "Browse imported cloud states, recovery history, and manual slots."
-                        } else {
-                            "No save state available yet."
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = visualTheme.textColor.copy(alpha = 0.78f),
+        if (theme.isRiso) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.fillMaxWidth()) {
+                    io.github.bandoracer.rommio.ui.component.RoleText("Paused", theme.type.label, size = 10f, color = c.ink, modifier = Modifier.weight(1f))
+                    io.github.bandoracer.rommio.ui.component.RoleText(
+                        listOfNotNull(platformSlug?.uppercase(), coreName).joinToString(" · "),
+                        theme.type.label,
+                        size = 10f,
+                        color = c.inkSecondary,
+                        maxLines = 1,
                     )
                 }
+                io.github.bandoracer.rommio.ui.component.PrintRule(weight = io.github.bandoracer.rommio.ui.component.RuleWeight.HEAVY)
+                io.github.bandoracer.rommio.ui.component.RoleText(title, theme.type.headline, size = 26f, color = c.ink, maxLines = 2)
             }
-
-            FlowRow(
-                maxItemsInEachRow = if (wideLayout) 2 else 1,
-                horizontalArrangement = Arrangement.spacedBy(actionGap),
-                verticalArrangement = Arrangement.spacedBy(actionGap),
-            ) {
-                PauseActionButton(
-                    title = "Resume",
-                    subtitle = "Return to the game immediately.",
-                    icon = null,
-                    width = actionWidth,
-                    primary = true,
-                    visualTheme = visualTheme,
-                    onClick = onResume,
-                )
-                PauseActionButton(
-                    title = "Controls",
-                    subtitle = "Adjust touch layout, theme, and controller options.",
-                    icon = Icons.Outlined.Settings,
-                    width = actionWidth,
-                    visualTheme = visualTheme,
-                    onClick = onOpenControls,
-                )
-                PauseActionButton(
-                    title = "Save snapshot",
-                    subtitle = "Write the current state to slot $currentSlot.",
-                    icon = Icons.Outlined.Save,
-                    width = actionWidth,
-                    visualTheme = visualTheme,
-                    onClick = onQuickSave,
-                )
-                PauseActionButton(
-                    title = "Snapshots & game saves",
-                    subtitle = if (hasLoadableStates) {
-                        "Review resume, save slots, and snapshots."
-                    } else {
-                        "No emulator state available yet."
-                    },
-                    icon = Icons.Outlined.Refresh,
-                    width = actionWidth,
-                    enabled = hasLoadableStates,
-                    visualTheme = visualTheme,
-                    onClick = onOpenStateBrowser,
-                )
-                PauseActionButton(
-                    title = "Sync progress",
-                    subtitle = "Sync game saves, resume snapshots, and manual slots.",
-                    icon = Icons.Outlined.Sync,
-                    width = actionWidth,
-                    visualTheme = visualTheme,
-                    onClick = onSync,
-                )
-                PauseActionButton(
-                    title = "Reset core",
-                    subtitle = "Hard reset the running core.",
-                    icon = Icons.Outlined.Refresh,
-                    width = actionWidth,
-                    visualTheme = visualTheme,
-                    onClick = onReset,
-                )
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                io.github.bandoracer.rommio.ui.component.RoleText("Paused", theme.type.section, color = c.inkSecondary)
+                io.github.bandoracer.rommio.ui.component.RoleText(title, theme.type.headline, color = visualTheme.textColor, maxLines = 2)
             }
-
-            PauseActionButton(
-                title = "Leave game",
-                subtitle = "Exit the player and return to the library.",
-                icon = null,
-                width = sheetWidth,
-                visualTheme = visualTheme,
-                destructive = true,
-                onClick = onLeaveGame,
-            )
         }
+        syncStatus?.let {
+            io.github.bandoracer.rommio.ui.component.RoleText(it, theme.type.caption, color = c.inkSecondary, maxLines = 2)
+        }
+        io.github.bandoracer.rommio.ui.component.PrimaryButton(
+            text = "Resume",
+            onClick = onResume,
+            icon = Icons.Outlined.PlayArrow,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        val tiles = listOf(
+            PauseTile("Save snapshot", "Slot $currentSlot", Icons.Outlined.Save, onQuickSave),
+            PauseTile("Snapshots & game saves", null, Icons.Outlined.Layers, onOpenStateBrowser, enabled = hasLoadableStates),
+            PauseTile("Controls", null, Icons.Outlined.SportsEsports, onOpenControls),
+            PauseTile("Sync progress", null, Icons.Outlined.Sync, onSync),
+            PauseTile("Reset core", null, Icons.Outlined.Refresh, onReset),
+            PauseTile("Leave game", null, Icons.AutoMirrored.Outlined.Logout, onLeaveGame, destructive = true),
+        )
+        tiles.chunked(2).forEachIndexed { row, pair ->
+            Row(Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                pair.forEachIndexed { column, tile ->
+                    PauseActionTile(tile, number = row * 2 + column + 1, visualTheme = visualTheme, modifier = Modifier.weight(1f).fillMaxHeight())
+                }
+            }
+        }
+    }
+}
+
+private class PauseTile(
+    val title: String,
+    val detail: String?,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val onClick: () -> Unit,
+    val enabled: Boolean = true,
+    val destructive: Boolean = false,
+)
+
+/**
+ * A pause tile. Aurora: a glass 16-radius tile, symbol in `tint`, `bodyEmphasis` 15 (Leave game in
+ * `bad`). Riso: a numbered box — `statValue` 26 number in `accent2`, 1.5 dp ink outline, `section`
+ * 15 title; Leave game is a pink block.
+ */
+@Composable
+private fun PauseActionTile(tile: PauseTile, number: Int, visualTheme: PlayerVisualTheme, modifier: Modifier) {
+    val theme = io.github.bandoracer.rommio.ui.theme.RommioTheme.current
+    val c = theme.colors
+    val enabled = tile.enabled
+    if (theme.isRiso) {
+        val pink = tile.destructive
+        val ink = when {
+            !enabled -> c.inkTertiary
+            pink -> c.onAccent
+            else -> c.ink
+        }
+        Column(
+            modifier = modifier
+                .heightIn(min = 64.dp)
+                .then(if (pink) Modifier.background(c.accent1) else Modifier.border(1.5.dp, if (enabled) c.ink else c.hairline))
+                .clickable(enabled = enabled, role = androidx.compose.ui.semantics.Role.Button, onClick = tile.onClick)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            io.github.bandoracer.rommio.ui.component.RoleText(
+                "$number",
+                theme.type.statValue,
+                size = 26f,
+                color = if (pink) c.onAccent else if (enabled) c.accent2 else c.inkTertiary,
+                modifier = Modifier.clearAndSetSemantics {},
+            )
+            io.github.bandoracer.rommio.ui.component.RoleText(tile.title, theme.type.section, size = 15f, color = ink, maxLines = 2)
+            tile.detail?.let { io.github.bandoracer.rommio.ui.component.RoleText(it, theme.type.label, size = 9.5f, color = if (pink) c.onAccent else c.inkSecondary) }
+        }
+        return
+    }
+    val titleColor = when {
+        !enabled -> c.inkTertiary
+        tile.destructive -> c.badText
+        else -> visualTheme.textColor
+    }
+    Column(
+        modifier = modifier
+            .heightIn(min = 64.dp)
+            .themedSurface(theme, 16.dp, fill = c.surface)
+            .clickable(enabled = enabled, role = androidx.compose.ui.semantics.Role.Button, onClick = tile.onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            imageVector = tile.icon,
+            contentDescription = null,
+            tint = when {
+                !enabled -> c.inkTertiary
+                tile.destructive -> c.badText
+                else -> theme.tintText
+            },
+            modifier = Modifier.size(22.dp),
+        )
+        io.github.bandoracer.rommio.ui.component.RoleText(tile.title, theme.type.bodyEmphasis, size = 15f, color = titleColor, maxLines = 2)
+        tile.detail?.let { io.github.bandoracer.rommio.ui.component.RoleText(it, theme.type.caption, color = c.inkSecondary) }
     }
 }
 
@@ -1076,8 +1124,8 @@ private fun ResumeConflictGate(
 ) {
     Surface(
         modifier = modifier,
-        color = BrandPanel,
-        contentColor = BrandText,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         shape = MaterialTheme.shapes.extraLarge,
     ) {
         Column(
@@ -1089,15 +1137,15 @@ private fun ResumeConflictGate(
                 conflict?.remoteDeviceName?.let { "A newer resume is available from $it." }
                     ?: "A newer cloud resume is available.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = BrandText.copy(alpha = 0.82f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Button(
+            Button(shape = io.github.bandoracer.rommio.ui.theme.RommioTheme.radius.buttonShape,
                 onClick = onResumeCloud,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("Use cloud resume")
             }
-            Button(
+            Button(shape = io.github.bandoracer.rommio.ui.theme.RommioTheme.radius.buttonShape,
                 onClick = onKeepLocal,
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -1110,74 +1158,9 @@ private fun ResumeConflictGate(
 private fun stateSubtitle(entry: BrowsableGameState): String {
     val timestamp = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(entry.updatedAtEpochMs))
     return when (entry.kind) {
-        BrowsableGameStateKind.RECOVERY_HISTORY -> "Auto snapshot • $timestamp"
-        BrowsableGameStateKind.IMPORTED_CLOUD -> "Imported cloud • $timestamp"
-        BrowsableGameStateKind.MANUAL_SLOT -> "Manual slot • $timestamp"
-    }
-}
-
-@Composable
-private fun PauseActionButton(
-    title: String,
-    subtitle: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector?,
-    width: androidx.compose.ui.unit.Dp,
-    visualTheme: PlayerVisualTheme,
-    primary: Boolean = false,
-    destructive: Boolean = false,
-    enabled: Boolean = true,
-    onClick: () -> Unit,
-) {
-    val containerColor = when {
-        primary -> visualTheme.accentColor
-        destructive -> visualTheme.panelAltColor
-        else -> visualTheme.panelAltColor
-    }
-    val contentColor = when {
-        primary -> Color(0xFF151515)
-        else -> visualTheme.textColor
-    }
-    Button(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = Modifier
-            .width(width)
-            .heightIn(min = 76.dp),
-        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-            containerColor = containerColor,
-            contentColor = contentColor,
-            disabledContainerColor = visualTheme.panelAltColor.copy(alpha = 0.42f),
-            disabledContentColor = visualTheme.textColor.copy(alpha = 0.45f),
-        ),
-        shape = MaterialTheme.shapes.extraLarge,
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            icon?.let {
-                Icon(
-                    imageVector = it,
-                    contentDescription = null,
-                )
-            }
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = contentColor.copy(alpha = if (enabled) 0.78f else 0.52f),
-                )
-            }
-        }
+        BrowsableGameStateKind.RECOVERY_HISTORY -> "Auto snapshot · $timestamp"
+        BrowsableGameStateKind.IMPORTED_CLOUD -> "Imported cloud · $timestamp"
+        BrowsableGameStateKind.MANUAL_SLOT -> "Manual slot · $timestamp"
     }
 }
 
@@ -1186,6 +1169,7 @@ private fun PlayerViewport(
     owner: ApplicationProgressSession?,
     session: PlayerSession,
     initialTarget: PlayerLaunchTarget?,
+    start: io.github.bandoracer.rommio.domain.playdata.LaunchStart?,
     engine: PlayerEngine,
     modifier: Modifier = Modifier,
     onAttached: () -> Unit,
@@ -1209,7 +1193,16 @@ private fun PlayerViewport(
         if (!attached) return@LaunchedEffect
         try {
             if (owner != null) {
-                if (owner.state.value.phase == ApplicationProgressPhase.WAITING_FOR_VIEW) owner.select().await()
+                if (owner.state.value.phase == ApplicationProgressPhase.WAITING_FOR_VIEW) {
+                    // The Launch choice: the game save cold-boots from its own save; Resume is the usual plan.
+                    owner.select(
+                        if (start == io.github.bandoracer.rommio.domain.playdata.LaunchStart.GAME_SAVE) {
+                            io.github.bandoracer.rommio.domain.progress.ProgressLaunchRequest.ColdBootCurrent
+                        } else {
+                            io.github.bandoracer.rommio.domain.progress.ProgressLaunchRequest.Automatic
+                        },
+                    ).await()
+                }
                 return@LaunchedEffect
             }
             startPreparedPlayer(

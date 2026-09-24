@@ -36,6 +36,8 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -81,6 +83,7 @@ fun TouchControlsOverlay(
         fixedTouchBindingsFor(controlsState.platformProfile)
     } ?: return
 
+    androidx.compose.runtime.CompositionLocalProvider(LocalPlayerVisual provides visualTheme) {
     BoxWithConstraints(modifier = modifier.fillMaxSize().alpha(layout.opacity)) {
         val metrics = remember(maxWidth, maxHeight, layout.globalScale) {
             FixedTouchMetrics(
@@ -122,6 +125,7 @@ fun TouchControlsOverlay(
                 onTertiaryInteraction = onTertiaryInteraction,
             )
         }
+    }
     }
 }
 
@@ -372,13 +376,15 @@ private fun DpadZoneRenderer(
     val armGap = zoneSize * 0.02f
     val armTravel = (centerSize / 2f) + armGap + (armLength / 2f)
     Box(modifier = modifier.size(zoneSize)) {
+        val visual = LocalPlayerVisual.current
+        val pivotInk = visual?.style?.isInk == true
         Box(
             modifier = Modifier
                 .align(Alignment.Center)
                 .size(centerSize)
-                .clip(RoundedCornerShape(18.dp))
-                .background(panelAltColor.copy(alpha = 0.62f))
-                .border(1.dp, accentColor.copy(alpha = 0.18f), RoundedCornerShape(18.dp)),
+                .clip(if (pivotInk) CircleShape else RoundedCornerShape(18.dp))
+                .background(if (pivotInk) visual!!.style.pivot else panelAltColor.copy(alpha = 0.62f))
+                .then(if (pivotInk) Modifier else Modifier.border(1.dp, accentColor.copy(alpha = 0.18f), RoundedCornerShape(18.dp))),
         )
         DpadPetalButton(
             label = buttons[0].label,
@@ -627,6 +633,7 @@ private fun TriggerZoneRenderer(
                     height = zoneHeight,
                     modifier = Modifier.align(Alignment.Center),
                     shape = RoundedCornerShape(26.dp),
+                    kind = PlayerControlKind.SHOULDER,
                     onDigitalInput = { onDigitalInput(button.action.keyCode, it) },
                     onInteraction = onInteraction,
                 )
@@ -644,6 +651,7 @@ private fun TriggerZoneRenderer(
                         width = zoneWidth,
                         height = (zoneHeight - 10.dp) / 2f,
                         shape = RoundedCornerShape(24.dp),
+                        kind = PlayerControlKind.SHOULDER,
                         onDigitalInput = { onDigitalInput(button.action.keyCode, it) },
                         onInteraction = onInteraction,
                     )
@@ -678,6 +686,7 @@ private fun SystemButtonsRow(
                 height = buttonHeight,
                 fontScale = fontScale,
                 shape = RoundedCornerShape(18.dp),
+                kind = PlayerControlKind.TERTIARY,
                 onDigitalInput = { onDigitalInput(button.action.keyCode, it) },
                 onInteraction = onInteraction,
             )
@@ -710,6 +719,7 @@ private fun SystemButtonsColumn(
                 height = buttonHeight,
                 fontScale = fontScale,
                 shape = RoundedCornerShape(18.dp),
+                kind = PlayerControlKind.TERTIARY,
                 onDigitalInput = { onDigitalInput(button.action.keyCode, it) },
                 onInteraction = onInteraction,
             )
@@ -752,15 +762,12 @@ private fun MenuTouchButton(
     var isPressed by remember { mutableStateOf(false) }
     var activePointerId by remember { mutableStateOf<Int?>(null) }
     var touchBounds by remember { mutableStateOf(IntSize.Zero) }
+    val visual = LocalPlayerVisual.current
     Box(
         modifier = modifier
             .size(size)
             .onSizeChanged { touchBounds = it }
-            .clip(CircleShape)
-            .background(
-                if (isPressed) style.pressedFillColor else style.fillColor,
-            )
-            .border(1.dp, if (isPressed) style.pressedBorderColor else style.borderColor, CircleShape)
+            .semantics { contentDescription = "Menu" }
             .pointerInteropFilter { event ->
                 val result = resolveTouchPressEvent(
                     event = event,
@@ -781,11 +788,20 @@ private fun MenuTouchButton(
             },
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            imageVector = Icons.Outlined.Menu,
-            contentDescription = "Menu",
-            tint = style.contentColor,
-        )
+        if (visual != null) {
+            PlayerControlGraphic(PlayerControlKind.MENU, "Menu", pressed = isPressed, visual = visual, opacity = 1f, modifier = Modifier.fillMaxSize())
+        } else {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape)
+                    .background(if (isPressed) style.pressedFillColor else style.fillColor)
+                    .border(1.dp, if (isPressed) style.pressedBorderColor else style.borderColor, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(imageVector = Icons.Outlined.Menu, contentDescription = null, tint = style.contentColor)
+            }
+        }
     }
 }
 
@@ -801,9 +817,11 @@ private fun LabeledTouchButton(
     fontScale: Float = 1f,
     modifier: Modifier = Modifier,
     shape: Shape,
+    kind: PlayerControlKind = PlayerControlKind.FACE,
     onDigitalInput: (Boolean) -> Unit,
     onInteraction: () -> Unit,
 ) {
+    val visual = LocalPlayerVisual.current
     var buttonWasPressed by remember { mutableStateOf(false) }
     var activePointerId by remember { mutableStateOf<Int?>(null) }
     var touchBounds by remember { mutableStateOf(IntSize.Zero) }
@@ -834,23 +852,34 @@ private fun LabeledTouchButton(
             },
         contentAlignment = Alignment.Center,
     ) {
-        Box(
-            modifier = Modifier
-                .size(width, height)
-                .clip(shape)
-                .background(containerColor)
-                .border(1.dp, borderColor, shape),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelLarge.copy(
-                    fontSize = MaterialTheme.typography.labelLarge.fontSize * fontScale,
-                ),
-                color = style.contentColor,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
+        if (visual != null) {
+            PlayerControlGraphic(
+                kind = kind,
+                label = label,
+                pressed = buttonWasPressed,
+                visual = visual,
+                opacity = 1f,
+                modifier = Modifier.size(width, height),
             )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(width, height)
+                    .clip(shape)
+                    .background(containerColor)
+                    .border(1.dp, borderColor, shape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontSize = MaterialTheme.typography.labelLarge.fontSize * fontScale,
+                    ),
+                    color = style.contentColor,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                )
+            }
         }
     }
 }
@@ -868,6 +897,7 @@ private fun DpadPetalButton(
     onDigitalInput: (Boolean) -> Unit,
     onInteraction: () -> Unit,
 ) {
+    val visual = LocalPlayerVisual.current
     var buttonWasPressed by remember { mutableStateOf(false) }
     var activePointerId by remember { mutableStateOf<Int?>(null) }
     var touchBounds by remember { mutableStateOf(IntSize.Zero) }
@@ -878,6 +908,7 @@ private fun DpadPetalButton(
         modifier = modifier
             .size(touchWidth, touchHeight)
             .onSizeChanged { touchBounds = it }
+            .semantics { contentDescription = label }
             .pointerInteropFilter { event ->
                 val result = resolveTouchPressEvent(
                     event = event,
@@ -898,21 +929,38 @@ private fun DpadPetalButton(
             },
         contentAlignment = Alignment.Center,
     ) {
-        Box(
-            modifier = Modifier
-                .size(width, height)
-                .clip(shape)
-                .background(
-                    if (buttonWasPressed) style.pressedFillColor else style.fillColor,
-                )
-                .border(1.dp, if (buttonWasPressed) style.pressedBorderColor else style.borderColor, shape),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = style.contentColor,
+        if (visual != null) {
+            PlayerControlGraphic(
+                kind = PlayerControlKind.DPAD_ARM,
+                label = label,
+                pressed = buttonWasPressed,
+                visual = visual,
+                opacity = 1f,
+                glyph = when (direction) {
+                    PetalDirection.Up -> PlayerGlyph.UP
+                    PetalDirection.Down -> PlayerGlyph.DOWN
+                    PetalDirection.Left -> PlayerGlyph.LEFT
+                    PetalDirection.Right -> PlayerGlyph.RIGHT
+                },
+                modifier = Modifier.size(width, height),
             )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(width, height)
+                    .clip(shape)
+                    .background(
+                        if (buttonWasPressed) style.pressedFillColor else style.fillColor,
+                    )
+                    .border(1.dp, if (buttonWasPressed) style.pressedBorderColor else style.borderColor, shape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = style.contentColor,
+                )
+            }
         }
     }
 }

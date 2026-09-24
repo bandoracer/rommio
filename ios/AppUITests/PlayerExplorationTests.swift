@@ -19,12 +19,39 @@ final class PlayerExplorationTests: XCTestCase {
                 }
                 if let seconds = action["hold"], let duration = Double(seconds) { button.press(forDuration: duration) } else { button.tap() }
             }
+            // Taps only when the button shows up (e.g. an optional start panel).
+            if let label = action["tapIfPresent"] {
+                let button = app.buttons.matching(NSPredicate(format: "label == %@ OR identifier == %@", label, label)).firstMatch
+                if button.waitForExistence(timeout: Double(action["timeout"] ?? "4") ?? 4) { button.tap() }
+            }
             if let identifier = action["touch"] {
                 let target = app.descendants(matching: .any).matching(identifier: identifier).firstMatch
                 guard target.waitForExistence(timeout: 10) else { XCTFail("Missing touch surface \(identifier)"); return }
                 let x = Double(action["x"] ?? "0.5") ?? 0.5
                 let y = Double(action["y"] ?? "0.5") ?? 0.5
                 target.coordinate(withNormalizedOffset: CGVector(dx: x, dy: y)).tap()
+            }
+            if let text = action["type"] { app.typeText(text) }
+            // Types into a text field found by identifier or label (e.g. a rename alert's field).
+            if let identifier = action["field"] {
+                let field = app.textFields.matching(NSPredicate(format: "identifier == %@ OR label == %@ OR placeholderValue == %@", identifier, identifier, identifier)).firstMatch
+                guard field.waitForExistence(timeout: 10) else { XCTFail("Missing field \(identifier): \(app.debugDescription)"); return }
+                field.tap()
+                if let text = action["text"] { field.typeText(text) }
+            }
+            // Swipes up until an element with this identifier is on screen (at most `max` swipes).
+            if let identifier = action["scrollTo"] {
+                let target = app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+                var swipes = Int(action["max"] ?? "8") ?? 8
+                while swipes > 0 && !(target.exists && target.isHittable) { app.swipeUp(); swipes -= 1 }
+            }
+            if action["swipe"] == "left" { app.swipeLeft() }
+            if action["swipe"] == "right" { app.swipeRight() }
+            if let text = action["search"] {
+                let field = app.searchFields.firstMatch
+                guard field.waitForExistence(timeout: 10) else { XCTFail("Missing search field"); return }
+                field.tap()
+                field.typeText(text)
             }
             if action["swipe"] == "up" { app.swipeUp() }
             if action["swipe"] == "down" { app.swipeDown() }

@@ -37,6 +37,8 @@ class ApplicationProgressSessions(
     private val modern: Boolean = false,
     private val beforePrepare: suspend (PlayerSession) -> Boolean = { true },
     private val afterCommit: (CheckpointWriteResult?) -> Unit = {},
+    /** Local-only play sessions and save-state thumbnails; never part of a checkpoint. */
+    private val playData: io.github.bandoracer.rommio.domain.playdata.PlayDataHooks? = null,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val mutex = Mutex()
@@ -60,7 +62,7 @@ class ApplicationProgressSessions(
                     var engine: PlayerEngine? = null
                     try {
                         engine = engineFactory()
-                        ApplicationProgressSession(store, workspace, engine, registry, id, legacyProgressPresent, publish, source, modern, cloudChecked, afterCommit) { owner ->
+                        ApplicationProgressSession(store, workspace, engine, registry, id, legacyProgressPresent, publish, source, modern, cloudChecked, afterCommit, playData) { owner ->
                             mutex.withLock { if (mutableActive.value === owner) mutableActive.value = null }
                         }.also { mutableActive.value = it }
                     } catch (error: Throwable) {
@@ -87,6 +89,7 @@ class ApplicationProgressSession internal constructor(
     private val modern: Boolean,
     private val cloudChecked: Boolean,
     private val afterCommit: (CheckpointWriteResult?) -> Unit,
+    private val playData: io.github.bandoracer.rommio.domain.playdata.PlayDataHooks?,
     private val released: suspend (ApplicationProgressSession) -> Unit,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -99,7 +102,8 @@ class ApplicationProgressSession internal constructor(
         override val lifecycle: Lifecycle get() = registry
     }
     private var coordinator: ProgressSessionCoordinator? = null
-    private var view: View? = null
+    private var playDataSession: io.github.bandoracer.rommio.domain.playdata.PlayDataSession? = null
+    @Volatile private var view: View? = null
     private var screenLifecycle: Lifecycle? = null
     private var screenObserver: LifecycleEventObserver? = null
     private var foreground = false
@@ -165,7 +169,17 @@ class ApplicationProgressSession internal constructor(
         return host
     }
 
-    fun select(request: ProgressLaunchRequest = ProgressLaunchRequest.Automatic): Deferred<ProgressLaunchDecision> = submit { selectNow(request) }
+    /**
+     * The start the launch asked for (the Launch choice sheet: resume, or the game save). It is kept
+     * across the cloud-not-checked prompt so that choice still applies, unless [continueLocal]
+     * is given another.
+     */
+    private var launchRequest: ProgressLaunchRequest = ProgressLaunchRequest.Automatic
+
+    fun select(request: ProgressLaunchRequest = ProgressLaunchRequest.Automatic): Deferred<ProgressLaunchDecision> = submit {
+        launchRequest = request
+        selectNow(request)
+    }
 
     private suspend fun selectNow(request: ProgressLaunchRequest): ProgressLaunchDecision {
         check(view != null && coordinator == null)
@@ -179,12 +193,34 @@ class ApplicationProgressSession internal constructor(
             val decision = planner.prepare(workspace, engine, registry, request, legacyProgressPresent)
             mutableState.value = mutableState.value.copy(decision = decision, phase = ApplicationProgressPhase.AWAITING_CHOICE)
             if (decision is ProgressLaunchDecision.Ready) {
-                val commands = planner.start(decision, engine, deviceId, workspace.stagingDirectory, publish, workspace, if (modern) 3 else 2)
+                val observer = playData?.let { hooks ->
+                    runCatching {
+                        hooks.begin(io.github.bandoracer.rommio.domain.playdata.PlaySessionStart(workspace.sessionId, decision.identity,
+                            deviceId, source.platformSlug, source.runtimeProfile.runtimeId)) { view }
+                    }.getOrNull()
+                }
+                playDataSession = observer
+                // The observer only sees capture timing (for a thumbnail frame); the core, the writer
+                // and the committed bytes are exactly those of the unobserved engine.
+                val coordinatedEngine = if (observer == null) engine else object : PlayerEngine by engine {
+                    override suspend fun captureMemorySnapshot(includeState: Boolean): io.github.bandoracer.rommio.domain.player.CoreMemorySnapshot {
+                        try { observer.onCaptureStarting(includeState) } catch (_: Exception) {}
+                        return engine.captureMemorySnapshot(includeState)
+                    }
+                }
+                val commands = try {
+                    planner.start(decision, coordinatedEngine, deviceId, workspace.stagingDirectory, publish, workspace, if (modern) 3 else 2,
+                        onCommitted = { result -> observer?.onCommitted(result) })
+                } catch (error: Exception) {
+                    observer?.onStatus(ProgressSessionStatus(ProgressSessionPhase.STOPPED, error = error.message))
+                    throw error
+                }
                 coordinator = commands
                 mutableState.value = mutableState.value.copy(phase = ApplicationProgressPhase.ACTIVE, progress = commands.status.value)
                 scope.launch {
                     var publishedCommit: String? = null
                     commands.status.collect { status ->
+                        try { observer?.onStatus(status) } catch (_: Exception) {}
                         mutableState.value = mutableState.value.copy(progress = status)
                         if (status.lastCommitted != null && publishedCommit != status.lastCommitted.operationId) {
                             publishedCommit = status.lastCommitted.operationId
@@ -203,10 +239,12 @@ class ApplicationProgressSession internal constructor(
         }
     }
 
-    fun continueLocal(): Deferred<ProgressLaunchDecision> = submit {
+    /** Continues without the cloud check; [request] (default: the launch's own) picks resume or the game save. */
+    fun continueLocal(request: ProgressLaunchRequest? = null): Deferred<ProgressLaunchDecision> = submit {
         check(coordinator == null)
         allowUncheckedCloud = true
-        selectNow(ProgressLaunchRequest.Automatic)
+        request?.let { launchRequest = it }
+        selectNow(launchRequest)
     }
 
     /** Read-only original files; importing never edits or removes them. */
@@ -298,7 +336,11 @@ class ApplicationProgressSession internal constructor(
     fun checkpoint(reason: String, includeState: Boolean = true, slotId: String? = null): Deferred<CheckpointWriteResult> = submit {
         requireNotNull(coordinator).checkpoint(reason, includeState, slotId).await()
     }
-    fun restore(checkpointId: String, confirmGameRollback: Boolean = false): Deferred<CheckpointWriteResult> = submit { requireNotNull(coordinator).restore(checkpointId, confirmGameRollback).await() }
+    fun restore(checkpointId: String, confirmGameRollback: Boolean = false): Deferred<CheckpointWriteResult> = submit {
+        requireNotNull(coordinator).restore(checkpointId, confirmGameRollback).await().also { result ->
+            try { playDataSession?.onRestored(checkpointId, result) } catch (_: Exception) {}
+        }
+    }
     fun reset(): Deferred<CheckpointWriteResult> = submit { requireNotNull(coordinator).reset().await() }
     fun retrySave(): Deferred<CheckpointWriteResult> = submit { requireNotNull(coordinator).retrySave().await() }
     fun finishExit(): Deferred<CheckpointWriteResult> = submit {

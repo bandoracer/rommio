@@ -1,7 +1,10 @@
 import SwiftUI
 import RommioFoundation
 
+/// Save states for one game: the automatic resume, save slots and snapshots,
+/// in the theme's list (glass groups, or paper rows between rules).
 struct StateBrowserView: View {
+    @Environment(\.rommioTheme) private var theme
     let browser: GameStateBrowser
     let onUseResume: (() -> Void)?
     let onLoadState: (BrowsableGameState) -> Void
@@ -15,36 +18,50 @@ struct StateBrowserView: View {
             List {
                 Section {
                     Text("These are emulator states. In-game saves stay inside the game.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .themeText(.caption)
+                        .foregroundStyle(theme.inkSecondary)
                 }
+                .themedRow()
 
-                Section("Resume") {
+                Section {
                     resumeContent
+                } header: {
+                    SectionHeader(title: "Resume")
                 }
+                .themedRow()
 
-                Section("Save slots") {
+                Section {
                     if browser.saveSlots.isEmpty {
                         Text("No save slots available.")
-                            .foregroundStyle(.secondary)
+                            .themeText(.secondary)
+                            .foregroundStyle(theme.inkSecondary)
                     } else {
                         ForEach(browser.saveSlots) { state in
                             stateRow(state)
                         }
                     }
+                } header: {
+                    SectionHeader(title: "Save slots", detail: browser.saveSlots.isEmpty ? nil : "\(browser.saveSlots.count)")
                 }
+                .themedRow()
 
-                Section("Snapshots") {
+                Section {
                     if browser.snapshots.isEmpty {
                         Text("No snapshots available.")
-                            .foregroundStyle(.secondary)
+                            .themeText(.secondary)
+                            .foregroundStyle(theme.inkSecondary)
                     } else {
                         ForEach(browser.snapshots) { state in
                             stateRow(state)
                         }
                     }
+                } header: {
+                    SectionHeader(title: "Snapshots", detail: browser.snapshots.isEmpty ? nil : "\(browser.snapshots.count)")
                 }
+                .themedRow()
             }
+            .themedList()
+            .tint(theme.readableTint)
             .navigationTitle("Browse states")
             .toolbar {
                 if let onClose {
@@ -70,45 +87,63 @@ struct StateBrowserView: View {
     private var resumeContent: some View {
         if let resume = browser.resume {
             VStack(alignment: .leading, spacing: 8) {
-                Text(resume.primaryStatusMessage)
-                    .font(.body.weight(.medium))
+                HStack(alignment: .firstTextBaseline) {
+                    Text(resume.primaryStatusMessage)
+                        .themeText(.bodyEmphasis, size: 16)
+                        .foregroundStyle(theme.ink)
+                    Spacer(minLength: 8)
+                    if let badge = GameDetailView.badge(resume.statusKind) {
+                        SyncBadge(state: badge)
+                    }
+                }
                 if let source = resume.sourceDeviceName,
                    !source.isEmpty,
                    resume.sourceOrigin == .remoteDevice {
                     Text("From \(source)")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .themeText(.caption)
+                        .foregroundStyle(theme.inkSecondary)
                 }
                 if let updated = resume.updatedAtEpochMS {
                     Text("Updated \(formattedDate(updated))")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .themeText(.caption)
+                        .foregroundStyle(theme.inkSecondary)
                 }
                 if resume.available, let onUseResume {
                     Button(buttonTitle(for: resume), action: onUseResume)
+                        .buttonStyle(PrimaryButtonStyle(fullWidth: false, large: false))
+                        .padding(.top, 4)
                 }
             }
             .padding(.vertical, 4)
         } else {
             Text("No resume state yet.")
-                .foregroundStyle(.secondary)
+                .themeText(.secondary)
+                .foregroundStyle(theme.inkSecondary)
         }
     }
 
     @ViewBuilder
     private func stateRow(_ state: BrowsableGameState) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(state.label)
-                .font(.body.weight(.medium))
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                if let slot = state.slot {
+                    Text("\(slot)")
+                        .themeText(.statValue, size: 22)
+                        .foregroundStyle(theme.isRiso ? theme.accent2 : theme.mark1)
+                }
+                Text(state.label)
+                    .themeText(.bodyEmphasis, size: 16)
+                    .foregroundStyle(theme.ink)
+            }
             Text(subtitle(for: state))
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+                .themeText(.caption)
+                .foregroundStyle(theme.inkSecondary)
             if let source = state.sourceDeviceName, !source.isEmpty {
                 Text("From \(source)")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .themeText(.caption)
+                    .foregroundStyle(theme.inkSecondary)
             }
-            HStack {
+            HStack(spacing: 10) {
                 Button("Load") {
                     onLoadState(state)
                 }
@@ -119,6 +154,7 @@ struct StateBrowserView: View {
                 }
             }
             .buttonStyle(.borderless)
+            .themeText(.bodyEmphasis, size: 15)
         }
         .padding(.vertical, 4)
     }
@@ -129,9 +165,9 @@ struct StateBrowserView: View {
         case .manualSlot:
             return timestamp
         case .autoSnapshot:
-            return "Snapshot • \(timestamp)"
+            return "Snapshot · \(timestamp)"
         case .importedPlayable:
-            return "Imported playable • \(timestamp)"
+            return "Imported playable · \(timestamp)"
         }
     }
 

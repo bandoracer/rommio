@@ -119,6 +119,8 @@ data class PlayerSession(
     val firmwareSha256: Map<String, String> = emptyMap(),
     val coreIdentity: CoreArtifactIdentity? = null,
     val progressBinding: io.github.bandoracer.rommio.domain.progress.ProgressBinding? = null,
+    /** RomM platform slug of the installed game (local play data only). */
+    val platformSlug: String? = null,
 )
 
 enum class PlayerMotionSource {

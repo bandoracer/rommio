@@ -1,7 +1,12 @@
 # Aurora and Riso themes: implementation plan
 
-Status: proposal, 2026-09-23. Source designs: the round-2 Aurora and Riso
-directions in [design/studio](../design/studio/README.md).
+Status: implemented on Android and iOS (2026-09-24, branch
+`themes-aurora-riso`); per-platform status and open items are at the end.
+Source designs: the round-2 Aurora and Riso directions in
+[design/studio](../design/studio/README.md). Page-by-page spec:
+[theme-layouts.md](theme-layouts.md); local play data:
+[play-data-local.md](play-data-local.md); tokens:
+[design/tokens/themes.json](../design/tokens/themes.json).
 
 ## Context
 
@@ -249,6 +254,9 @@ All local, no protocol change:
 Recent saves shows text rows until thumbnails land; Aurora's Library shows
 platforms and tiers until release years land.
 
+The shared definition of this data (tables, units, rules, copy) is
+[play-data-local.md](play-data-local.md); Android implements it, iOS mirrors it.
+
 ### Phase 5 — iPhone Duo player alignment (M, iOS only; can go first)
 
 `resolvePlayerStageLayout` (`RommioPlayerKit/PlayerViewportLayout.swift`)
@@ -289,3 +297,123 @@ work (per the Duo plan).
   portrait) following `ios/README.md`.
 - Walk the page list on each platform and theme; compare each page with its
   studio mockup (`design/studio/tools/shoot.sh shot-<theme>-<screen>-<device>`).
+
+## Status: iOS (2026-09-23)
+
+Phases 5, 1 and 2 are implemented on iOS; Android is reported separately.
+
+- **Phase 5**: `resolvePlayerStageLayout` applies the studio stage rules on
+  iPhone Duo (recognised from a reported fold, or a phone window at least
+  460 pt on its short side); the pad mode and `player.splitPad` are gone. Slab
+  iPhones and iPad keep their layouts.
+- **Phase 1**: `RommioRootView.swift` is split into `Onboarding/`, `Shell/`,
+  `Pages/` and `Components/`; `RommioTheme` in the environment, bundled fonts
+  registered at launch, `AppearanceStore` (`appearance.theme`,
+  `appearance.scheme`), `App/Resources/Assets.xcassets`, a cached artwork
+  pipeline using `RommAPIClient.fetchAsset`, and player colours from the
+  theme's player tokens.
+- **Phase 2**: tabs Play · Library · Search · Stats · Settings; Welcome and
+  First sync pages; Downloads pushed from the Play toolbar; Collections in
+  Library; Settings › Appearance on the Settings root; Settings sub-pages
+  Profiles and servers, Player and controls, Cores and BIOS, Backup and
+  recovery; Stats v1 from `PlayStatsDerivation` (120 s window, a longer gap
+  counts as the window).
+- **Phase 3**: Aurora and Riso components; two layouts for Play, Library
+  (and Platform), Search, Stats and Game; shared pages restyled through
+  components; Aurora ambient light from a Core Image palette (pinned to the
+  studio's `lights()` in `ArtTreatmentTests`) and Riso two-ink covers; the
+  player style renderer (`PlayerControlStyleRenderer`). The page-by-page spec
+  for Android is [theme-layouts.md](theme-layouts.md).
+- **Phase 4** (2026-09-24): [play-data-local.md](play-data-local.md) on iOS —
+  the `v7_play_data` GRDB migration (play sessions, save-state names),
+  sessions recorded through `ProgressSessionOwner` with the shared end reasons
+  and process-death close, JPEG save previews from the engine's frame, the
+  read-only saves reader, device labels ("This iPhone" / "This iPad" / "This
+  device"), RomM metadata in the cached ROM JSON; Play shows Recent saves,
+  Game reads the store (timeline / where you left off, details, screenshots,
+  Saved progress sheet), the Conflict sheet, Aurora eras, Stats end reasons.
+  iOS deviations are listed in play-data-local.md.
+- **Final round** (2026-09-24): the Launch choice sheet (Game "Start options",
+  Play's context menu, and before the player when a launch would ask), Pause
+  as a floating inspector on wide windows, §4 formatting, readable tint and
+  `badText`, Riso's paper top edge, Resume from Stats.
+- **Backup and recovery differs by platform** (documented, not a gap): both
+  have **Recovery** (the same section title); iOS's other section is
+  **Progress backup** (create and restore a backup of game saves, resume points
+  and history — iOS's progress store), where Android's is **Move your
+  library** (export a library file for the new Rommio app, import it). Each
+  platform keeps its own backup feature.
+
+## Status: Android (2026-09-24)
+
+All five phases' Android work is implemented (Phase 5 has no Android part);
+iOS is reported separately above.
+
+- **Phases 1–2**: token theme (`RommioTheme`, `LocalRommioTheme`) with a full
+  Material colour scheme and typography, bundled fonts, `AppearancePreferencesStore`
+  (device-local, not in migration bundles), components, tabs Play · Library ·
+  Search · Stats · Settings, Settings sub-pages, offline Search.
+- **Phase 3**: every page in both themes per [theme-layouts.md](theme-layouts.md)
+  (two layouts for Play, Library, Platform, Search, Stats and Game), the §1.1
+  palette, Aurora lights pinned to the same node-generated values as iOS, page
+  fields, Riso paper and two-ink print, glass (blurred on API 31+), the player
+  style renderer, the navigation rail and Library split on large widths.
+- **Phase 4**: [play-data-local.md](play-data-local.md) — play sessions, WebP
+  save previews via `PixelCopy`, the read-only saves reader, device labels,
+  save-state names, RomM metadata (Room 13 → 14).
+- **Final round**: Setup code sheet (one-touch setup per `setup-service/`, a
+  local mock in debug builds), Connect with the Access options sheet and pushed
+  setup pages, the Launch choice sheet, game-save conflicts on the Conflict
+  sheet, the Cores and BIOS inventory, §4 formatting, readable tint and
+  `badText`, Resume from Stats. Details: [android-theme-art.md](android-theme-art.md).
+
+**Browser sign-in differs by platform** (documented, not a gap): iOS uses the
+system web-auth session. Android keeps its in-app `WebView`
+(`InteractiveAuthScreen`) for the Cloudflare/cookie login and RomM single
+sign-on, because the app needs the session cookies that login sets: the web
+view is attached to the profile's own cookie store (`ProfileCookies`), which the
+API client then sends with every request. A Custom Tab or the system browser
+keeps its cookies to itself, so the app could not use the session. The page list's "system web auth" reads "in-app web view" on Android.
+
+## Verification record (2026-09-24)
+
+- Android: `./gradlew assembleDebug testStandardDebugUnitTest
+  testLegacyBridgeDebugUnitTest lintStandardDebug` — 260 + 260 unit tests, 0
+  failures; lint 0 errors. Instrumentation (`ExpansionControlsTest`,
+  `PlayerScreenProgressTest`, `ConflictToPlayerTest`, `ResumeConflictSheetTest`,
+  `LaunchChoiceSheetTest`, `SetupCodeSheetTest`, `OnboardingWelcomeScreenTest`,
+  `FormattersPlatformTest`) passed under Aurora/Riso × light/dark on the
+  `rommio-progress-test-api35` emulator against a local mock RomM server.
+- iOS: `swift test --package-path ios` — 299 tests, 0 failures, 9 skipped;
+  `scripts/ios/build_simulator_app.sh` builds; simulator captures of every page
+  in both themes and appearances against a local mock server; iPhone Duo closed
+  captured.
+- `python3 scripts/generate_theme_tokens.py --check` passes (CI runs it on both
+  workflows).
+
+## Open items
+
+Not verified or deliberately different; none block using the themes.
+
+- **iPhone Duo open**: the stage rules, one-canvas pages and the Pause
+  inspector are covered by unit tests and an iPad simulator; the simulator's
+  unfolded pose could not be driven, so the open Duo itself is not captured.
+- **Android large screens**: checked by resizing the phone emulator
+  (Play, Library, Game); no tablet AVD run.
+- **Performance**: Aurora glass blur (Android API 31+ redraws the field) and
+  Core Image prints/blurs are not profiled on low-end hardware.
+- **Launch choice timing**: iOS asks before the player whenever a launch would
+  ask; Android still asks inside the player (same labels) when the cloud check
+  hasn't finished or a save is incompatible with the core.
+- **Platform formatters**: Android sizes read "kB", iOS "KB".
+- **One-touch setup in Android debug builds** points at a local mock
+  (`http://10.0.2.2:8787/`, override with `ROMMIO_SETUP_URL`); release builds
+  use the production service, which was never called during development.
+- **Loading a specific save state from the Game page** is not wired; states are
+  loaded from Pause › Saved progress (the sheet says so).
+- **Syncing previews, names and device names** waits for protocol v4; all Phase
+  4 data is local.
+- **Riso player colours**: console colors are on by default, so Riso's all-yellow
+  face buttons appear only with console colors off.
+- **README screenshots** come from the mock server (test covers and a test
+  program); re-shoot against a real library before a release.

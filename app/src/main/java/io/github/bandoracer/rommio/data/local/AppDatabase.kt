@@ -159,8 +159,9 @@ interface ServerProfileDao {
         ProgressNamespaceRow::class, ProgressContentRow::class, ProgressOperationRow::class,
         ProgressHeadRow::class, ProgressOutboxRow::class, ProgressQuarantineRow::class,
         ProgressHistoryRow::class, ProgressHistoryIndexRow::class,
+        PlaySessionEntity::class, SaveStateLabelEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -182,8 +183,20 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun saveStateSyncJournalDao(): SaveStateSyncJournalDao
     abstract fun recoveryStateDao(): RecoveryStateDao
     abstract fun progressDao(): ProgressDao
+    abstract fun playDataDao(): PlayDataDao
 
     companion object {
+        /** Local play data (docs/play-data-local.md): play sessions, save-state names, RomM metadata cache. */
+        val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("CREATE TABLE IF NOT EXISTS `play_sessions` (`sessionId` TEXT NOT NULL, `namespaceId` TEXT NOT NULL, `contentId` TEXT NOT NULL, `serverKey` TEXT NOT NULL, `accountId` TEXT NOT NULL, `romId` INTEGER NOT NULL, `fileId` INTEGER, `platformSlug` TEXT, `deviceId` TEXT NOT NULL, `coreId` TEXT, `startedAtEpochMs` INTEGER NOT NULL, `endedAtEpochMs` INTEGER, `lastHeartbeatEpochMs` INTEGER NOT NULL, `activeDurationMs` INTEGER NOT NULL, `endReason` TEXT, PRIMARY KEY(`sessionId`))")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_play_sessions_serverKey_accountId_startedAtEpochMs` ON `play_sessions` (`serverKey`, `accountId`, `startedAtEpochMs`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_play_sessions_endedAtEpochMs` ON `play_sessions` (`endedAtEpochMs`)")
+                database.execSQL("CREATE TABLE IF NOT EXISTS `save_state_labels` (`namespaceId` TEXT NOT NULL, `contentId` TEXT NOT NULL, `checkpointId` TEXT NOT NULL, `label` TEXT NOT NULL, `updatedAtEpochMs` INTEGER NOT NULL, PRIMARY KEY(`namespaceId`, `contentId`, `checkpointId`))")
+                // Existing rows keep their catalogue data; metadata fills in on the next refresh.
+                database.execSQL("ALTER TABLE `cached_roms` ADD COLUMN `metadataJson` TEXT NOT NULL DEFAULT '{}'")
+            }
+        }
         val MIGRATION_12_13 = object : Migration(12, 13) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("ALTER TABLE progress_v2_operations ADD COLUMN localSequence INTEGER NOT NULL DEFAULT 0")

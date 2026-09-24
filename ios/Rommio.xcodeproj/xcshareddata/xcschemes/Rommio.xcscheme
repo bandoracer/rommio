@@ -14,7 +14,7 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "84CE0C20F48AFFF123754C52"
+               BlueprintIdentifier = "A3C23ADA030240BDB93172B7"
                BuildableName = "Rommio.app"
                BlueprintName = "Rommio"
                ReferencedContainer = "container:Rommio.xcodeproj">
@@ -28,7 +28,7 @@
             buildForAnalyzing = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "7550BE979D026349031B406E"
+               BlueprintIdentifier = "8841FB679B160E4F0D0C00E4"
                BuildableName = "RommioAppUITests.xctest"
                BlueprintName = "RommioAppUITests"
                ReferencedContainer = "container:Rommio.xcodeproj">
@@ -44,7 +44,7 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "84CE0C20F48AFFF123754C52"
+            BlueprintIdentifier = "A3C23ADA030240BDB93172B7"
             BuildableName = "Rommio.app"
             BlueprintName = "Rommio"
             ReferencedContainer = "container:Rommio.xcodeproj">
@@ -55,7 +55,7 @@
             skipped = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "7550BE979D026349031B406E"
+               BlueprintIdentifier = "8841FB679B160E4F0D0C00E4"
                BuildableName = "RommioAppUITests.xctest"
                BlueprintName = "RommioAppUITests"
                ReferencedContainer = "container:Rommio.xcodeproj">
@@ -77,7 +77,7 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "84CE0C20F48AFFF123754C52"
+            BlueprintIdentifier = "A3C23ADA030240BDB93172B7"
             BuildableName = "Rommio.app"
             BlueprintName = "Rommio"
             ReferencedContainer = "container:Rommio.xcodeproj">
@@ -94,7 +94,7 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "84CE0C20F48AFFF123754C52"
+            BlueprintIdentifier = "A3C23ADA030240BDB93172B7"
             BuildableName = "Rommio.app"
             BlueprintName = "Rommio"
             ReferencedContainer = "container:Rommio.xcodeproj">

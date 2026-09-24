@@ -14,6 +14,8 @@ on:
       - "scripts/cores/**"
       - "tests/fixtures/**"
       - "docs/save-sync-spec.md"
+      - "design/tokens/**"
+      - "scripts/generate_theme_tokens.py"
       - ".github/workflows/android-*.yml"
   workflow_dispatch:
   workflow_call:
@@ -34,6 +36,8 @@ jobs:
       - uses: android-actions/setup-android@v3
       - name: Install pinned native build tools
         run: sdkmanager "ndk;27.2.12479018" "cmake;3.22.1"
+      - name: Check generated theme tokens are current
+        run: python3 scripts/generate_theme_tokens.py --check
       - name: Test, lint, and build both package flavors
         run: ./gradlew testStandardDebugUnitTest testLegacyBridgeDebugUnitTest lintStandardDebug lintLegacyBridgeDebug assembleDebug
       - name: Retain validation reports

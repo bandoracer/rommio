@@ -1,0 +1,706 @@
+{
+  "$comment": "Single source for the Aurora and Riso theme tokens. Edit here, then run `python3 scripts/generate_theme_tokens.py` to regenerate the Kotlin and Swift token files. Colours are #rrggbb or #rrggbb/alpha. Sizes are points (dp/pt). lineHeight is a multiple of size; tracking is in em. Text-bearing colours are tuned for WCAG 4.5:1 on their ground (and on a 13% wash of themselves for pills); where that differs from the studio mockup CSS, the token wins.",
+  "fonts": {
+    "bricolage": {
+      "family": "Bricolage Grotesque",
+      "faces": [
+        {
+          "weight": 600,
+          "file": "bricolage_grotesque_semibold",
+          "postscript": "BricolageGrotesqueSemiCondensed-SemiBold"
+        },
+        {
+          "weight": 700,
+          "file": "bricolage_grotesque_bold",
+          "postscript": "BricolageGrotesqueSemiCondensed-Bold"
+        },
+        {
+          "weight": 800,
+          "file": "bricolage_grotesque_extrabold",
+          "postscript": "BricolageGrotesqueSemiCondensed-ExtraBold"
+        }
+      ]
+    },
+    "figtree": {
+      "family": "Figtree",
+      "faces": [
+        {
+          "weight": 400,
+          "file": "figtree_regular",
+          "postscript": "Figtree-Regular"
+        },
+        {
+          "weight": 500,
+          "file": "figtree_medium",
+          "postscript": "Figtree-Medium"
+        },
+        {
+          "weight": 600,
+          "file": "figtree_semibold",
+          "postscript": "Figtree-SemiBold"
+        },
+        {
+          "weight": 700,
+          "file": "figtree_bold",
+          "postscript": "Figtree-Bold"
+        }
+      ]
+    },
+    "bigShoulders": {
+      "family": "Big Shoulders Display",
+      "faces": [
+        {
+          "weight": 800,
+          "file": "big_shoulders_display_extrabold",
+          "postscript": "BigShouldersDisplay-ExtraBold"
+        },
+        {
+          "weight": 900,
+          "file": "big_shoulders_display_black",
+          "postscript": "BigShouldersDisplay-Black"
+        }
+      ]
+    },
+    "newsreader": {
+      "family": "Newsreader",
+      "faces": [
+        {
+          "weight": 400,
+          "file": "newsreader_regular",
+          "postscript": "Newsreader-Regular"
+        },
+        {
+          "weight": 400,
+          "italic": true,
+          "file": "newsreader_regular_italic",
+          "postscript": "Newsreader-Italic"
+        },
+        {
+          "weight": 500,
+          "file": "newsreader_medium",
+          "postscript": "Newsreader-Medium"
+        },
+        {
+          "weight": 500,
+          "italic": true,
+          "file": "newsreader_medium_italic",
+          "postscript": "Newsreader-MediumItalic"
+        },
+        {
+          "weight": 600,
+          "file": "newsreader_semibold",
+          "postscript": "Newsreader-SemiBold"
+        },
+        {
+          "weight": 700,
+          "file": "newsreader_bold",
+          "postscript": "Newsreader-Bold"
+        }
+      ]
+    },
+    "plexMono": {
+      "family": "IBM Plex Mono",
+      "faces": [
+        {
+          "weight": 400,
+          "file": "ibm_plex_mono_regular",
+          "postscript": "IBMPlexMono-Regular"
+        },
+        {
+          "weight": 500,
+          "file": "ibm_plex_mono_medium",
+          "postscript": "IBMPlexMono-Medium"
+        },
+        {
+          "weight": 600,
+          "file": "ibm_plex_mono_semibold",
+          "postscript": "IBMPlexMono-SemiBold"
+        }
+      ]
+    }
+  },
+  "colorRoles": {
+    "ground": "Page background.",
+    "groundRaised": "Grouped/secondary background (settings lists, sheets).",
+    "surface": "Card surface. Aurora: translucent glass over the page light. Riso: paper card.",
+    "surfaceStrong": "Pressed/selected card surface, search field, segmented control track.",
+    "ink": "Primary text and icons.",
+    "inkSecondary": "Secondary text.",
+    "inkTertiary": "Tertiary text, placeholders, disabled.",
+    "hairline": "Dividers and 0.5-1 pt strokes.",
+    "keyline": "Strong rules (Riso section rules, outlines). Aurora uses a hairline.",
+    "tint": "Accent for links, selection, toggles and the system tint.",
+    "buttonFill": "Primary button fill.",
+    "buttonInk": "Primary button text.",
+    "ok": "Synced / success.",
+    "wait": "Waiting / pending upload.",
+    "live": "Syncing / in progress.",
+    "bad": "Error / conflict.",
+    "badText": "Error and destructive text (4.5:1 on ground). Use instead of `bad` whenever the colour carries text.",
+    "accent1": "Aurora: fallback light 1 when a page has no art. Riso: pink plate.",
+    "accent2": "Aurora: fallback light 2. Riso: blue plate.",
+    "accent3": "Aurora: fallback light 3. Riso: yellow.",
+    "accent4": "Riso green; Aurora: ok.",
+    "onAccent": "Text on accent fills.",
+    "scrim": "Dimming behind sheets and over art."
+  },
+  "typeRoles": {
+    "display": "Hero titles (Welcome, Continue playing, Game hero).",
+    "title": "Page titles.",
+    "headline": "Card and section titles, game names in rows of consequence.",
+    "section": "Section headers above groups.",
+    "body": "Running text.",
+    "bodyEmphasis": "Row titles and emphasised text.",
+    "secondary": "Supporting text under row titles, metadata.",
+    "caption": "Footnotes and fine print.",
+    "label": "Badges, chips, sync state, tiers.",
+    "numeral": "Figures in stats and counters (tabular).",
+    "statValue": "Large stat values.",
+    "button": "Button labels.",
+    "playerLegend": "Letters on player face buttons and shoulders.",
+    "playerLabel": "Select, Start, Menu and toast text in the player."
+  },
+  "themes": {
+    "aurora": {
+      "name": "Aurora",
+      "summary": "Glass over light taken from your games.",
+      "colors": {
+        "light": {
+          "ground": "#f6f4f1",
+          "groundRaised": "#ffffff",
+          "surface": "#ffffff/0.58",
+          "surfaceStrong": "#ffffff/0.80",
+          "ink": "#16131d",
+          "inkSecondary": "#16131d/0.66",
+          "inkTertiary": "#16131d/0.60",
+          "hairline": "#16131d/0.10",
+          "keyline": "#16131d/0.10",
+          "tint": "#a84010",
+          "buttonFill": "#16131d",
+          "buttonInk": "#ffffff",
+          "ok": "#096f49",
+          "wait": "#8f5300",
+          "live": "#09688e",
+          "bad": "#b32f26",
+          "badText": "#b32f26",
+          "accent1": "#f3b9a0",
+          "accent2": "#a9c9f5",
+          "accent3": "#c8b6f2",
+          "accent4": "#096f49",
+          "onAccent": "#16131d",
+          "scrim": "#16131d/0.32"
+        },
+        "dark": {
+          "ground": "#07070c",
+          "groundRaised": "#0e0e16",
+          "surface": "#ffffff/0.075",
+          "surfaceStrong": "#ffffff/0.13",
+          "ink": "#f6f5fa",
+          "inkSecondary": "#f6f5fa/0.68",
+          "inkTertiary": "#f6f5fa/0.50",
+          "hairline": "#ffffff/0.09",
+          "keyline": "#ffffff/0.09",
+          "tint": "#ff6a24",
+          "buttonFill": "#ffffff",
+          "buttonInk": "#0b0a12",
+          "ok": "#7cf2c4",
+          "wait": "#ffc66b",
+          "live": "#6fe3ff",
+          "bad": "#ff7a6b",
+          "badText": "#ff7a6b",
+          "accent1": "#e0613a",
+          "accent2": "#3f7fe0",
+          "accent3": "#8a5ae6",
+          "accent4": "#7cf2c4",
+          "onAccent": "#0b0a12",
+          "scrim": "#000000/0.55"
+        }
+      },
+      "type": {
+        "display": {
+          "font": "bricolage",
+          "weight": 800,
+          "size": 44,
+          "lineHeight": 0.96,
+          "tracking": -0.028
+        },
+        "title": {
+          "font": "bricolage",
+          "weight": 700,
+          "size": 34,
+          "lineHeight": 1.02,
+          "tracking": -0.022
+        },
+        "headline": {
+          "font": "bricolage",
+          "weight": 700,
+          "size": 22,
+          "lineHeight": 1.1,
+          "tracking": -0.015
+        },
+        "section": {
+          "font": "figtree",
+          "weight": 700,
+          "size": 11.5,
+          "lineHeight": 1.2,
+          "tracking": 0.12,
+          "uppercase": true
+        },
+        "body": {
+          "font": "figtree",
+          "weight": 500,
+          "size": 16,
+          "lineHeight": 1.45,
+          "tracking": 0
+        },
+        "bodyEmphasis": {
+          "font": "figtree",
+          "weight": 600,
+          "size": 15,
+          "lineHeight": 1.3,
+          "tracking": -0.005
+        },
+        "secondary": {
+          "font": "figtree",
+          "weight": 500,
+          "size": 14,
+          "lineHeight": 1.35,
+          "tracking": 0
+        },
+        "caption": {
+          "font": "figtree",
+          "weight": 500,
+          "size": 12.5,
+          "lineHeight": 1.45,
+          "tracking": 0
+        },
+        "label": {
+          "font": "figtree",
+          "weight": 600,
+          "size": 12,
+          "lineHeight": 1.0,
+          "tracking": 0
+        },
+        "numeral": {
+          "font": "figtree",
+          "weight": 600,
+          "size": 15,
+          "lineHeight": 1.2,
+          "tracking": 0,
+          "tabular": true
+        },
+        "statValue": {
+          "font": "bricolage",
+          "weight": 800,
+          "size": 40,
+          "lineHeight": 0.95,
+          "tracking": -0.02,
+          "tabular": true
+        },
+        "button": {
+          "font": "figtree",
+          "weight": 600,
+          "size": 15,
+          "lineHeight": 1.0,
+          "tracking": -0.01
+        },
+        "playerLegend": {
+          "font": "figtree",
+          "weight": 700,
+          "size": 22,
+          "lineHeight": 1.0,
+          "tracking": 0
+        },
+        "playerLabel": {
+          "font": "figtree",
+          "weight": 600,
+          "size": 12.5,
+          "lineHeight": 1.0,
+          "tracking": 0.02
+        }
+      },
+      "radius": {
+        "card": 22,
+        "cover": 14,
+        "row": 14,
+        "button": 999,
+        "chip": 999,
+        "sheet": 30,
+        "field": 14
+      },
+      "spacing": {
+        "gutter": 20,
+        "section": 28,
+        "stack": 12,
+        "inline": 8,
+        "rowHeight": 52
+      },
+      "material": {
+        "glassBlur": 24,
+        "surfaceIsGlass": true,
+        "misregistration": 0,
+        "strokeWidth": 0.5,
+        "coverShadow": true
+      },
+      "art": {
+        "treatment": "ambientLight",
+        "backdropBlur": {
+          "light": 60,
+          "dark": 56
+        },
+        "backdropOpacity": {
+          "light": 0.26,
+          "dark": 0.5
+        },
+        "backdropSaturation": {
+          "light": 1.5,
+          "dark": 1.7
+        },
+        "backdropBrightness": {
+          "light": 1.55,
+          "dark": 0.85
+        },
+        "lightOpacity": {
+          "light": 0.95,
+          "dark": 0.58
+        },
+        "lightBlendScreenInDark": true,
+        "glow": {
+          "light": {
+            "minSaturation": 0.52,
+            "maxSaturation": 0.9,
+            "lightnessBase": 0.82,
+            "lightnessSpread": 0.08,
+            "minLightness": 0.78,
+            "maxLightness": 0.87,
+            "greySaturationScale": 0.5
+          },
+          "dark": {
+            "minSaturation": 0.55,
+            "maxSaturation": 1.0,
+            "minLightness": 0.5,
+            "maxLightness": 0.64,
+            "greySaturationScale": 1.0
+          }
+        },
+        "tint": {
+          "light": {
+            "minSaturation": 0.6,
+            "lightness": 0.42
+          },
+          "dark": {
+            "minSaturation": 0.62,
+            "lightness": 0.55
+          }
+        },
+        "pageGround": {
+          "light": {
+            "saturation": 0.32,
+            "lightness": 0.963
+          },
+          "dark": {
+            "saturation": 0.3,
+            "lightness": 0.048
+          }
+        }
+      },
+      "player": {
+        "light": {
+          "ground": "#ece8ef",
+          "controlFill": "#ffffff/0.60",
+          "controlInk": "#16131d/0.78",
+          "controlStroke": "#ffffff/0.60",
+          "controlPressed": "#ffffff/0.85",
+          "shoulderFill": "#ffffff/0.60",
+          "faceFill": "#ffffff/0.60",
+          "faceInk": "#16131d/0.78",
+          "dpadFill": "#ffffff/0.60",
+          "dpadAltFill": "#ffffff/0.60",
+          "pivot": "#ffffff/0.0",
+          "menuFill": "#ffffff/0.60",
+          "menuInk": "#16131d/0.78",
+          "offsetPlate": "#000000/0.0",
+          "toastFill": "#ffffff/0.80",
+          "toastInk": "#16131d"
+        },
+        "dark": {
+          "ground": "#050507",
+          "controlFill": "#ffffff/0.13",
+          "controlInk": "#ffffff/0.86",
+          "controlStroke": "#ffffff/0.10",
+          "controlPressed": "#ffffff/0.28",
+          "shoulderFill": "#ffffff/0.13",
+          "faceFill": "#ffffff/0.13",
+          "faceInk": "#ffffff/0.86",
+          "dpadFill": "#ffffff/0.13",
+          "dpadAltFill": "#ffffff/0.13",
+          "pivot": "#ffffff/0.0",
+          "menuFill": "#ffffff/0.13",
+          "menuInk": "#ffffff/0.86",
+          "offsetPlate": "#000000/0.0",
+          "toastFill": "#ffffff/0.13",
+          "toastInk": "#f6f5fa"
+        },
+        "shape": {
+          "face": "circle",
+          "shoulder": "capsule",
+          "dpad": "roundedCross",
+          "tertiary": "capsule",
+          "cornerRadius": 12,
+          "frosted": true,
+          "misregistration": 0,
+          "legendUppercase": false,
+          "controlOpacity": 0.72
+        }
+      }
+    },
+    "riso": {
+      "name": "Riso",
+      "summary": "Two-ink print on paper.",
+      "colors": {
+        "light": {
+          "ground": "#fbfaf6",
+          "groundRaised": "#fbfaf6",
+          "surface": "#ffffff",
+          "surfaceStrong": "#f1efe8",
+          "ink": "#1b1b1b",
+          "inkSecondary": "#5e5d5a",
+          "inkTertiary": "#5e5d5a/0.88",
+          "hairline": "#1b1b1b/0.18",
+          "keyline": "#1b1b1b/0.90",
+          "tint": "#0078bf",
+          "buttonFill": "#1b1b1b",
+          "buttonInk": "#fbfaf6",
+          "ok": "#00a95c",
+          "wait": "#ffe800",
+          "live": "#0078bf",
+          "bad": "#ff48b0",
+          "badText": "#dc007d",
+          "accent1": "#ff48b0",
+          "accent2": "#0078bf",
+          "accent3": "#ffe800",
+          "accent4": "#00a95c",
+          "onAccent": "#1b1b1b",
+          "scrim": "#1b1b1b/0.36"
+        },
+        "dark": {
+          "ground": "#121211",
+          "groundRaised": "#121211",
+          "surface": "#1d1d1b",
+          "surfaceStrong": "#262624",
+          "ink": "#f2f0ea",
+          "inkSecondary": "#a5a29b",
+          "inkTertiary": "#a5a29b/0.80",
+          "hairline": "#f2f0ea/0.17",
+          "keyline": "#f2f0ea/0.34",
+          "tint": "#2088e0",
+          "buttonFill": "#f2f0ea",
+          "buttonInk": "#121211",
+          "ok": "#44d62c",
+          "wait": "#ffe800",
+          "live": "#5ec8e5",
+          "bad": "#ff48b0",
+          "badText": "#ff48b0",
+          "accent1": "#ff48b0",
+          "accent2": "#5ec8e5",
+          "accent3": "#ffe800",
+          "accent4": "#44d62c",
+          "onAccent": "#1b1b1b",
+          "scrim": "#000000/0.6"
+        }
+      },
+      "type": {
+        "display": {
+          "font": "bigShoulders",
+          "weight": 900,
+          "size": 50,
+          "lineHeight": 0.86,
+          "tracking": -0.004,
+          "uppercase": true
+        },
+        "title": {
+          "font": "newsreader",
+          "weight": 700,
+          "size": 32,
+          "lineHeight": 1.1,
+          "tracking": -0.01
+        },
+        "headline": {
+          "font": "bigShoulders",
+          "weight": 800,
+          "size": 24,
+          "lineHeight": 0.95,
+          "tracking": 0.01,
+          "uppercase": true
+        },
+        "section": {
+          "font": "bigShoulders",
+          "weight": 800,
+          "size": 18,
+          "lineHeight": 1.0,
+          "tracking": 0.04,
+          "uppercase": true
+        },
+        "body": {
+          "font": "newsreader",
+          "weight": 400,
+          "size": 16,
+          "lineHeight": 1.4,
+          "tracking": 0
+        },
+        "bodyEmphasis": {
+          "font": "newsreader",
+          "weight": 600,
+          "size": 15,
+          "lineHeight": 1.2,
+          "tracking": 0
+        },
+        "secondary": {
+          "font": "newsreader",
+          "weight": 400,
+          "size": 13.5,
+          "lineHeight": 1.3,
+          "tracking": 0
+        },
+        "caption": {
+          "font": "newsreader",
+          "weight": 400,
+          "size": 12.5,
+          "lineHeight": 1.4,
+          "tracking": 0,
+          "italic": true
+        },
+        "label": {
+          "font": "plexMono",
+          "weight": 600,
+          "size": 10.5,
+          "lineHeight": 1.0,
+          "tracking": 0.06,
+          "uppercase": true
+        },
+        "numeral": {
+          "font": "plexMono",
+          "weight": 500,
+          "size": 13,
+          "lineHeight": 1.2,
+          "tracking": 0,
+          "tabular": true
+        },
+        "statValue": {
+          "font": "bigShoulders",
+          "weight": 900,
+          "size": 30,
+          "lineHeight": 0.9,
+          "tracking": 0,
+          "tabular": true
+        },
+        "button": {
+          "font": "bigShoulders",
+          "weight": 800,
+          "size": 20,
+          "lineHeight": 1.0,
+          "tracking": 0.045,
+          "uppercase": true
+        },
+        "playerLegend": {
+          "font": "bigShoulders",
+          "weight": 900,
+          "size": 26,
+          "lineHeight": 1.0,
+          "tracking": 0
+        },
+        "playerLabel": {
+          "font": "plexMono",
+          "weight": 600,
+          "size": 10.5,
+          "lineHeight": 1.0,
+          "tracking": 0.08,
+          "uppercase": true
+        }
+      },
+      "radius": {
+        "card": 0,
+        "cover": 0,
+        "row": 0,
+        "button": 0,
+        "chip": 0,
+        "sheet": 0,
+        "field": 0
+      },
+      "spacing": {
+        "gutter": 16,
+        "section": 28,
+        "stack": 10,
+        "inline": 8,
+        "rowHeight": 48
+      },
+      "material": {
+        "glassBlur": 0,
+        "surfaceIsGlass": false,
+        "misregistration": 2,
+        "strokeWidth": 1.5,
+        "coverShadow": false
+      },
+      "art": {
+        "treatment": "twoInkPrint",
+        "plateA": "accent1",
+        "plateB": "accent2",
+        "blend": {
+          "light": "multiply",
+          "dark": "screen"
+        },
+        "halftone": 0.55,
+        "misregistration": 2
+      },
+      "player": {
+        "light": {
+          "ground": "#000000",
+          "controlFill": "#f2f0ea/0.0",
+          "controlInk": "#f2f0ea",
+          "controlStroke": "#f2f0ea/0.80",
+          "controlPressed": "#f2f0ea/0.25",
+          "shoulderFill": "#5ec8e5",
+          "faceFill": "#ffe800",
+          "faceInk": "#1b1b1b",
+          "dpadFill": "#ff48b0",
+          "dpadAltFill": "#5ec8e5",
+          "pivot": "#ffe800",
+          "menuFill": "#ff48b0",
+          "menuInk": "#1b1b1b",
+          "offsetPlate": "#ff48b0",
+          "toastFill": "#fbfaf6",
+          "toastInk": "#1b1b1b"
+        },
+        "dark": {
+          "ground": "#000000",
+          "controlFill": "#f2f0ea/0.0",
+          "controlInk": "#f2f0ea",
+          "controlStroke": "#f2f0ea/0.80",
+          "controlPressed": "#f2f0ea/0.25",
+          "shoulderFill": "#5ec8e5",
+          "faceFill": "#ffe800",
+          "faceInk": "#1b1b1b",
+          "dpadFill": "#ff48b0",
+          "dpadAltFill": "#5ec8e5",
+          "pivot": "#ffe800",
+          "menuFill": "#ff48b0",
+          "menuInk": "#1b1b1b",
+          "offsetPlate": "#ff48b0",
+          "toastFill": "#fbfaf6",
+          "toastInk": "#1b1b1b"
+        },
+        "shape": {
+          "face": "circle",
+          "shoulder": "tab",
+          "dpad": "twoPlateCross",
+          "tertiary": "outlinedCapsule",
+          "cornerRadius": 6,
+          "frosted": false,
+          "misregistration": 2.5,
+          "legendUppercase": true,
+          "controlOpacity": 1.0
+        }
+      }
+    }
+  }
+}

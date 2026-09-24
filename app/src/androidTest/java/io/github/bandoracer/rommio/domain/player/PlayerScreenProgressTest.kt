@@ -80,7 +80,8 @@ class PlayerScreenProgressTest {
         val original = container.libraryStore.saveRamFile(install)
         if (legacy) original.apply { parentFile!!.mkdirs(); writeBytes(ByteArray(8192) { 37 }) }
         ui.setContent {
-            MaterialTheme {
+            // Themes are presentation only: the same flow and selectors must pass under each.
+            io.github.bandoracer.rommio.ui.theme.RommioTheme(io.github.bandoracer.rommio.ThemeUnderTest.preferences) {
                 val nav = rememberNavController()
                 NavHost(navController = nav, startDestination = "library") {
                     composable("library") { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Button(onClick = { nav.navigate("player") }) { Text("Play fixture") } } }
@@ -106,8 +107,9 @@ class PlayerScreenProgressTest {
     private fun click(text: String) { ui.onNodeWithText(text).performScrollTo().performClick() }
     private fun playFixture() {
         ui.onNodeWithText("Play fixture").assertIsDisplayed().performClick()
-        ui.waitUntil(15_000) { ui.onAllNodesWithText("Continue with local progress").fetchSemanticsNodes().isNotEmpty() }
-        click("Continue with local progress")
+        // Cloud progress isn't checked (no server): the player's start prompt offers Resume.
+        ui.waitUntil(15_000) { ui.onAllNodesWithTag("player.start.resume").fetchSemanticsNodes().isNotEmpty() }
+        ui.onNodeWithTag("player.start.resume").performScrollTo().performClick()
     }
     private fun menu() { ui.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }; ui.waitForIdle() }
 
@@ -122,7 +124,7 @@ class PlayerScreenProgressTest {
         ui.onNodeWithText("The coroutine scope left the composition").assertDoesNotExist()
         val screenshot = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
         val base = ApplicationProvider.getApplicationContext<Context>()
-        File(base.getExternalFilesDir(null), "controls-$platform.png").outputStream().use { screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        File(base.getExternalFilesDir(null), "controls-$platform-${io.github.bandoracer.rommio.ThemeUnderTest.label}.png").outputStream().use { screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
         ui.onNodeWithTag("player.menu").performClick()
         click("Save snapshot")
         ui.waitUntil(10_000) { owner.state.value.progress?.lastCommitted?.checkpoint?.captureReason == "manual" }
@@ -148,8 +150,20 @@ class PlayerScreenProgressTest {
         ui.waitUntil(10_000) { first.state.value.progress?.lastCommitted?.checkpoint?.captureReason == "manual" }
         val saved = requireNotNull(first.state.value.progress?.lastCommitted).checkpoint
         assertNotNull(saved.stateCompatibility)
+        val identity = first.workspace.identity
+        val savedKey = io.github.bandoracer.rommio.domain.playdata.SaveKey(identity.namespaceId, identity.contentId, saved.checkpointId)
+        // Local play data: the save state gets a frame preview, captured without touching the checkpoint.
+        ui.waitUntil(10_000) { container.saveThumbnails.pathIfPresent(savedKey) != null }
         click("Snapshots & game saves")
         ui.waitUntil(10_000) { ui.onAllNodes(hasText("Manual ·", substring = true)).fetchSemanticsNodes().isNotEmpty() }
+        // Name the save state from the Save states sheet (local label keyed by the checkpoint).
+        ui.onAllNodesWithTag("player.states.rename").onFirst().performScrollTo().performClick()
+        ui.onNodeWithTag("player.states.renameField").performTextInput("Fixture checkpoint")
+        ui.onNodeWithTag("player.states.renameSave").performClick()
+        ui.waitUntil(10_000) { ui.onAllNodesWithText("Fixture checkpoint").fetchSemanticsNodes().isNotEmpty() }
+        val label = container.playDataDao.labelsFor(identity.namespaceId, identity.contentId).single()
+        assertEquals(saved.checkpointId, label.checkpointId)
+        assertEquals("Fixture checkpoint", label.label)
         ui.onAllNodes(hasText("Manual ·", substring = true)).onFirst().performScrollTo().performClick()
         ui.waitUntil(10_000) { first.state.value.progress?.lastCommitted?.checkpoint?.captureReason == "restore" }
         assertTrue(first.history().await().entries.any { it.checkpoint.captureReason == "safety" })
@@ -160,6 +174,19 @@ class PlayerScreenProgressTest {
         val expected = first.engine.captureMemorySnapshot(true)
         click("Leave game")
         ui.waitUntil(10_000) { container.progressSessions.active.value == null }
+        // One recorded play session with active time, closed by leaving the game.
+        ui.waitUntil(10_000) { runBlocking { container.playDataDao.session(first.workspace.sessionId)?.endedAtEpochMs != null } }
+        val recorded = requireNotNull(container.playDataDao.session(first.workspace.sessionId))
+        assertEquals("nes", recorded.platformSlug)
+        assertEquals(identity.binding.romId, recorded.romId)
+        assertTrue("Active play recorded", recorded.activeDurationMs > 0)
+        assertTrue(recorded.endReason, recorded.endReason in setOf("resume", "state"))
+        // The saves reader sees the current store: a resume point and the named save state.
+        val saves = container.savedProgress.gameSaves(identity.binding.romId, io.github.bandoracer.rommio.domain.progress.ProgressProtocol.bindingKey(identity.binding))
+        assertNotNull(saves.resume)
+        assertEquals("Fixture checkpoint", saves.saveStates.single { it.key == savedKey }.label)
+        assertTrue(saves.saveStates.single { it.key == savedKey }.fromThisDevice)
+        assertTrue(container.savedProgress.refreshRecent().any { it.key == savedKey && it.thumbnailPath != null })
         playFixture()
         val second = active(container)
         val selection = second.state.value.decision as ProgressLaunchDecision.Ready

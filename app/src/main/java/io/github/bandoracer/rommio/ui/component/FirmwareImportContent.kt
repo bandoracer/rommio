@@ -1,5 +1,7 @@
 package io.github.bandoracer.rommio.ui.component
 
+import io.github.bandoracer.rommio.ui.component.TextAction
+import io.github.bandoracer.rommio.ui.component.PrimaryButton
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -62,7 +64,10 @@ fun FirmwareImportContent(store: FirmwareStore) {
         }
     }
     CompactPanel(title = "BIOS and firmware", subtitle = "Import your BIOS files and verify that the emulator can find them.") {
-        Button(onClick = { open = true }) { Text("Manage BIOS files") }
+        PrimaryButton(
+    text = "Manage BIOS files",
+    onClick = { open = true },
+)
     }
     if (open) AlertDialog(
         onDismissRequest = { if (!busy) open = false },
@@ -78,8 +83,13 @@ fun FirmwareImportContent(store: FirmwareStore) {
                         Text("${entry.definition.path} · ${if (entry.installed) "Verified" else "Not installed"}")
                         entry.problem?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                         Row {
-                            TextButton(enabled = !busy, onClick = { selection = entry.definition.path; picker.launch(arrayOf("*/*")) }) { Text("Choose file") }
-                            if (!entry.installed && entry.legacyCopies.isNotEmpty()) TextButton(enabled = !busy, onClick = {
+                            TextAction(
+    text = "Choose file",
+    enabled = !busy, onClick = { selection = entry.definition.path; picker.launch(arrayOf("*/*")) },
+)
+                            if (!entry.installed && entry.legacyCopies.isNotEmpty()) TextAction(
+    text = "Use existing BIOS",
+    enabled = !busy, onClick = {
                                 scope.launch {
                                     busy = true; message = null
                                     try {
@@ -89,7 +99,8 @@ fun FirmwareImportContent(store: FirmwareStore) {
                                     catch (error: Exception) { message = error.message ?: "Unable to copy older BIOS." }
                                     finally { busy = false }
                                 }
-                            }) { Text("Use existing BIOS") }
+                            },
+)
                         }
                     }
                 }

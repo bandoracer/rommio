@@ -24,8 +24,27 @@ fun restoreVersion10TableShapes(database: SupportSQLiteDatabase) {
     }
 }
 
+/** Strip the schema-14 local play data (play sessions, save-state names, cached RomM metadata). */
+fun restoreVersion13PlayData(database: SupportSQLiteDatabase) {
+    database.execSQL("DROP TABLE IF EXISTS play_sessions")
+    database.execSQL("DROP TABLE IF EXISTS save_state_labels")
+    val columns = mutableListOf<String>(); val definitions = mutableListOf<String>()
+    database.query("PRAGMA table_info(`cached_roms`)").use { rows -> while (rows.moveToNext()) {
+        val name = rows.getString(1)
+        if (name == "metadataJson") continue
+        columns += "`$name`"
+        definitions += "`$name` ${rows.getString(2)}" + if (rows.getInt(3) == 1) " NOT NULL" else ""
+    } }
+    if (columns.size == 0) return
+    database.execSQL("CREATE TABLE `cached_roms_v13` (${definitions.joinToString()}, PRIMARY KEY(`profileId`, `romId`))")
+    database.execSQL("INSERT INTO `cached_roms_v13` (${columns.joinToString()}) SELECT ${columns.joinToString()} FROM `cached_roms`")
+    database.execSQL("DROP TABLE `cached_roms`")
+    database.execSQL("ALTER TABLE `cached_roms_v13` RENAME TO `cached_roms`")
+}
+
 /** Strip all schema-13 additions before testing real older-schema upgrades. */
 fun restoreVersion12ProgressTables(database: SupportSQLiteDatabase) {
+    restoreVersion13PlayData(database)
     database.execSQL("DROP TABLE IF EXISTS progress_v2_history")
     database.execSQL("DROP TABLE IF EXISTS progress_v2_history_index")
     val columns = mutableSetOf<String>()

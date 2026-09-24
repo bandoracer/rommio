@@ -20,7 +20,7 @@ enum GameDetailActionKind: String, Hashable, Sendable {
         case .downloadNow:
             "Download now"
         case .queue:
-            "Queue"
+            "Add to queue"
         case .retry:
             "Retry"
         case .cancel:
@@ -37,14 +37,52 @@ struct GameDetailAction: Hashable, Sendable {
     public let kind: GameDetailActionKind
     public let recordID: String?
     public let enabled: Bool
+    /// A label for this state of the action ("Download active"), else the kind's title.
+    public let label: String?
 
-    public init(kind: GameDetailActionKind, recordID: String? = nil, enabled: Bool = true) {
+    public init(kind: GameDetailActionKind, recordID: String? = nil, enabled: Bool = true, label: String? = nil) {
         self.kind = kind
         self.recordID = recordID
         self.enabled = enabled
+        self.label = label
     }
 
-    public var title: String { kind.title }
+    public var title: String { label ?? kind.title }
+}
+
+/// Where a game's file stands on this device, in Android's Game page words
+/// (docs/theme-layouts.md §4: Game page status is owned by Android).
+enum GameDownloadStatus: Hashable, Sendable {
+    case onDevice, downloading, queued, failed, notDownloaded
+
+    init(localPath: String?, record: DownloadRecord?) {
+        if localPath != nil { self = .onDevice; return }
+        switch record?.status {
+        case .running: self = .downloading
+        case .queued: self = .queued
+        case .failed: self = .failed
+        default: self = .notDownloaded
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .onDevice: "On this device"
+        case .downloading: "Downloading"
+        case .queued: "Queued"
+        case .failed: "Download failed"
+        case .notDownloaded: "Not downloaded"
+        }
+    }
+
+    var tone: StatusTone {
+        switch self {
+        case .onDevice: .ok
+        case .downloading, .queued: .live
+        case .failed: .bad
+        case .notDownloaded: .neutral
+        }
+    }
 }
 
 struct GameFileActionDeck: Hashable, Sendable {
@@ -98,34 +136,19 @@ struct GameDetailFileState: Identifiable, Hashable, Sendable {
         localPath.map { URL(fileURLWithPath: $0).lastPathComponent }
     }
 
+    /// "SFC · 1.5 MB".
     public var fileMetaLine: String {
-        "\(file.effectiveFileExtension.isEmpty ? "FILE" : file.effectiveFileExtension.uppercased()) • \(ByteCountFormatter.string(fromByteCount: file.fileSizeBytes, countStyle: .file))"
+        PlayFormat.line([file.effectiveFileExtension.isEmpty ? "FILE" : file.effectiveFileExtension.uppercased(), PlayFormat.bytes(file.fileSizeBytes)])
     }
 
-    public var availabilityLabel: String {
-        if localPath != nil {
-            return "Installed locally"
-        }
-        if let downloadRecord {
-            switch downloadRecord.status {
-            case .queued:
-                return "Queued for download"
-            case .running:
-                return "Downloading"
-            case .failed:
-                return "Download failed"
-            case .canceled:
-                return "Download canceled"
-            case .completed:
-                return "Download complete"
-            }
-        }
-        return "Remote only"
-    }
+    var downloadStatus: GameDownloadStatus { GameDownloadStatus(localPath: localPath, record: downloadRecord) }
+
+    public var availabilityLabel: String { downloadStatus.title }
 }
 
 struct GameDetailHeroPresentation: Hashable, Sendable {
     let statusText: String
+    var statusTone: StatusTone = .neutral
     let supportMessage: String?
     let summaryText: String?
     let fileCountText: String
@@ -140,6 +163,7 @@ struct GameDetailSelectedFilePresentation: Hashable, Sendable {
     let title: String
     let metaLine: String
     let availabilityLabel: String
+    var availabilityTone: StatusTone = .neutral
     let playabilityLabel: String
     let downloadStatusText: String?
     let downloadProgressValue: Double?
@@ -181,6 +205,8 @@ final class LibraryFeatureModel {
     var platforms: [PlatformDTO] = []
     var isLoading = false
     var staleMessage: String?
+    /// Nothing could be loaded (Android's copy): shown in the empty state.
+    var errorMessage: String?
 
     private let services: RommioServices
     private let resolveProfile: (String) -> PlatformControlProfile
@@ -221,6 +247,9 @@ final class LibraryFeatureModel {
         }
 
         staleMessage = errors.isEmpty || platforms.isEmpty ? nil : errors.joined(separator: "\n")
+        errorMessage = loadErrorMessage(empty: platforms.isEmpty, errors: errors, offline: services.networkMonitor.connectivity == .offline,
+                                        offlineText: "You're offline. Your library appears here after this server syncs once.",
+                                        fallback: "Couldn't load the library.")
     }
 }
 
@@ -276,6 +305,8 @@ final class PlatformDetailFeatureModel {
     var roms: [RomDTO] = []
     var isLoading = false
     var staleMessage: String?
+    /// Nothing could be loaded (Android's copy): shown in the empty state.
+    var errorMessage: String?
 
     private let services: RommioServices
     private let resolveProfile: (String) -> PlatformControlProfile
@@ -318,6 +349,9 @@ final class PlatformDetailFeatureModel {
         }
 
         staleMessage = errors.isEmpty || roms.isEmpty ? nil : errors.joined(separator: "\n")
+        errorMessage = loadErrorMessage(empty: roms.isEmpty, errors: errors, offline: services.networkMonitor.connectivity == .offline,
+                                        offlineText: "Offline. This platform will appear after the profile sync completes.",
+                                        fallback: "Unable to load this platform.")
     }
 }
 
@@ -329,6 +363,8 @@ final class CollectionDetailFeatureModel {
     var roms: [RomDTO] = []
     var isLoading = false
     var staleMessage: String?
+    /// Nothing could be loaded (Android's copy): shown in the empty state.
+    var errorMessage: String?
 
     private let services: RommioServices
     private let resolveProfile: (String) -> PlatformControlProfile
@@ -371,6 +407,9 @@ final class CollectionDetailFeatureModel {
         }
 
         staleMessage = errors.isEmpty || roms.isEmpty ? nil : errors.joined(separator: "\n")
+        errorMessage = loadErrorMessage(empty: roms.isEmpty, errors: errors, offline: services.networkMonitor.connectivity == .offline,
+                                        offlineText: "Offline. This collection will appear after the profile sync completes.",
+                                        fallback: "Unable to load this collection.")
     }
 }
 
@@ -383,6 +422,14 @@ final class GameDetailFeatureModel {
     var selectedFileID: Int?
     var stateBrowser = GameStateBrowser()
     var stateBrowserPresented = false
+    /// This game's saves from the progress store (docs/play-data-local.md §3, "One game").
+    var saves = GameSaves.empty
+    /// Conflicted references of this game (Conflict sheet).
+    var conflicts: [ProgressConflict] = []
+    /// The game has progress in the store (its saves come from the reader, not the legacy browser).
+    var usesProgressStore = false
+    var savedProgressPresented = false
+    var conflictPresented = false
     var isLoading = false
     var staleMessage: String?
 
@@ -437,11 +484,13 @@ final class GameDetailFeatureModel {
 
     var heroPresentation: GameDetailHeroPresentation {
         let trimmedSummary = rom.summary?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let status = selectedFileState?.downloadStatus ?? .notDownloaded
         return GameDetailHeroPresentation(
-            statusText: heroStatusText,
+            statusText: status.title,
+            statusTone: status.tone,
             supportMessage: controlProfile.supportTier == .controllerSupported ? controlProfile.controllerFallbackMessage : nil,
             summaryText: trimmedSummary?.isEmpty == true ? nil : trimmedSummary,
-            fileCountText: "\(rom.files.count) file\(rom.files.count == 1 ? "" : "s") available"
+            fileCountText: "\(PlayFormat.count(rom.files.count, "file")) available"
         )
     }
 
@@ -465,12 +514,8 @@ final class GameDetailFeatureModel {
         if let record = state.downloadRecord,
            record.status == .running || record.status == .queued {
             downloadProgressValue = Double(record.progressPercent) / 100
-            progressDetailText = "\(record.progressPercent)% • \(ByteCountFormatter.string(fromByteCount: record.bytesDownloaded, countStyle: .file)) of \(ByteCountFormatter.string(fromByteCount: record.totalBytes, countStyle: .file))"
-            downloadStatusText = record.status == .running ? "Downloading now" : "Queued for download"
-        } else if let record = state.downloadRecord {
-            downloadProgressValue = nil
-            progressDetailText = nil
-            downloadStatusText = "Download status: \(record.status.rawValue.lowercased().capitalized)"
+            progressDetailText = Self.progressDetail(record)
+            downloadStatusText = state.downloadStatus.title
         } else {
             downloadProgressValue = nil
             progressDetailText = nil
@@ -481,6 +526,7 @@ final class GameDetailFeatureModel {
             title: state.file.fileName,
             metaLine: state.fileMetaLine,
             availabilityLabel: state.availabilityLabel,
+            availabilityTone: state.downloadStatus.tone,
             playabilityLabel: state.playabilityLabel,
             downloadStatusText: downloadStatusText,
             downloadProgressValue: downloadProgressValue,
@@ -504,7 +550,7 @@ final class GameDetailFeatureModel {
         if let record = state.downloadRecord,
            record.status == .running || record.status == .queued {
             downloadProgressValue = Double(record.progressPercent) / 100
-            progressDetailText = "\(record.progressPercent)% • \(ByteCountFormatter.string(fromByteCount: record.bytesDownloaded, countStyle: .file)) of \(ByteCountFormatter.string(fromByteCount: record.totalBytes, countStyle: .file))"
+            progressDetailText = Self.progressDetail(record)
             errorMessage = nil
         } else {
             downloadProgressValue = nil
@@ -523,6 +569,11 @@ final class GameDetailFeatureModel {
             primary: state.actionDeck.primary,
             secondary: state.actionDeck.secondary
         )
+    }
+
+    /// "42% · 1.2 MB of 3.4 MB".
+    static func progressDetail(_ record: DownloadRecord) -> String {
+        "\(record.progressPercent)% · \(PlayFormat.bytes(record.bytesDownloaded)) of \(PlayFormat.bytes(max(record.totalBytes, record.fileSizeBytes)))"
     }
 
     var preservedContentPresentation: GameDetailPreservedContentPresentation? {
@@ -607,10 +658,37 @@ final class GameDetailFeatureModel {
             selectedFileID = preferredFileState(from: fileStates)?.file.id
         }
 
-        await refreshStateBrowser()
+        await refreshSaves()
+        if !usesProgressStore { await refreshStateBrowser() }
 
         staleMessage = errors.isEmpty || !hasRenderableContent ? nil : errors.joined(separator: "\n")
     }
+
+    /// Reads this game's saves from the current store: the install's content
+    /// generation first, else every generation of the ROM.
+    func refreshSaves() async {
+        guard let account = await services.activeProgressAccount() else { saves = .empty; conflicts = []; usesProgressStore = false; return }
+        await services.playData.flush()
+        let state = selectedFileState
+        do {
+            saves = try await services.savedProgress.gameSaves(account, romId: Int64(rom.id), fileId: state.map { Int64($0.file.id) },
+                                                              contentSha256: state?.downloadRecord?.contentSHA256)
+            conflicts = try await services.savedProgress.conflicts(account, romId: Int64(rom.id))
+            usesProgressStore = !saves.isEmpty || !conflicts.isEmpty || runsOnProgressStore
+        } catch {
+            // Storage busy (backup or recovery): keep what is shown.
+        }
+    }
+
+    func renameSave(_ entry: SaveEntry, to name: String) async {
+        guard let label = try? await services.savedProgress.rename(entry.key, to: name) else {
+            await refreshSaves(); return
+        }
+        func apply(_ item: SaveEntry) -> SaveEntry { item.key == entry.key ? relabelled(item, label) : item }
+        saves = GameSaves(resume: saves.resume.map(apply), resumeConflict: saves.resumeConflict, saveStates: saves.saveStates.map(apply),
+                          history: saves.history.map(apply), gameSaveData: saves.gameSaveData)
+    }
+
 
     var hasRenderableContent: Bool {
         !fileStates.isEmpty
@@ -647,7 +725,8 @@ final class GameDetailFeatureModel {
     func selectFile(_ fileID: Int) async {
         guard fileStates.contains(where: { $0.file.id == fileID }) else { return }
         selectedFileID = fileID
-        await refreshStateBrowser()
+        await refreshSaves()
+        if !usesProgressStore { await refreshStateBrowser() }
     }
 
     func retryCoreProvisioning(fileID: Int) async {
@@ -797,7 +876,7 @@ final class GameDetailFeatureModel {
         } else if resolution.canRetryProvisioning {
             primary = GameDetailAction(kind: .retryCoreSetup)
         } else if let record, record.status == .running || record.status == .queued {
-            primary = GameDetailAction(kind: .downloadNow, enabled: false)
+            primary = GameDetailAction(kind: .downloadNow, enabled: false, label: record.status == .running ? "Download active" : nil)
         } else if localPath == nil {
             primary = GameDetailAction(kind: .downloadNow)
         } else {
@@ -822,32 +901,6 @@ final class GameDetailFeatureModel {
         }
 
         return GameFileActionDeck(primary: primary, secondary: secondary)
-    }
-
-    private var heroStatusText: String {
-        if let selected = selectedFileState {
-            if selected.localPath != nil {
-                return offlineState.connectivity == .online ? "Installed locally" : "Installed locally • offline"
-            }
-            if let record = selected.downloadRecord {
-                switch record.status {
-                case .running:
-                    return "Downloading now"
-                case .queued:
-                    return offlineState.connectivity == .online ? "Queued to download" : "Queued until you reconnect"
-                case .failed:
-                    return "Download failed"
-                case .canceled:
-                    return "Download canceled"
-                case .completed:
-                    return "Downloaded"
-                }
-            }
-        }
-        if offlineState.connectivity != .online {
-            return "Cached view • offline"
-        }
-        return "Remote only"
     }
 
     private func compactFileLabels(states: [GameDetailFileState]) -> [Int: String] {
@@ -881,9 +934,6 @@ final class GameDetailFeatureModel {
 
     private func actionDeckNotes(for state: GameDetailFileState) -> [String] {
         var notes: [String] = []
-        if let record = state.downloadRecord, record.status != .running, record.status != .queued {
-            notes.append("Download status: \(record.status.rawValue.lowercased().capitalized)")
-        }
         if !state.resolution.missingBIOS.isEmpty {
             notes.append("BIOS required: \(state.resolution.missingBIOS.joined(separator: ", "))")
         }
@@ -891,6 +941,13 @@ final class GameDetailFeatureModel {
             notes.append("Local file: \(localFileName)")
         }
         return notes
+    }
+
+    /// The selected file plays on a runtime whose saves live in the progress store
+    /// (the same runtimes the player launches with a progress session).
+    private var runsOnProgressStore: Bool {
+        guard let state = selectedFileState, state.localPath != nil, let runtimeID = state.resolution.runtimeProfile?.runtimeID else { return false }
+        return runtimeID == "fceumm" || PinnedAppleCore.cartridgeRuntimes.contains(runtimeID) || PinnedAppleCore.candidateRuntimes.contains(runtimeID)
     }
 
     private var supportsExternalStateBrowser: Bool {
@@ -938,12 +995,15 @@ final class GameDetailFeatureModel {
     }
 }
 
+/// An error for a page that could load nothing (Android's copy): offline before
+/// the first sync, else the failure.
+func loadErrorMessage(empty: Bool, errors: [String], offline: Bool, offlineText: String, fallback: String) -> String? {
+    guard empty, !errors.isEmpty else { return nil }
+    return offline ? offlineText : (errors.first { !$0.isEmpty } ?? fallback)
+}
+
 private func stateCountSummary(saveSlots: Int, snapshots: Int) -> String {
-    let parts = [
-        saveSlots == 1 ? "1 save slot" : "\(saveSlots) save slots",
-        snapshots == 1 ? "1 snapshot" : "\(snapshots) snapshots",
-    ]
-    return parts.joined(separator: " • ")
+    PlayFormat.line([PlayFormat.count(saveSlots, "save slot"), PlayFormat.count(snapshots, "snapshot")])
 }
 
 private func formatStateTimestamp(_ epochMS: Int64) -> String {

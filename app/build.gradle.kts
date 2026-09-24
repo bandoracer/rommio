@@ -72,6 +72,10 @@ android {
         buildConfigField("String", "DEBUG_TEST_CLIENT_SECRET", "\"\"")
         buildConfigField("String", "DEBUG_TEST_USERNAME", "\"\"")
         buildConfigField("String", "DEBUG_TEST_PASSWORD", "\"\"")
+        // One-touch setup (setup-service/README.md): the device API and the approval page's origin.
+        // Release builds use the production service; debug builds point at a local mock (below).
+        buildConfigField("String", "SETUP_SERVICE_URL", "\"https://rommio-setup.ryan-personal-fa9.workers.dev/\"")
+        buildConfigField("String", "SETUP_APPROVAL_ORIGIN", "\"https://rommio-setup.borchetta.xyz\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -114,6 +118,10 @@ android {
             buildConfigField("String", "DEBUG_TEST_CLIENT_SECRET", buildConfigString(localTestEnv["ROMM_TEST_CLIENT_SECRET"].orEmpty()))
             buildConfigField("String", "DEBUG_TEST_USERNAME", buildConfigString(localTestEnv["ROMM_TEST_USERNAME"].orEmpty()))
             buildConfigField("String", "DEBUG_TEST_PASSWORD", buildConfigString(localTestEnv["ROMM_TEST_PASSWORD"].orEmpty()))
+            // Debug builds never reach the production setup service: a local mock (the emulator's
+            // host loopback) unless .env.test.local names another test endpoint.
+            buildConfigField("String", "SETUP_SERVICE_URL", buildConfigString(localTestEnv["ROMMIO_SETUP_URL"] ?: "http://10.0.2.2:8787/"))
+            buildConfigField("String", "SETUP_APPROVAL_ORIGIN", buildConfigString(localTestEnv["ROMMIO_SETUP_APPROVAL_ORIGIN"] ?: "http://10.0.2.2:8787"))
         }
 
         release {
@@ -199,6 +207,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("io.coil-kt:coil-svg:2.7.0")
+    // Setup code: the approval link as a QR code (Apache-2.0), opened in a Custom Tab.
+    implementation("com.google.zxing:core:3.5.3")
+    implementation("androidx.browser:browser:1.8.0")
     implementation(project(":libretrodroid"))
 
     debugImplementation("androidx.compose.ui:ui-tooling")

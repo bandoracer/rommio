@@ -1,5 +1,7 @@
 package io.github.bandoracer.rommio.ui.component
 
+import io.github.bandoracer.rommio.ui.component.TextAction
+import io.github.bandoracer.rommio.ui.component.PrimaryButton
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -46,7 +48,10 @@ fun LegacyProgressRecoveryContent(recovery: LegacyProgressRecovery) {
         }
     }
     CompactPanel(title = "Recover older saves", subtitle = "Review preserved save files and copy selected progress to an installed game. Originals are retained.") {
-        Button(onClick = { open = true; scan() }) { Text("Review older saves") }
+        PrimaryButton(
+    text = "Review older saves",
+    onClick = { open = true; scan() },
+)
         if (!open) message?.let { Text(it) }
     }
     if (open) AlertDialog(
@@ -110,7 +115,10 @@ fun LegacyProgressRecoveryContent(recovery: LegacyProgressRecovery) {
         dismissButton = {
             Row {
                 TextButton(enabled = !busy, onClick = { scan() }) { Text("Scan again") }
-                TextButton(enabled = !busy, onClick = { open = false }) { Text("Cancel") }
+                TextAction(
+    text = "Cancel",
+    enabled = !busy, onClick = { open = false },
+)
             }
         },
     )

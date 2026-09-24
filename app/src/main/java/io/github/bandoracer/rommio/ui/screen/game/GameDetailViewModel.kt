@@ -2,7 +2,10 @@ package io.github.bandoracer.rommio.ui.screen.game
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.bandoracer.rommio.data.playdata.SavedProgressRepository
 import io.github.bandoracer.rommio.data.repository.RommRepository
+import io.github.bandoracer.rommio.domain.playdata.GameSaves
+import io.github.bandoracer.rommio.domain.playdata.SaveKey
 import io.github.bandoracer.rommio.model.BrowsableGameState
 import io.github.bandoracer.rommio.domain.player.CoreResolution
 import io.github.bandoracer.rommio.domain.player.EmbeddedSupportTier
@@ -18,7 +21,12 @@ import io.github.bandoracer.rommio.model.ConnectivityState
 import io.github.bandoracer.rommio.model.RomDto
 import io.github.bandoracer.rommio.model.RomFileDto
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,6 +49,9 @@ data class GameDetailUiState(
     val coreMessage: String? = null,
     val errorMessage: String? = null,
     val actionPresentation: GameActionPresentation = GameActionPresentation(),
+    /** Saved progress for this game from the current progress store (resume point, save states, history). */
+    val saves: GameSaves = GameSaves(),
+    val savesLoaded: Boolean = false,
 )
 
 data class GameActionPresentation(
@@ -65,9 +76,12 @@ enum class GameDetailActionKind {
     SYNC,
 }
 
+@OptIn(kotlinx.coroutines.FlowPreview::class)
 class GameDetailViewModel(
     private val repository: RommRepository,
     private val romId: Int,
+    private val savedProgress: SavedProgressRepository? = null,
+    playDataChanges: Flow<Long> = emptyFlow(),
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(GameDetailUiState())
     val uiState: StateFlow<GameDetailUiState> = _uiState.asStateFlow()
@@ -77,8 +91,14 @@ class GameDetailViewModel(
     private var observedDownloadFileId: Int? = null
     private var observedSyncFileId: Int? = null
     private var observedRecoveryFileId: Int? = null
+    private var savesJob: Job? = null
+    private var savesScope: String? = null
 
     init {
+        viewModelScope.launch {
+            val labels = savedProgress?.labelChanges ?: emptyFlow()
+            merge(playDataChanges, labels).drop(1).debounce(300).collect { refreshSaves() }
+        }
         viewModelScope.launch {
             combine(
                 repository.observeCachedRom(romId),
@@ -138,6 +158,8 @@ class GameDetailViewModel(
                         )
                     }
                 }
+                val scope = files.firstOrNull { it.fileId == nextSelectedFileId }?.progressScope ?: files.firstOrNull()?.progressScope
+                if (!_uiState.value.savesLoaded || scope != savesScope) refreshSaves()
                 if (nextSelectedFileId != null) {
                     observeSelectedDownload(nextSelectedFileId)
                 } else {
@@ -150,7 +172,25 @@ class GameDetailViewModel(
         refresh()
     }
 
+    /** Re-reads this game's saved progress from the progress store (read-only). */
+    fun refreshSaves() {
+        val saves = savedProgress ?: return
+        val scope = _uiState.value.currentInstall()?.progressScope?.takeIf { it != io.github.bandoracer.rommio.model.InstallIdentity.LEGACY }
+        savesScope = _uiState.value.currentInstall()?.progressScope
+        savesJob?.cancel()
+        savesJob = viewModelScope.launch {
+            val result = saves.gameSaves(romId.toLong(), scope)
+            _uiState.updateState { it.copy(saves = result, savesLoaded = true) }
+        }
+    }
+
+    fun renameSave(key: SaveKey, name: String) {
+        val saves = savedProgress ?: return
+        viewModelScope.launch { saves.rename(key, name); refreshSaves() }
+    }
+
     fun refresh() {
+        refreshSaves()
         viewModelScope.launch {
             _uiState.updateState {
                 it.copy(
@@ -226,6 +266,7 @@ class GameDetailViewModel(
                 coreMessage = null,
             )
         }
+        refreshSaves()
         if (_uiState.value.installedFiles.any { it.fileId == fileId }) {
             observeSyncPresentation(fileId)
             observeStateRecovery(fileId)

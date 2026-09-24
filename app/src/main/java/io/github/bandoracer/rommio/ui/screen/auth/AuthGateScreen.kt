@@ -23,10 +23,9 @@ import io.github.bandoracer.rommio.model.AuthStatus
 import io.github.bandoracer.rommio.model.OfflineState
 import io.github.bandoracer.rommio.model.ServerAccessStatus
 import io.github.bandoracer.rommio.model.ServerProfile
-import io.github.bandoracer.rommio.ui.component.RommGradientBackdrop
+import io.github.bandoracer.rommio.ui.component.PageField
+import io.github.bandoracer.rommio.ui.component.PageFieldStyle
 import io.github.bandoracer.rommio.ui.navigation.NavRoutes
-import io.github.bandoracer.rommio.ui.theme.BrandSeed
-import io.github.bandoracer.rommio.ui.theme.BrandText
 
 @Composable
 fun AuthGateScreen(
@@ -51,7 +50,7 @@ fun AuthGateScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        RommGradientBackdrop(modifier = Modifier.fillMaxSize())
+        PageField(modifier = Modifier.fillMaxSize(), style = PageFieldStyle.WELCOME)
         Column(
             modifier = Modifier
                 .align(Alignment.Center)
@@ -59,11 +58,11 @@ fun AuthGateScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            CircularProgressIndicator(color = BrandSeed)
+            CircularProgressIndicator(color = io.github.bandoracer.rommio.ui.theme.RommioTheme.colors.tint)
             Text(
                 text = "Preparing authentication…",
                 style = MaterialTheme.typography.titleMedium,
-                color = BrandText,
+                color = io.github.bandoracer.rommio.ui.theme.RommioTheme.colors.ink,
                 modifier = Modifier.padding(top = 16.dp),
             )
             Text(

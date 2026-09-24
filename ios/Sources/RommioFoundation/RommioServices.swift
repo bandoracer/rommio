@@ -42,6 +42,10 @@ public struct RommioServices: Sendable {
     public let playerControlsRepository: PlayerControlsRepository
     public let progress: ApplicationProgress
     public let syncBridge: ProfileSyncBridge
+    /// Local play sessions, save previews and save-state names (docs/play-data-local.md).
+    public let playData: LocalPlayData
+    /// Read-only saves across games for Play, Game and the player's Save states sheet.
+    public let savedProgress: SavedProgressReader
 
     public init(
         database: AppDatabase,
@@ -56,10 +60,23 @@ public struct RommioServices: Sendable {
         controllerMonitor: (any ControllerMonitoring)? = nil,
         playerControlsRepository: PlayerControlsRepository? = nil,
         syncBridge: ProfileSyncBridge? = nil,
-        progress: ApplicationProgress? = nil
+        progress: ApplicationProgress? = nil,
+        playData: LocalPlayData? = nil
     ) {
         let resolvedControllerMonitor = controllerMonitor ?? GameControllerMonitor()
-        self.progress = progress ?? ApplicationProgress(database: database, root: libraryStore.rootDirectory.deletingLastPathComponent().appending(path: "Progress"), profiles: profileStore, auth: authController)
+        let resolvedProgress = progress ?? ApplicationProgress(database: database, root: libraryStore.rootDirectory.deletingLastPathComponent().appending(path: "Progress"), profiles: profileStore, auth: authController)
+        self.progress = resolvedProgress
+        // Previews live beside the library in app-private storage that is excluded from backups.
+        let resolvedPlayData = playData ?? LocalPlayData(store: PlayDataStore(database: database),
+                                                         thumbnails: SaveThumbnailStore(root: libraryStore.rootDirectory.deletingLastPathComponent().appending(path: "SavePreviews")))
+        self.playData = resolvedPlayData
+        self.savedProgress = SavedProgressReader(
+            storeProvider: { try await resolvedProgress.store() },
+            deviceProvider: { try? await resolvedProgress.deviceID() },
+            playData: resolvedPlayData.store,
+            thumbnails: resolvedPlayData.thumbnails,
+            formFactor: { await DeviceFormFactor.current() }
+        )
         self.database = database
         self.secretStore = secretStore
         self.profileStore = profileStore

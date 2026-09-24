@@ -144,6 +144,12 @@ public struct RomDTO: Codable, Hashable, Sendable, Identifiable {
     public var files: [RomFileDTO]
     public var siblings: [RomSiblingDTO]?
     public var urlCover: String?
+    /// Release date, genres, companies, players, rating, screenshots, regions and
+    /// languages when known (docs/play-data-local.md §6). Empty on older servers.
+    public var metadata: RomMetadata
+    /// The metadata groups this payload carried. A RomM list payload may omit some;
+    /// the cache keeps what it stored for those (`RomMetadata.merge`).
+    public var metadataFields: RomMetadataFields
 
     public init(
         id: Int,
@@ -155,7 +161,9 @@ public struct RomDTO: Codable, Hashable, Sendable, Identifiable {
         fsName: String = "",
         files: [RomFileDTO] = [],
         siblings: [RomSiblingDTO]? = nil,
-        urlCover: String? = nil
+        urlCover: String? = nil,
+        metadata: RomMetadata = .empty,
+        metadataFields: RomMetadataFields = []
     ) {
         self.id = id
         self.name = name
@@ -167,9 +175,20 @@ public struct RomDTO: Codable, Hashable, Sendable, Identifiable {
         self.files = files
         self.siblings = siblings
         self.urlCover = urlCover
+        self.metadata = metadata
+        self.metadataFields = metadataFields
     }
 
     public var displayName: String { name ?? fsName }
+
+    /// UTC year of the first release, when RomM knows it.
+    public var releaseYear: Int? { metadata.releaseYear }
+
+    /// "Super Nintendo · 1994" (or just the platform).
+    public var platformAndYear: String {
+        let platform = platformName.isEmpty ? platformSlug.uppercased() : platformName
+        return [platform.isEmpty ? nil : platform, releaseYear.map(String.init)].compactMap { $0 }.joined(separator: " · ")
+    }
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -182,6 +201,13 @@ public struct RomDTO: Codable, Hashable, Sendable, Identifiable {
         case files
         case siblings
         case urlCover = "url_cover"
+        // RomM 5.2 metadata (read only; decoded leniently).
+        case metadatum
+        case mergedScreenshots = "merged_screenshots"
+        case regions
+        case languages
+        // Rommio's cached, already-decoded metadata (written only to the local cache).
+        case cachedMetadata = "rommio_metadata"
     }
 
     public init(from decoder: Decoder) throws {
@@ -196,6 +222,39 @@ public struct RomDTO: Codable, Hashable, Sendable, Identifiable {
         files = try container.decode([RomFileDTO].self, forKey: .files, default: [])
         siblings = try container.decodeIfPresent([RomSiblingDTO].self, forKey: .siblings)
         urlCover = try container.decodeIfPresent(String.self, forKey: .urlCover)
+        if let cached = try? container.decodeIfPresent(RomMetadata.self, forKey: .cachedMetadata) {
+            metadata = cached
+            metadataFields = .all
+        } else {
+            // A field of the wrong type is ignored on its own; it never fails the payload.
+            func field(_ key: CodingKeys) -> LenientJSON? {
+                guard let value = try? container.decodeIfPresent(LenientJSON.self, forKey: key), !value.isNull else { return nil }
+                return value
+            }
+            let metadatum = field(.metadatum), screenshots = field(.mergedScreenshots), regions = field(.regions), languages = field(.languages)
+            var carried: RomMetadataFields = []
+            if metadatum != nil { carried.insert(.metadatum) }
+            if screenshots != nil { carried.insert(.screenshots) }
+            if regions != nil { carried.insert(.regions) }
+            if languages != nil { carried.insert(.languages) }
+            metadataFields = carried
+            metadata = RomMetadata.fromRemote(metadatum: metadatum, mergedScreenshots: screenshots, regions: regions, languages: languages)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encodeIfPresent(name, forKey: .name)
+        try container.encodeIfPresent(summary, forKey: .summary)
+        try container.encode(platformID, forKey: .platformID)
+        try container.encode(platformName, forKey: .platformName)
+        try container.encode(platformSlug, forKey: .platformSlug)
+        try container.encode(fsName, forKey: .fsName)
+        try container.encode(files, forKey: .files)
+        try container.encodeIfPresent(siblings, forKey: .siblings)
+        try container.encodeIfPresent(urlCover, forKey: .urlCover)
+        if !metadata.isEmpty { try container.encode(metadata, forKey: .cachedMetadata) }
     }
 }
 

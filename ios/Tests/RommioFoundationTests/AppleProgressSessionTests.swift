@@ -218,6 +218,11 @@ final class AppleTestProgressEngine: ProgressPlayerEngine, @unchecked Sendable {
         try bridge.restoreProgress(Dictionary(uniqueKeysWithValues: memory.map { (NSNumber(value: $0.key), $0.value) }), state: state)
         if failNextRestore { failNextRestore = false; throw ProgressStoreError.invalid("Injected failure after native mutation") }
     }
+    /// The core's last software frame, as the app's engine offers it for save previews.
+    func previewFrame() -> PlayDataFrame? {
+        guard let frame = bridge.copyLatestVideoFrame() else { return nil }
+        return PlayerPreviewFrames.software(data: frame.pixelData, width: Int(frame.width), height: Int(frame.height), pitch: Int(frame.pitch), format: frame.pixelFormat)
+    }
     func prepare(session: PlayerSession) async throws {}
     func makeHostController() throws -> PlayerHostController { throw PlayerEngineError.hostUnavailable }
     func start() async throws { bridge.setPaused(false) }

@@ -13,7 +13,7 @@ public enum InteractiveSessionAuthenticationError: Error, LocalizedError, Sendab
     public var errorDescription: String? {
         switch self {
         case .missingPresentationAnchor: "A presentation anchor is required to launch browser sign-in."
-        case .cancelled: "The interactive sign-in session was cancelled."
+        case .cancelled: "The interactive sign-in session was canceled."
         case .callbackURLMismatch: "Finish sign-in on the configured RomM server before returning to the app."
         case .failedToStart: "Browser sign-in could not be started."
         }

@@ -1,3 +1,4 @@
+import CoreImage
 import Foundation
 import OSLog
 import RommioContract
@@ -261,6 +262,20 @@ public final class IOSLibretroPlayerEngine: ProgressPlayerEngine, @unchecked Sen
     public func captureProgress(includeState: Bool) async throws -> NativeProgressCapture {
         try withBridge { try NativeProgressCapture.read($0, includeState: includeState) }
     }
+    /// The frame the surface shows, for a save preview. Software frames are copied now
+    /// and made into an image later; a hardware texture is read back now, because the
+    /// core reuses it on its next frame.
+    public func previewFrame() -> PlayDataFrame? {
+        guard let frame = locked({ latestFrameSnapshot }) else { return nil }
+        if let texture = frame.hardwareTexture {
+            let image = CIImage(mtlTexture: texture, options: nil)?
+                .transformed(by: CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: CGFloat(frame.height)))
+            let rendered = image.flatMap { Self.previewContext.createCGImage($0, from: $0.extent) }
+            return rendered.map { image in PlayDataFrame { image } }
+        }
+        return PlayerPreviewFrames.software(data: frame.pixelData, width: frame.width, height: frame.height, pitch: frame.pitch, format: frame.pixelFormat)
+    }
+    private static let previewContext = CIContext(options: [.cacheIntermediates: false])
     public func restoreProgress(memory: [Int: Data], state: Data?) async throws {
         locked { latestFrameSnapshot = nil }
         try withBridge { try $0.restoreProgress(Dictionary(uniqueKeysWithValues: memory.map { (NSNumber(value: $0.key), $0.value) }), state: state) }

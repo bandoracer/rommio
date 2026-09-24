@@ -10,6 +10,8 @@ public protocol LibraryRepository: Sendable {
     func cachedRoms(platformID: Int) async throws -> [RomDTO]
     func cachedRoms(collection: RommCollectionDTO) async throws -> [RomDTO]
     func cachedRom(id: Int) async throws -> RomDTO?
+    /// Every game cached for the active profile (for Search and Stats).
+    func cachedLibraryRoms() async throws -> [RomDTO]
     func loadHome() async throws -> HomeSnapshot
     func loadPlatforms() async throws -> [PlatformDTO]
     func loadCollections() async throws -> [RommCollectionDTO]
@@ -122,6 +124,11 @@ public actor DefaultLibraryRepository: LibraryRepository {
     public func cachedRom(id: Int) async throws -> RomDTO? {
         let profile = try await requireActiveProfile()
         return try cachedRoms(profileID: profile.id).first(where: { $0.id == id })
+    }
+
+    public func cachedLibraryRoms() async throws -> [RomDTO] {
+        let profile = try await requireActiveProfile()
+        return try cachedRoms(profileID: profile.id)
     }
 
     public func loadPlatforms() async throws -> [PlatformDTO] {
@@ -245,7 +252,14 @@ public actor DefaultLibraryRepository: LibraryRepository {
             partialResult[rom.id] = rom
         }.values
         try database.write { db in
-            for rom in uniqueRoms {
+            for var rom in uniqueRoms {
+                // A partial payload keeps the metadata groups it did not carry
+                // (docs/play-data-local.md §6, "Partial payloads").
+                if rom.metadataFields != .all,
+                   let previousPayload = try Data.fetchOne(db, sql: "SELECT payload FROM cached_roms WHERE profile_id = ? AND rom_id = ?", arguments: [profileID, rom.id]),
+                   let previous = try? database.decoded(RomDTO.self, from: previousPayload) {
+                    rom.metadata = RomMetadata.merge(previous: previous.metadata, incoming: rom.metadata, carried: rom.metadataFields)
+                }
                 try db.execute(
                     sql: """
                         INSERT INTO cached_roms (profile_id, rom_id, platform_id, payload, updated_at_epoch_ms)
