@@ -166,9 +166,10 @@ Check each pose:
 Also confirm: a quick stylus tap registers on the touch screen; pausing shows
 every action including Leave game without scrolling; unfolding or folding mid-game
 keeps the session; audio is clean (the core's own sample rate, not 44.1 kHz).
-The Azahar 3DS candidate currently fails the clean-audio check in Pokémon X:
-its roughly 23–24 fps simulator run produces fewer audio frames than real-time
-playback needs. That performance gate remains open independently of layout.
+The former software renderer ran Pokémon X at roughly 23–24 fps on the
+simulator. Azahar Vulkan is now the default; a native 1,200-frame probe ran at
+93.3 emulated fps with non-silent audio. Clean audio in the visible player
+remains a separate check from layout and native-core throughput.
 
 Beta caveats: `reservedRegions` reports no hinge in beta 1, so the DS layout falls
 back to the display midline and book-pose pad mode can't trigger automatically.

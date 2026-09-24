@@ -39,7 +39,7 @@ It preserves the same product-facing runtime families as Android, but changes de
 | PlayStation | `psx`, `ps1`, `playstation` | Touch | `PCSX ReARMed` | `SwanStation` | `scph5501.bin` | Bundled signed libretro core | strong | Same BIOS policy, but iOS packaging differs. |
 | PlayStation Portable | `psp` | Controller | `PPSSPP` | None | None | Bundled signed libretro core | provisional | Needs battery and thermal validation on reference devices. |
 | Nintendo DS / DSi-enhanced | `nds`, `nintendo-dsi` | Touch | `melonDS DS` | `DeSmuME` | None | Bundled signed libretro core | strong | Uses the portrait handheld touch layout and lower-screen pointer routing already defined by the iOS player shell. |
-| Nintendo 3DS | `3ds`, `new-nintendo-3ds` | Touch | `Azahar` | None | User keys/system files for content that needs them | Blocked integration candidate | provisional | 3DStris changed its own config through the simulator player's touch input; local RomM save and resume streams restored in a fresh app root. Commercial content, keys, device performance and distribution remain unqualified. |
+| Nintendo 3DS | `3ds`, `new-nintendo-3ds` | Touch | `Azahar` | None | User keys/system files for content that needs them | Bundled Vulkan framework | provisional | 3DStris game saves and resume snapshots restored on simulator; Pokémon X produced non-silent audio in a native Vulkan probe. Physical devices and distribution remain unqualified. |
 | GameCube / Wii | `gamecube`, `ngc`, `wii` | Controller | `Dolphin` | None | None | Bundled signed libretro core | provisional | Higher-end expansion target once the iOS bridge is validated. |
 | Dreamcast / NAOMI | `dreamcast`, `naomi` | Controller | `Flycast` | None | `dc_boot.bin`, `dc_flash.bin` | Bundled signed libretro core | provisional | Same BIOS policy, iOS-specific packaging. |
 | 3DO | `3do` | Controller | `Opera` | None | Varies by ROM set / firmware path | Bundled signed libretro core | provisional | Keep controller-first until heavier per-core validation clears. |
@@ -74,27 +74,27 @@ It preserves the same product-facing runtime families as Android, but changes de
 
 ## Near-term delivery scope
 
-Keep the thirteen cores now used by iOS development builds: FCEUmm,
+Keep the fourteen cores now used by iOS builds: FCEUmm,
 Snes9x, Gambatte, mGBA, Genesis Plus GX, Mupen64Plus-Next, PCSX ReARMed,
-PPSSPP, melonDS DS, FinalBurn Neo, Stella, ProSystem, and Handy. Their presence in a development build
+PPSSPP, melonDS DS, FinalBurn Neo, Stella, ProSystem, Handy, and Azahar. Their presence in a build
 does not establish App Store signing or platform qualification.
 
-Azahar remains blocked. The Atari cores are present in the simulator build;
-their remaining qualification gates are recorded below:
+Azahar is enabled with Vulkan; its remaining qualification is tracked below.
+The Atari cores are present in the simulator build:
 
 | Priority | Families | Core | Current gap | Required outcome |
 | --- | --- | --- | --- | --- |
-| Now — integration proof | Nintendo 3DS | Azahar 2126.1.2 candidate | Pinned macOS, simulator and iPhone arm64 builds; 3DStris game-authored config and independent snapshot restore pass on iPhone Duo and iPad Air simulators against disposable RomM 5.2; five-minute iPhone Duo simulator run averages 67.8 fps | Conventional 3DS save or extdata, audio, broader titles and keys, physical iPhone/iPad performance, hosted RomM, and distribution signing |
+| Now — qualification | Nintendo 3DS | Azahar 2126.1.2 Vulkan | Pinned simulator and iPhone arm64 builds; 3DStris game save and independent snapshot restore pass on iPhone Duo simulator; Pokémon X native Vulkan probe runs at 93.3 emulated fps with non-silent audio | Visible-player Pokémon X, broader titles and keys, physical iPhone/iPad performance, and distribution signing |
 | Atari 1 | Atari 2600 | Stella 2023 | Pinned framework and simulator snapshot replay pass | Real RomM snapshot sync, touch/controller play, and device qualification |
 | Atari 2 | Atari 7800 | ProSystem | Pinned framework; generated NTSC fixture passes simulator replay | PAL timing, controls, real RomM sync, and device qualification |
 | Atari 3 | Atari Lynx | Handy | Pinned framework; homebrew EEPROM and HLE boot pass simulator replay | EEPROM/snapshot sync, rotation, and device qualification |
 
 The [priority core delivery plan](ios-priority-core-plan.md) defines the work
-and promotion gates. The Atari entries are delivery work; 3DS starts with an
-Azahar integration proof. Dreamcast/NAOMI (Flycast) is on the backburner and is
+and qualification checks. The Atari entries are delivery work; 3DS remains
+experimental. Dreamcast/NAOMI (Flycast) is on the backburner and is
 not in the active build or validation scope.
-Do not mark 3DS playable just because a core compiles. For
-each family, a **game save**, where supported, is its own persistent progress
+The experimental playable setting is not proof of qualification. For each
+family, a **game save**, where supported, is its own persistent progress
 artifact and a **resume snapshot** is a separate captured emulator state; both
 must satisfy the ownership, recovery, and synchronization rules in
 [save-sync-spec.md](save-sync-spec.md). Simulator checks, iPhone/iPad device

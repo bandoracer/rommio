@@ -7,12 +7,13 @@ import MetalKit
 import RommioPlayerBridge
 import UIKit
 
-struct PlayerVideoFrameSnapshot: Sendable {
+struct PlayerVideoFrameSnapshot: @unchecked Sendable {
     var pixelData: Data
     var width: Int
     var height: Int
     var pitch: Int
     var pixelFormat: RMLLibretroPixelFormat
+    var hardwareTexture: (any MTLTexture)? = nil
 }
 
 final class PlayerSurfaceController: UIViewController, MTKViewDelegate {
@@ -118,15 +119,21 @@ final class PlayerSurfaceController: UIViewController, MTKViewDelegate {
             return
         }
 
+        var waitForHardwareFrame = false
         defer {
             commandBuffer.present(currentDrawable)
             commandBuffer.commit()
+            // Azahar reuses its Vulkan output image on the next retro_run.
+            // Keep Metal's read of that image complete before the core can
+            // render into it again. A frame ring can remove this wait later.
+            if waitForHardwareFrame { commandBuffer.waitUntilCompleted() }
         }
 
         guard let frame = frameProvider(),
               let ciContext else {
             return
         }
+        waitForHardwareFrame = frame.hardwareTexture != nil
 
         guard let ciImage = makeImage(from: frame) else {
             return
@@ -188,6 +195,14 @@ final class PlayerSurfaceController: UIViewController, MTKViewDelegate {
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
     private func makeImage(from frame: PlayerVideoFrameSnapshot) -> CIImage? {
+        if let texture = frame.hardwareTexture {
+            // Libretro's Vulkan image is top-down; Core Image places a Metal
+            // texture in bottom-up image coordinates. Flip before cropping the
+            // two 3DS screens into their stage positions.
+            return CIImage(mtlTexture: texture, options: nil)?.transformed(
+                by: CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: CGFloat(frame.height))
+            )
+        }
         guard let image = PlayerFrameImage.make(
             data: frame.pixelData, width: frame.width, height: frame.height,
             pitch: frame.pitch, format: frame.pixelFormat

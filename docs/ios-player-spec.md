@@ -361,7 +361,7 @@ Shipping behavior:
 
 - `DOS` remains controller-first and blocked until a keyboard/pointer helper model is validated
 - `GameCube / Wii` and `Dreamcast / NAOMI` remain blocked on their rendering and execution paths; Dreamcast / NAOMI is deferred from the current delivery scope
-- `3DS` uses a pinned Azahar software-rendering candidate and remains blocked on device gameplay, real-save/snapshot sync, performance, and distribution validation
+- `3DS` uses pinned Azahar Vulkan by default; device gameplay, real-save/snapshot sync, performance, and distribution validation remain separate open checks
 - `Dreamcast / NAOMI` and `3DO` also remain subject to BIOS or firmware requirements where applicable
 - `Dreamcast / NAOMI`, `3DO`, `Virtual Boy`, and `Sega 32X` are breadth-expansion families rather than touch-first mobile showcases
 

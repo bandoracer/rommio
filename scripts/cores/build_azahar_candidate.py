@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Rebuild the blocked Azahar 3DS integration candidate from pinned source.
+"""Build the pinned Azahar software prerequisite for the iOS Vulkan core.
 
-This does not add Azahar to the app's playable or distribution inventory.
+The app packages the separate Vulkan build, not this software artifact.
 """
 import argparse
 import hashlib

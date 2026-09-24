@@ -1,10 +1,9 @@
 # iOS priority core delivery plan
 
-Status: **implementation in progress; release gates not qualified**. Active scope: Nintendo 3DS (Azahar iOS
-libretro candidate), Atari 2600 (Stella), Atari 7800
+Status: **implementation in progress; release gates not qualified**. Active scope: Nintendo 3DS (Azahar Vulkan), Atari 2600 (Stella), Atari 7800
 (ProSystem), and Atari Lynx (Handy). Dreamcast/NAOMI (Flycast) is deferred.
-Keep the thirteen cores in current development builds; Azahar remains an
-opt-in blocked debug candidate, and other new cores are deferred. This
+Azahar Vulkan is enabled in normal iOS builds while its remaining qualification
+is tracked separately. This
 plan extends the [iOS core matrix](core-matrix-ios.md) and does not change the behavioral
 [save/sync specification](save-sync-spec.md).
 
@@ -30,8 +29,8 @@ failure to capture a state must not discard valid game-save data.
 1. **Make the runtime inventory honest.** Keep `docs/runtime-matrix.json` and
    `scripts/ios/core-build-manifest.json` as catalog/declared-path inventories.
    Add a verified packaged-core inventory generated from the final app product;
-   only verified entries may appear playable. Preserve the existing blocked
-   reasons for 3DS until its gates pass. Keep Flycast blocked and out of the
+   the experimental catalog may expose Azahar while qualification stays
+   separately tracked. Keep Flycast blocked and out of the
    active build scope. Align Library/detail readiness, the player UI, and
    release docs with this inventory.
 2. **Pin and build from source.** For each selected core, choose an upstream
@@ -82,8 +81,8 @@ specific failure and evaluate another maintained candidate.
 After that integration gate passes:
 
 - Update the catalog's runtime ID/name and packaged-core provenance to match
-  the selected Azahar build; preserve the blocked status until gameplay and
-  persistence checks pass.
+  the selected Azahar build; track gameplay and persistence checks separately
+  from the experimental app's playable setting.
 - Define supported decrypted/encrypted content and user-supplied key paths.
   Bind title identity to the exact installed file set and effective keys.
 - Inventory the complete per-title SD/save/extdata tree as the **game-save**
@@ -95,10 +94,10 @@ After that integration gate passes:
 - Implement dual-screen composition, lower-screen pointer/touch mapping,
   screen arrangement, gamepad controls, background/foreground recovery, and
   performance checks on both iPhone and iPad.
-- Gate: signed device execution; local and RomM sync/readback of a real in-game
+- Qualification: signed device execution; local and RomM sync/readback of a real in-game
   save; separately qualified automatic/manual snapshot restore and sync; and
-  dual-screen input. If the selected build fails a gate, keep 3DS blocked and
-  record the measured failure and alternative-core decision.
+  dual-screen input. Record measured failures and any alternative-core decision
+  without treating the experimental app's playable setting as proof of completion.
 
 ## 2. Atari 2600 — Stella
 
@@ -175,7 +174,8 @@ and observed behavior take precedence over those descriptions.
   Android test also found and fixed a clean-exit audit that had retained Handy
   EEPROM as an abandoned session. Real RomM sync, touch/controller play,
   iPhone/iPad devices and distribution signing remain open.
-- Azahar 2126.1.2 is pinned as a blocked integration candidate. JIT-disabled
+- Azahar 2126.1.2 was first pinned as a software integration candidate;
+  Vulkan is now enabled by default in iOS builds. JIT-disabled
   software-rendering macOS, iOS-simulator and iPhone arm64 builds succeeded.
   The [MIT-licensed 3DStris 1.6.9 homebrew](https://github.com/3DStris/3DStris/releases/tag/v1.6.9)
   (SHA-256 `09ef94c1eb759bd4cca0c38f932389ea0b6f4aa40a2a97b8b73c924b3f697280`)

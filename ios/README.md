@@ -140,15 +140,15 @@ Build the app for the iOS simulator:
 scripts/ios/build_simulator_app.sh
 ```
 
-The app build embeds thirteen independently signed core frameworks, including
-Stella, ProSystem, and Handy. Pinned source builds produce each new cartridge
+The app build embeds fourteen independently signed core frameworks, including
+Stella, ProSystem, Handy, and Azahar. Pinned source builds produce each new cartridge
 core for simulator and device; the final framework digest is recorded in its
 provenance file. Cartridge builds need Git, Make, Python 3, CMake, and network
 access for first-time source/dependency fetches. Set `CMAKE` to select an
-explicit executable. The blocked Azahar 3DS candidate can be included in a
-Debug simulator or device build with `ROMMIO_INCLUDE_AZAHAR_CANDIDATE=1` and
-`ROMMIO_AZAHAR_SOURCE_CACHE=<pinned-source-checkout>`. It is omitted from
-normal builds and every Release build. See [build inputs and persistence
+explicit executable. The pinned Azahar Vulkan core is included in iOS
+simulator and device builds. The first build compiles both its pinned software
+source prerequisite and the Vulkan variant; `ROMMIO_AZAHAR_SOURCE_CACHE` can
+point to a preexisting pinned checkout. See [build inputs and persistence
 scope](../docs/cartridge-progress.md), [platform expansion
 qualification](../docs/platform-expansion.md), and the [priority core
 plan](../docs/ios-priority-core-plan.md).
@@ -244,13 +244,12 @@ mirroring, rotation and Menu, then returns the app to its normal root. It does n
 connect to a server or modify game progress. Actual fixture-player validation is
 separate; see `docs/player-controls-validation.md`.
 
-### Nintendo 3DS candidate qualification
+### Nintendo 3DS qualification
 
-Azahar is a blocked, opt-in Debug candidate. Build its simulator framework
-into the app with `ROMMIO_INCLUDE_AZAHAR_CANDIDATE=1 scripts/ios/build_simulator_app.sh`.
-The normal player catalog keeps 3DS
-blocked; `ROMMIO_ENABLE_AZAHAR_QA=1` opens it only in a Debug QA launch.
-Release builds do not include that override.
+Azahar uses Vulkan by default and is available in normal Debug and Release iOS
+builds. Run `scripts/ios/build_simulator_app.sh` to build the simulator app.
+The pinned renderer, save/snapshot behavior, and remaining qualification work
+are documented in [3DS GPU renderer integration](../docs/ios-3ds-gpu-renderer.md).
 
 The reproducible simulator probe uses the separately obtained MIT-licensed
 3DStris 1.6.9 `.3dsx` fixture and the disposable, loopback-only RomM 5.2

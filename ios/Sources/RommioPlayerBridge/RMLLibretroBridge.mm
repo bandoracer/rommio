@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #import "RommioPlayerBridge/RMLLibretroBridge.h"
+#import "RMLVulkanHost.h"
 
 #import <dlfcn.h>
 #import <math.h>
@@ -222,6 +223,8 @@ static std::recursive_mutex coreMutex;
 @property (nonatomic, readwrite) NSURL *romURL;
 @property (nonatomic, readwrite) NSData *romData;
 @property (nonatomic, readwrite) RMLLibretroPixelFormat pixelFormat;
+@property (nonatomic, strong, nullable) RMLVulkanHost *vulkanHost;
+@property (nonatomic, copy, nullable) NSString *vulkanFrameError;
 @property (nonatomic, readwrite) NSMutableArray<RMLAudioBatch *> *pendingAudioBatches;
 @property (nonatomic, readwrite) NSMutableArray<NSNumber *> *pendingRumbleMagnitudes;
 @property (nonatomic, readwrite) RMLVideoFrame *latestVideoFrame;
@@ -307,12 +310,15 @@ static std::recursive_mutex coreMutex;
     self.savesDirectory = savesDirectory;
     self.romURL = romURL;
     self.latestVideoFrame = nil;
+    self.vulkanHost = [effective[@"citra_graphics_api"] isEqualToString:@"Vulkan"]
+        ? [[RMLVulkanHost alloc] init] : nil;
     [self.pendingAudioBatches removeAllObjects];
     [self.pendingRumbleMagnitudes removeAllObjects];
     self.pixelFormat = RMLLibretroPixelFormat0RGB1555;
     _variableUpdatePending = false;
 
     self.lastCoreError = nil;
+    self.vulkanFrameError = nil;
     activeBridge = self;
     // Some cores cache directories during retro_set_environment, before init.
     // Install the callback only after this session's owned paths are ready.
@@ -338,6 +344,10 @@ static std::recursive_mutex coreMutex;
                        description:self.lastCoreError ?: @"The libretro core rejected the ROM image."];
     }
     NSLog(@"[RMLLibretroBridge] retro_load_game complete");
+    if (self.vulkanHost != nil && ![self.vulkanHost activateContext:error]) {
+        [self stop];
+        return NO;
+    }
 
     retro_system_av_info avInfo = {};
     _retro_get_system_av_info(&avInfo);
@@ -365,6 +375,9 @@ static std::recursive_mutex coreMutex;
         NSLog(@"[RMLLibretroBridge] first retro_run");
     }
     _retro_run();
+    if (self.vulkanFrameError != nil) {
+        return [self populateError:error code:1005 description:self.vulkanFrameError];
+    }
     [self.pendingDigitalPresses removeAllObjects];
     [self.pendingPointerPresses removeAllObjects];
     if (count == 0) {
@@ -377,6 +390,10 @@ static std::recursive_mutex coreMutex;
     @synchronized (self) {
         return self.latestVideoFrame;
     }
+}
+
+- (nullable id<MTLTexture>)copyLatestHardwareTexture {
+    return self.vulkanHost.latestTexture;
 }
 
 - (NSArray<RMLAudioBatch *> *)drainAudioBatches {
@@ -473,6 +490,7 @@ static std::recursive_mutex coreMutex;
                               code:1009
                        description:@"The libretro core does not support loading save states."];
     }
+    [self.vulkanHost invalidateFrame];
     if (!_retro_unserialize(stateData.bytes, stateData.length)) {
         return [self populateError:error
                               code:1010
@@ -540,6 +558,7 @@ static std::recursive_mutex coreMutex;
             return [self populateError:error code:1123 description:@"Restore memory layout differs from the active cartridge."];
         }
     }
+    [self.vulkanHost invalidateFrame];
     if (!files && state != nil && ![self unserializeState:state error:error]) { return NO; }
     for (unsigned region : regions) {
         if (memory[@(region)].length != _retro_get_memory_size(region) ||
@@ -552,6 +571,11 @@ static std::recursive_mutex coreMutex;
         if (bytes.length) { memcpy(_retro_get_memory_data(region), bytes.bytes, bytes.length); }
     }
     if (!_memoryRestored()) { return [self populateError:error code:1124 description:@"The core could not apply restored persistent memory."]; }
+    // Azahar's file restore unloads and reloads the title. Hardware cores
+    // defer the actual boot until context_reset, which is not repeated for a
+    // retained Vulkan context. Reboot against the restored file tree before
+    // applying the independent resume snapshot.
+    if (files && self.vulkanHost != nil && _retro_reset != nullptr) { _retro_reset(); }
     if (files && state != nil && ![self unserializeState:state error:error]) { return NO; }
     [self.pendingAudioBatches removeAllObjects];
     return YES;
@@ -670,6 +694,9 @@ static std::recursive_mutex coreMutex;
     if (self.prepared && _retro_unload_game != nullptr) {
         _retro_unload_game();
     }
+    [self.vulkanHost shutdown];
+    self.vulkanHost = nil;
+    self.vulkanFrameError = nil;
     self.prepared = NO;
     self.romData = nil;
     [self.digitalInputs removeAllObjects];
@@ -762,6 +789,13 @@ static std::recursive_mutex coreMutex;
                        width:(unsigned)width
                       height:(unsigned)height
                        pitch:(size_t)pitch {
+    if (self.vulkanHost != nil) {
+        NSError *frameError = nil;
+        if (![self.vulkanHost receiveVideoFrame:data width:width height:height error:&frameError]) {
+            self.vulkanFrameError = frameError.localizedDescription;
+        }
+        return;
+    }
     if (data == nullptr || width == 0 || height == 0 || pitch == 0) {
         return;
     }
@@ -795,6 +829,9 @@ static std::recursive_mutex coreMutex;
 
 - (BOOL)handleEnvironmentCommand:(unsigned)cmd
                             data:(void *)data {
+    if (self.vulkanHost != nil && [self.vulkanHost handleEnvironmentCommand:cmd data:data]) {
+        return true;
+    }
     switch (cmd) {
         case RETRO_ENVIRONMENT_GET_LOG_INTERFACE: {
             if (data == nullptr) { return false; }

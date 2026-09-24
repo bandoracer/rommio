@@ -32,11 +32,20 @@ let package = Package(
         ),
         .target(
             name: "RommioPlayerBridge",
-            dependencies: [],
+            dependencies: ["MoltenVK"],
             publicHeadersPath: "include",
+            cSettings: [.headerSearchPath("vendor")],
             linkerSettings: [
                 .linkedFramework("Foundation"),
+                .linkedFramework("Metal"),
+                .linkedFramework("QuartzCore"),
+                .linkedFramework("IOSurface"),
             ]
+        ),
+        .binaryTarget(
+            name: "MoltenVK",
+            url: "https://github.com/mpvkit/moltenvk-build/releases/download/1.4.2/MoltenVK.xcframework.zip",
+            checksum: "aee189c54ad7c62bf734a3dc51eb4cfad5685d1d63b0ec519ecd1b437c332418"
         ),
         .target(
             name: "RommioPlayerKit",

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Qualify the opt-in Azahar candidate against 3DStris and disposable RomM 5.2.
+"""Qualify bundled Azahar Vulkan against 3DStris and disposable RomM 5.2.
 
-Build the Debug simulator app with ROMMIO_INCLUDE_AZAHAR_CANDIDATE=1 first.
+Build the simulator app first.
 The 3DStris ROM is separately obtained test content and is never committed.
 """
 import argparse
@@ -38,15 +38,13 @@ def wait_result(root, timeout):
     raise RuntimeError(f'Timed out waiting for {root}')
 
 
-def run_phase(device, bundle, root, phase, config, *, native=False, timeout=120):
+def run_phase(device, bundle, root, phase, config, *, timeout=120):
     config_path = root / 'config.json'
     config_path.write_text(json.dumps(config | {'phase': phase}))
     config_path.chmod(0o600)
     env = os.environ.copy()
     env.update(SIMCTL_CHILD_ROMMIO_APP_ROOT=str(root),
                SIMCTL_CHILD_ROMMIO_PROGRESS_PROBE_CONFIG=str(config_path))
-    if not native:
-        env['SIMCTL_CHILD_ROMMIO_ENABLE_AZAHAR_QA'] = '1'
     if phase in ('peer', 'cold-peer'):
         env['SIMCTL_CHILD_ROMMIO_PROGRESS_PROBE_PAUSED'] = '1'
     (root / 'probe-result.json').unlink(missing_ok=True)
@@ -77,7 +75,7 @@ def main():
     if audio_rom:
         assert hashlib.sha256(audio_rom.read_bytes()).hexdigest() == '208233250d89cd7a23f5c2ed13ba6165a0e9882c4588ecb3097e2f5cd89c8edb', 'Expected ccleste 1.4.0 fixture'
     app = ROOT / 'ios/build/Debug-iphonesimulator/Rommio.app'
-    assert (app / 'Frameworks/azahar.framework/azahar').is_file(), 'Build candidate-enabled app first'
+    assert (app / 'Frameworks/azahar.framework/azahar').is_file(), 'Build the simulator app first'
     bundle = output('/usr/libexec/PlistBuddy', '-c', 'Print CFBundleIdentifier', str(app / 'Info.plist'))
 
     inspected = json.loads(output(*(DOCKER + ['inspect', CONTAINER])))[0]
@@ -137,21 +135,21 @@ def main():
             shutil.copy2(rom, native / '3dstris.3dsx')
             (native / 'cases.json').write_text(json.dumps([{
                 'runtime': 'azahar', 'system': '3ds', 'rom': '3dstris.3dsx',
-                'variables': {'citra_graphics_api': 'Software', 'citra_use_cpu_jit': 'disabled',
+                'variables': {'citra_graphics_api': 'Vulkan', 'citra_use_cpu_jit': 'disabled',
                               'citra_use_shader_jit': 'disabled'},
                 'enduranceSeconds': args.endurance_seconds}]))
             result = run_phase(args.simulator, bundle, native, 'expansion-native', base_config,
-                               native=True, timeout=args.endurance_seconds + 120)
+                               timeout=args.endurance_seconds + 120)
             print('PASS native:', result['fixtures'][0], flush=True)
         if audio_rom:
             native = new_root(container)
             shutil.copy2(audio_rom, native / 'ccleste.3dsx')
             (native / 'cases.json').write_text(json.dumps([{
                 'runtime': 'azahar', 'system': '3ds', 'rom': 'ccleste.3dsx',
-                'variables': {'citra_graphics_api': 'Software', 'citra_use_cpu_jit': 'disabled',
+                'variables': {'citra_graphics_api': 'Vulkan', 'citra_use_cpu_jit': 'disabled',
                               'citra_use_shader_jit': 'disabled'}, 'audioOnly': True}]))
             result = run_phase(args.simulator, bundle, native, 'expansion-native', base_config,
-                               native=True, timeout=180)
+                               timeout=180)
             print('PASS audio:', result['fixtures'][0], flush=True)
 
 
