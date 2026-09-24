@@ -65,15 +65,15 @@ struct AuroraLibraryLayout: View {
                         .padding(.horizontal, theme.spacing.gutter)
                 }
                 if content.isEmpty {
-                    EmptyStateView(title: content.isLoading ? "Loading your library" : "No platforms yet", systemImage: "square.stack.3d.up.slash",
-                                   message: content.isLoading ? nil : content.errorMessage ?? "Pull to refresh once your server is reachable.")
+                    AnyView(EmptyStateView(title: content.isLoading ? "Loading your library" : "No platforms yet", systemImage: "square.stack.3d.up.slash",
+                                           message: content.isLoading ? nil : content.errorMessage ?? "Pull to refresh once your server is reachable."))
                 } else {
-                    if eras.count >= 2 { eraRuler }
-                    browseHeader.padding(.horizontal, theme.spacing.gutter)
-                    coverRow
-                    facets
-                    platforms.padding(.horizontal, theme.spacing.gutter)
-                    collections
+                    if eras.count >= 2 { AnyView(eraRuler) }
+                    AnyView(browseHeader.padding(.horizontal, theme.spacing.gutter))
+                    AnyView(coverRow)
+                    AnyView(facets)
+                    AnyView(platforms.padding(.horizontal, theme.spacing.gutter))
+                    AnyView(collections)
                     if let staleMessage = content.staleMessage {
                         Text(staleMessage).themeText(.caption).foregroundStyle(theme.inkSecondary)
                             .padding(.horizontal, theme.spacing.gutter)
@@ -191,7 +191,7 @@ struct AuroraLibraryLayout: View {
                 .padding(.horizontal, theme.spacing.gutter)
         } else {
             VStack(spacing: 18) {
-                GeometryReader { proxy in
+                AnyView(GeometryReader { proxy in
                     let itemWidth: CGFloat = 150
                     ScrollView(.horizontal, showsIndicators: false) {
                         LazyHStack(spacing: -18) {
@@ -220,9 +220,9 @@ struct AuroraLibraryLayout: View {
                     .scrollPosition(id: $focusID, anchor: .center)
                     .scrollClipDisabled()
                 }
-                .frame(height: 210)
+                .frame(height: 210))
                 if let focused {
-                    VStack(spacing: 3) {
+                    AnyView(VStack(spacing: 3) {
                         Text(focused.displayName)
                             .themeText(.headline, size: 21)
                             .foregroundStyle(theme.ink)
@@ -233,7 +233,7 @@ struct AuroraLibraryLayout: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, theme.spacing.gutter)
-                    .accessibilityElement(children: .combine)
+                    .accessibilityElement(children: .combine))
                 }
             }
         }

@@ -16,10 +16,10 @@ struct AuroraGameLayout: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                GameArtHero(url: content.artworkURL, title: content.rom.displayName)
-                    .accessibilityIdentifier("gameDetail.hero")
+                AnyView(GameArtHero(url: content.artworkURL, title: content.rom.displayName)
+                    .accessibilityIdentifier("gameDetail.hero"))
                 Group {
-                    if horizontalSizeClass == .regular { regular } else { compact }
+                    if horizontalSizeClass == .regular { AnyView(regular) } else { AnyView(compact) }
                 }
                 .padding(.horizontal, horizontalSizeClass == .regular ? 32 : theme.spacing.gutter)
                 .padding(.top, -64)
@@ -35,15 +35,15 @@ struct AuroraGameLayout: View {
 
     private var compact: some View {
         VStack(alignment: .leading, spacing: theme.spacing.section) {
-            heading
-            GameFilePicker(content: content, actions: actions)
-            GameActionDeck(content: content, actions: actions)
-            timeline
-            details
-            GameScreenshotsRow(urls: content.screenshots, gutter: theme.spacing.gutter)
-                .padding(.horizontal, -theme.spacing.gutter)
-            file
-            about
+            AnyView(heading)
+            AnyView(GameFilePicker(content: content, actions: actions))
+            AnyView(GameActionDeck(content: content, actions: actions))
+            AnyView(timeline)
+            AnyView(details)
+            AnyView(GameScreenshotsRow(urls: content.screenshots, gutter: theme.spacing.gutter)
+                .padding(.horizontal, -theme.spacing.gutter))
+            AnyView(file)
+            AnyView(about)
         }
     }
 

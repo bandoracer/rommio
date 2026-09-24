@@ -22,13 +22,15 @@ struct AuroraPlayLayout: View {
         ScrollView {
             VStack(alignment: .leading, spacing: theme.spacing.section) {
                 if horizontalSizeClass == .regular {
-                    canvas
+                    AnyView(canvas)
                 } else {
-                    compact
+                    AnyView(compact)
                 }
-                AuroraRecentSaves(items: content.recentSaves, palettes: palettes, open: actions.openSave)
-                    .padding(.horizontal, horizontalSizeClass == .regular ? 32 : theme.spacing.gutter)
-                notices
+                AnyView(
+                    AuroraRecentSaves(items: content.recentSaves, palettes: palettes, open: actions.openSave)
+                        .padding(.horizontal, horizontalSizeClass == .regular ? 32 : theme.spacing.gutter)
+                )
+                AnyView(notices)
             }
             .padding(.bottom, 40)
             .frame(maxWidth: 1180)

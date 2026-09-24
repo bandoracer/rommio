@@ -18,7 +18,7 @@ struct RisoPlayLayout: View {
     var body: some View {
         ScrollView {
             Group {
-                if horizontalSizeClass == .regular { broadsheet } else { column }
+                if horizontalSizeClass == .regular { AnyView(broadsheet) } else { AnyView(column) }
             }
             .padding(.horizontal, horizontalSizeClass == .regular ? 28 : theme.spacing.gutter)
             .padding(.bottom, 40)
@@ -32,14 +32,14 @@ struct RisoPlayLayout: View {
 
     private var column: some View {
         VStack(alignment: .leading, spacing: 0) {
-            masthead
-            Dateline(leading: PlayFormat.longDate(Date()), trailing: content.serverName)
-                .padding(.top, 6)
-            ears
-            if let lead { leadStory(lead, big: false).padding(.top, 14) }
-            columns.padding(.top, 20)
-            RisoRecentSaves(items: content.recentSaves, open: actions.openSave).padding(.top, 26)
-            notices.padding(.top, 20)
+            AnyView(masthead)
+            AnyView(Dateline(leading: PlayFormat.longDate(Date()), trailing: content.serverName)
+                .padding(.top, 6))
+            AnyView(ears)
+            if let lead { AnyView(leadStory(lead, big: false).padding(.top, 14)) }
+            AnyView(columns.padding(.top, 20))
+            AnyView(RisoRecentSaves(items: content.recentSaves, open: actions.openSave).padding(.top, 26))
+            AnyView(notices.padding(.top, 20))
         }
     }
 

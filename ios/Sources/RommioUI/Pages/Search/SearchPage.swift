@@ -156,9 +156,9 @@ private struct AuroraSearchLayout: View {
     var body: some View {
         ThemedScrollPage(style: content.hits.first == nil ? .quiet : .page, maxWidth: 900) {
             if content.isSearching {
-                results
+                AnyView(results)
             } else {
-                suggestions
+                AnyView(suggestions)
             }
         }
         .litBy(content.isSearching ? content.hits.first?.artworkURL : nil)
@@ -265,7 +265,7 @@ private struct RisoSearchLayout: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                if content.isSearching { results } else { suggestions }
+                if content.isSearching { AnyView(results) } else { AnyView(suggestions) }
             }
             .padding(.horizontal, theme.spacing.gutter)
             .padding(.bottom, 40)

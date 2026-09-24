@@ -15,10 +15,10 @@ struct RisoGameLayout: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                GameArtHero(url: content.artworkURL, title: content.rom.displayName)
-                    .accessibilityIdentifier("gameDetail.hero")
+                AnyView(GameArtHero(url: content.artworkURL, title: content.rom.displayName)
+                    .accessibilityIdentifier("gameDetail.hero"))
                 Group {
-                    if horizontalSizeClass == .regular { broadsheet } else { column }
+                    if horizontalSizeClass == .regular { AnyView(broadsheet) } else { AnyView(column) }
                 }
                 .padding(.horizontal, horizontalSizeClass == .regular ? 28 : theme.spacing.gutter)
                 .padding(.top, 16)
@@ -33,20 +33,20 @@ struct RisoGameLayout: View {
 
     private var column: some View {
         VStack(alignment: .leading, spacing: 0) {
-            headline
-            byline.padding(.top, 12)
-            whereYouLeftOff.padding(.top, 22)
-            VStack(alignment: .leading, spacing: 12) {
+            AnyView(headline)
+            AnyView(byline.padding(.top, 12))
+            AnyView(whereYouLeftOff.padding(.top, 22))
+            AnyView(VStack(alignment: .leading, spacing: 12) {
                 GameFilePicker(content: content, actions: actions)
                 GameActionDeck(content: content, actions: actions, showsNotes: false)
             }
-            .padding(.top, 22)
-            story.padding(.top, 26)
-            GameScreenshotsRow(urls: content.screenshots, gutter: theme.spacing.gutter)
+            .padding(.top, 22))
+            AnyView(story.padding(.top, 26))
+            AnyView(GameScreenshotsRow(urls: content.screenshots, gutter: theme.spacing.gutter)
                 .padding(.horizontal, -theme.spacing.gutter)
-                .padding(.top, 26)
-            details.padding(.top, 26)
-            preserved
+                .padding(.top, 26))
+            AnyView(details.padding(.top, 26))
+            AnyView(preserved)
         }
     }
 

@@ -177,16 +177,18 @@ private struct AuroraStatsLayout: View {
     var body: some View {
         ThemedScrollPage(style: .page, maxWidth: 1000) {
             if content.isEmpty {
-                StatsEmpty(content: content)
+                AnyView(StatsEmpty(content: content))
             } else {
-                if let top = content.top { hero(top) }
-                summary
-                timeByGame
-                recent
-                Text(content.footnote)
-                    .themeText(.caption)
-                    .foregroundStyle(theme.inkTertiary)
-                    .accessibilityIdentifier("stats.footnote")
+                if let top = content.top { AnyView(hero(top)) }
+                AnyView(summary)
+                AnyView(timeByGame)
+                AnyView(recent)
+                AnyView(
+                    Text(content.footnote)
+                        .themeText(.caption)
+                        .foregroundStyle(theme.inkTertiary)
+                        .accessibilityIdentifier("stats.footnote")
+                )
             }
         }
         .litBy(content.top?.artworkURL)
@@ -314,31 +316,31 @@ private struct RisoStatsLayout: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 if content.isEmpty {
-                    StatsEmpty(content: content)
+                    AnyView(StatsEmpty(content: content))
                 } else {
-                    Text("\(PlayFormat.count(content.sessionCount, "session")) recorded · kept on this device")
+                    AnyView(Text("\(PlayFormat.count(content.sessionCount, "session")) recorded · kept on this device")
                         .themeText(.body, size: 15)
                         .italic()
                         .foregroundStyle(theme.inkSecondary)
-                        .padding(.bottom, 12)
+                        .padding(.bottom, 12))
                     if horizontalSizeClass == .regular {
                         HStack(alignment: .top, spacing: 0) {
-                            VStack(alignment: .leading, spacing: 0) { month; games }
+                            VStack(alignment: .leading, spacing: 0) { AnyView(month); AnyView(games) }
                                 .frame(maxWidth: .infinity)
                                 .padding(.trailing, 20)
                             Rectangle().fill(theme.ink).frame(width: 1)
-                            diary.frame(maxWidth: .infinity).padding(.leading, 20)
+                            AnyView(diary.frame(maxWidth: .infinity).padding(.leading, 20))
                         }
                     } else {
-                        month
-                        games
-                        diary
+                        AnyView(month)
+                        AnyView(games)
+                        AnyView(diary)
                     }
-                    Text(content.footnote)
+                    AnyView(Text(content.footnote)
                         .themeText(.caption)
                         .foregroundStyle(theme.inkSecondary)
                         .padding(.top, 20)
-                        .accessibilityIdentifier("stats.footnote")
+                        .accessibilityIdentifier("stats.footnote"))
                 }
             }
             .padding(.horizontal, theme.spacing.gutter)

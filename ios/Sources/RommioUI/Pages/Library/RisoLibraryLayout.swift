@@ -21,14 +21,14 @@ struct RisoLibraryLayout: View {
                         .padding(.bottom, 14)
                 }
                 if content.isEmpty {
-                    EmptyStateView(title: content.isLoading ? "Loading your library" : "No platforms yet", systemImage: "square.stack.3d.up.slash",
-                                   message: content.isLoading ? nil : content.errorMessage ?? "Pull to refresh once your server is reachable.")
+                    AnyView(EmptyStateView(title: content.isLoading ? "Loading your library" : "No platforms yet", systemImage: "square.stack.3d.up.slash",
+                                           message: content.isLoading ? nil : content.errorMessage ?? "Pull to refresh once your server is reachable."))
                 } else {
-                    key
+                    AnyView(key)
                     ForEach(content.sections) { section in
-                        part(section)
+                        AnyView(part(section))
                     }
-                    collections
+                    AnyView(collections)
                     if let staleMessage = content.staleMessage {
                         VStack(alignment: .leading, spacing: 4) {
                             Kicker(label: "Showing your saved library", fill: .yellow)
