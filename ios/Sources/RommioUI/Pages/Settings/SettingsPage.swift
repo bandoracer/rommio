@@ -16,86 +16,133 @@ enum SettingsDestination: Hashable {
 /// storage, and signing out. One layout; the components carry the theme (glass
 /// groups, or paper rows between rules).
 struct SettingsPage: View {
-    @Environment(\.rommioTheme) private var theme
     let model: RommioAppModel
     let feature: SettingsFeatureModel
+    @State private var path = NavigationPath()
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ThemedScrollPage(style: .quiet, maxWidth: 760) {
-                AccountCard(feature: feature)
+                AccountCard(profile: feature.activeProfile, offlineState: feature.offlineState)
                 AppearanceSection()
-                ThemedGroup(title: "Rommio", inset: 58) {
-                    NavigationRow(value: SettingsDestination.profiles, title: "Profiles and servers",
-                                  subtitle: feature.profiles.count == 1 ? "1 server" : "\(feature.profiles.count) servers") {
-                        IconTile(systemImage: "server.rack", tone: .live)
-                    }
-                    .accessibilityIdentifier("settings.profiles")
-                    NavigationRow(value: SettingsDestination.player, title: "Player and controls", subtitle: "Touch controls, controllers, display") {
-                        IconTile(systemImage: "gamecontroller.fill", tone: .ok)
-                    }
-                    .accessibilityIdentifier("settings.player")
-                    NavigationRow(value: SettingsDestination.cores, title: "Cores and BIOS", subtitle: coresSubtitle) {
-                        IconTile(systemImage: "cpu.fill", tone: .wait)
-                    }
-                    .accessibilityIdentifier("settings.cores")
-                    NavigationRow(value: SettingsDestination.backup, title: "Backup and recovery", subtitle: "Game saves, resume points and recovery") {
-                        IconTile(systemImage: "externaldrive.fill.badge.timemachine", tone: .bad)
-                    }
-                    .accessibilityIdentifier("settings.backup")
-                }
-                ThemedGroup(title: "Storage") {
-                    ValueRow(title: "Installed games", value: PlayFormat.count(feature.storageSummary.installedGameCount))
-                    ValueRow(title: "Installed files", value: PlayFormat.count(feature.storageSummary.installedFileCount))
-                    ValueRow(title: "Library on this device", value: PlayFormat.bytes(feature.storageSummary.totalBytes))
-                    ValueRow(title: "Catalog cache", value: PlayFormat.bytes(feature.storageSummary.cacheBytes))
-                }
+                SettingsLinks(serverCount: feature.profiles.count, coresSubtitle: Self.coresSubtitle(feature.runtimeInventory))
+                SettingsStorage(summary: feature.storageSummary)
                 if let staleMessage = feature.staleMessage,
                    feature.activeProfile != nil || !feature.profiles.isEmpty {
-                    ThemedGroup(title: "Showing saved settings") {
-                        Text(staleMessage).themeText(.caption).foregroundStyle(theme.inkSecondary)
-                    }
+                    SettingsStale(message: staleMessage)
                 }
-                ThemedGroup(title: "Account") {
-                    Button {
-                        Task { await feature.reauthenticate() }
-                    } label: {
-                        Text("Sign in again").themeText(.bodyEmphasis, size: 16).foregroundStyle(theme.readableTint)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .buttonStyle(RowButtonStyle())
-                    Button(role: .destructive) {
-                        Task { await feature.signOut() }
-                    } label: {
-                        Text("Sign out").themeText(.bodyEmphasis, size: 16).foregroundStyle(theme.badText)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .buttonStyle(RowButtonStyle())
-                    .accessibilityIdentifier("settings.signOut")
-                }
+                SettingsAccount(feature: feature)
             }
             .navigationTitle("Settings")
             .accessibilityIdentifier("shell.settingsList")
             .navigationDestination(for: SettingsDestination.self) { destination in
-                switch destination {
-                case .profiles:
-                    ProfilesSettingsPage(feature: feature)
-                case .player:
-                    PlayerSettingsPage(feature: feature)
-                case .cores:
-                    CoresSettingsPage(model: model, feature: feature)
-                case .backup:
-                    ProgressRecoveryView(service: feature.progressService)
-                }
+                SettingsDestinationView(destination: destination, model: model, feature: feature)
             }
             .task { await feature.refresh() }
         }
+        .appNavigator($path)
     }
 
-    private var coresSubtitle: String {
-        let ready = feature.runtimeInventory.filter { $0.provisioningStatus == .ready }.count
-        let needsBIOS = feature.runtimeInventory.filter { $0.provisioningStatus == .missingBIOS }.count
+    static func coresSubtitle(_ inventory: [CoreInventoryEntry]) -> String {
+        let ready = inventory.filter { $0.provisioningStatus == .ready }.count
+        let needsBIOS = inventory.filter { $0.provisioningStatus == .missingBIOS }.count
         return needsBIOS > 0 ? "\(ready) ready · \(needsBIOS) need BIOS" : "\(ready) ready"
+    }
+}
+
+private struct SettingsDestinationView: View {
+    let destination: SettingsDestination
+    let model: RommioAppModel
+    let feature: SettingsFeatureModel
+
+    var body: some View {
+        switch destination {
+        case .profiles:
+            ProfilesSettingsPage(feature: feature)
+        case .player:
+            PlayerSettingsPage(feature: feature)
+        case .cores:
+            CoresSettingsPage(model: model, feature: feature)
+        case .backup:
+            ProgressRecoveryView(service: feature.progressService)
+        }
+    }
+}
+
+private struct SettingsLinks: View {
+    let serverCount: Int
+    let coresSubtitle: String
+
+    var body: some View {
+        ThemedGroup(title: "Rommio", inset: 58) {
+            NavigationRow(value: SettingsDestination.profiles, title: "Profiles and servers",
+                          subtitle: serverCount == 1 ? "1 server" : "\(serverCount) servers") {
+                IconTile(systemImage: "server.rack", tone: .live)
+            }
+            .accessibilityIdentifier("settings.profiles")
+            NavigationRow(value: SettingsDestination.player, title: "Player and controls", subtitle: "Touch controls, controllers, display") {
+                IconTile(systemImage: "gamecontroller.fill", tone: .ok)
+            }
+            .accessibilityIdentifier("settings.player")
+            NavigationRow(value: SettingsDestination.cores, title: "Cores and BIOS", subtitle: coresSubtitle) {
+                IconTile(systemImage: "cpu.fill", tone: .wait)
+            }
+            .accessibilityIdentifier("settings.cores")
+            NavigationRow(value: SettingsDestination.backup, title: "Backup and recovery", subtitle: "Game saves, resume points and recovery") {
+                IconTile(systemImage: "externaldrive.fill.badge.timemachine", tone: .bad)
+            }
+            .accessibilityIdentifier("settings.backup")
+        }
+    }
+}
+
+private struct SettingsStorage: View {
+    let summary: LocalStorageSummary
+
+    var body: some View {
+        ThemedGroup(title: "Storage") {
+            ValueRow(title: "Installed games", value: PlayFormat.count(summary.installedGameCount))
+            ValueRow(title: "Installed files", value: PlayFormat.count(summary.installedFileCount))
+            ValueRow(title: "Library on this device", value: PlayFormat.bytes(summary.totalBytes))
+            ValueRow(title: "Catalog cache", value: PlayFormat.bytes(summary.cacheBytes))
+        }
+    }
+}
+
+private struct SettingsStale: View {
+    @Environment(\.rommioTheme) private var theme
+    let message: String
+
+    var body: some View {
+        ThemedGroup(title: "Showing saved settings") {
+            Text(message).themeText(.caption).foregroundStyle(theme.inkSecondary)
+        }
+    }
+}
+
+private struct SettingsAccount: View {
+    @Environment(\.rommioTheme) private var theme
+    @Environment(\.pageLight) private var light
+    let feature: SettingsFeatureModel
+
+    var body: some View {
+        ThemedGroup(title: "Account") {
+            Button {
+                Task { await feature.reauthenticate() }
+            } label: {
+                Text("Sign in again").themeText(.bodyEmphasis, size: 16).foregroundStyle(light.readableTint)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(RowButtonStyle())
+            Button(role: .destructive) {
+                Task { await feature.signOut() }
+            } label: {
+                Text("Sign out").themeText(.bodyEmphasis, size: 16).foregroundStyle(theme.badText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(RowButtonStyle())
+            .accessibilityIdentifier("settings.signOut")
+        }
     }
 }
 
@@ -104,51 +151,56 @@ struct SettingsPage: View {
 /// heavy rules, the server's name set as a headline.
 private struct AccountCard: View {
     @Environment(\.rommioTheme) private var theme
-    let feature: SettingsFeatureModel
+    let profile: ServerProfile?
+    let offlineState: OfflineState
 
     var body: some View {
         Group {
-            if theme.isRiso { imprint } else { card }
+            if theme.isRiso {
+                AccountImprint(profile: profile, offlineState: offlineState, syncLine: syncLine)
+            } else {
+                AccountGlassCard(profile: profile, offlineState: offlineState, syncLine: syncLine)
+            }
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("settings.account")
     }
 
     private var syncLine: String? {
-        feature.offlineState.lastFullSyncAtEpochMS.map {
+        offlineState.lastFullSyncAtEpochMS.map {
             "Library synced \(PlayFormat.inline(Date(timeIntervalSince1970: TimeInterval($0) / 1000)))"
         }
     }
+}
 
-    private var card: some View {
+private struct AccountGlassCard: View {
+    @Environment(\.rommioTheme) private var theme
+    let profile: ServerProfile?
+    let offlineState: OfflineState
+    let syncLine: String?
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 14) {
-                Text(initial)
-                    .themeText(.headline)
-                    .foregroundStyle(theme.markInk)
-                    .frame(width: 52, height: 52)
-                    .background(Circle().fill(LinearGradient(colors: [theme.mark1, theme.mark2], startPoint: .topLeading, endPoint: .bottomTrailing)))
-                    .overlay { Circle().strokeBorder(theme.glassRim.opacity(0.6), lineWidth: 2).padding(-3) }
-                    .padding(3)
-                    .accessibilityHidden(true)
+                AccountAvatar(initial: String((profile?.label ?? "R").prefix(1)).uppercased())
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(feature.activeProfile?.label ?? "No active server")
+                    Text(profile?.label ?? "No active server")
                         .themeText(.headline)
                         .foregroundStyle(theme.ink)
-                    Text(feature.activeProfile?.baseURL.host() ?? "Set up a server to keep using Rommio.")
+                    Text(profile?.baseURL.host() ?? "Set up a server to keep using Rommio.")
                         .themeText(.secondary)
                         .foregroundStyle(theme.inkSecondary)
                         .lineLimit(1)
                 }
             }
             FlowRow(spacing: 8) {
-                if feature.offlineState.connectivity == .offline {
+                if offlineState.connectivity == .offline {
                     StatusChip(title: "Offline", tone: .wait, systemImage: "wifi.slash")
                 } else {
                     StatusChip(title: "Online", tone: .ok)
                 }
-                StatusChip(title: feature.offlineState.catalogReady ? "Ready offline" : "Library syncing",
-                           tone: feature.offlineState.catalogReady ? .ok : .live)
+                StatusChip(title: offlineState.catalogReady ? "Ready offline" : "Library syncing",
+                           tone: offlineState.catalogReady ? .ok : .live)
             }
             if let syncLine {
                 Text(syncLine).themeText(.caption).foregroundStyle(theme.inkSecondary)
@@ -158,21 +210,46 @@ private struct AccountCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .themeSurface()
     }
+}
 
-    private var imprint: some View {
+/// The server's initial on the page's light.
+private struct AccountAvatar: View {
+    @Environment(\.rommioTheme) private var theme
+    @Environment(\.pageLight) private var light
+    let initial: String
+
+    var body: some View {
+        Text(initial)
+            .themeText(.headline)
+            .foregroundStyle(theme.markInk)
+            .frame(width: 52, height: 52)
+            .background(Circle().fill(LinearGradient(colors: [light.mark1, light.mark2], startPoint: .topLeading, endPoint: .bottomTrailing)))
+            .overlay { Circle().strokeBorder(theme.glassRim.opacity(0.6), lineWidth: 2).padding(-3) }
+            .padding(3)
+            .accessibilityHidden(true)
+    }
+}
+
+private struct AccountImprint: View {
+    @Environment(\.rommioTheme) private var theme
+    let profile: ServerProfile?
+    let offlineState: OfflineState
+    let syncLine: String?
+
+    var body: some View {
         VStack(spacing: 8) {
             Text("Server").themeText(.label, size: 10).foregroundStyle(theme.inkSecondary)
-            DisplayText(text: feature.activeProfile?.label ?? "No active server", role: .display, size: 44, plateOffset: 1.25, lineLimit: 2)
+            DisplayText(text: profile?.label ?? "No active server", role: .display, size: 44, plateOffset: 1.25, lineLimit: 2)
                 .multilineTextAlignment(.center)
-            Text(feature.activeProfile?.baseURL.host() ?? "Set up a server to keep using Rommio.")
+            Text(profile?.baseURL.host() ?? "Set up a server to keep using Rommio.")
                 .themeText(.body, size: 15)
                 .italic()
                 .foregroundStyle(theme.ink)
             HStack(spacing: 8) {
-                StatusChip(title: feature.offlineState.connectivity == .offline ? "Offline" : "Online",
-                           tone: feature.offlineState.connectivity == .offline ? .wait : .ok)
-                StatusChip(title: feature.offlineState.catalogReady ? "Ready offline" : "Library syncing",
-                           tone: feature.offlineState.catalogReady ? .ok : .live)
+                StatusChip(title: offlineState.connectivity == .offline ? "Offline" : "Online",
+                           tone: offlineState.connectivity == .offline ? .wait : .ok)
+                StatusChip(title: offlineState.catalogReady ? "Ready offline" : "Library syncing",
+                           tone: offlineState.catalogReady ? .ok : .live)
             }
             if let syncLine {
                 Text(syncLine).themeText(.label, size: 9.5).foregroundStyle(theme.inkSecondary)
@@ -182,10 +259,6 @@ private struct AccountCard: View {
         .padding(.vertical, 18)
         .overlay(alignment: .top) { Rectangle().fill(theme.ink).frame(height: 3) }
         .overlay(alignment: .bottom) { Rectangle().fill(theme.ink).frame(height: 3) }
-    }
-
-    private var initial: String {
-        String((feature.activeProfile?.label ?? "R").prefix(1)).uppercased()
     }
 }
 
@@ -232,20 +305,13 @@ private struct AppearancePreview: View {
         ZStack(alignment: .topLeading) {
             PageBackground(style: .welcome)
             HStack(alignment: .center, spacing: 14) {
-                ZStack {
-                    if theme.isRiso {
-                        theme.accent2
-                        HalftoneField(dot: theme.accent1, pitch: 6)
-                    } else {
-                        LinearGradient(colors: [theme.accent1, theme.accent2, theme.accent3], startPoint: .topLeading, endPoint: .bottomTrailing)
+                AppearancePreviewCover()
+                    .frame(width: 70, height: 94)
+                    .clipShape(RoundedRectangle(cornerRadius: theme.isRiso ? 0 : 12, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: theme.isRiso ? 0 : 12, style: .continuous)
+                            .strokeBorder(theme.isRiso ? theme.ink : theme.glassRim.opacity(0.4), lineWidth: 1)
                     }
-                }
-                .frame(width: 70, height: 94)
-                .clipShape(RoundedRectangle(cornerRadius: theme.isRiso ? 0 : 12, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: theme.isRiso ? 0 : 12, style: .continuous)
-                        .strokeBorder(theme.isRiso ? theme.ink : theme.glassRim.opacity(0.4), lineWidth: 1)
-                }
                 VStack(alignment: .leading, spacing: 7) {
                     Text("Continue playing").themeText(.section, size: theme.isRiso ? 12 : 10.5).foregroundStyle(theme.inkSecondary)
                     DisplayText(text: "Super Metroid", role: theme.isRiso ? .display : .headline, size: theme.isRiso ? 26 : 20, lineLimit: 1)
@@ -275,9 +341,26 @@ private struct AppearancePreview: View {
     }
 }
 
+private struct AppearancePreviewCover: View {
+    @Environment(\.rommioTheme) private var theme
+    @Environment(\.pageLight) private var light
+
+    var body: some View {
+        ZStack {
+            if theme.isRiso {
+                theme.accent2
+                HalftoneField(dot: theme.accent1, pitch: 6)
+            } else {
+                LinearGradient(colors: [light.accent1, light.accent2, light.accent3], startPoint: .topLeading, endPoint: .bottomTrailing)
+            }
+        }
+    }
+}
+
 /// Settings › Profiles and servers.
 struct ProfilesSettingsPage: View {
     @Environment(\.rommioTheme) private var theme
+    @Environment(\.pageLight) private var light
     let feature: SettingsFeatureModel
     @State private var profilePendingRemoval: ServerProfile?
 
@@ -313,7 +396,7 @@ struct ProfilesSettingsPage: View {
                     Button {
                         Task { await feature.reconfigureServerAccess() }
                     } label: {
-                        Text("Set up server access again").themeText(.bodyEmphasis, size: 16).foregroundStyle(theme.readableTint)
+                        Text("Set up server access again").themeText(.bodyEmphasis, size: 16).foregroundStyle(light.readableTint)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .buttonStyle(RowButtonStyle())
@@ -347,7 +430,8 @@ struct PlayerSettingsPage: View {
 
     var body: some View {
         ThemedScrollPage(maxWidth: 760) {
-            ThemedGroup(title: "Touch controls") {
+            ThemedGroup(title: "Touch controls",
+                        footer: "Haptics give a light tap as you press a control. The system haptics setting still applies.") {
                 ToggleRow(title: "Show touch controls", isOn: Binding(
                     get: { feature.preferences.touchControlsEnabled },
                     set: { value in Task { await feature.setTouchControlsEnabled(value) } }
@@ -356,6 +440,11 @@ struct PlayerSettingsPage: View {
                     get: { feature.preferences.autoHideTouchOnController },
                     set: { value in Task { await feature.setAutoHideTouchOnController(value) } }
                 ))
+                ToggleRow(title: "Haptics", isOn: Binding(
+                    get: { feature.preferences.hapticsEnabled },
+                    set: { value in Task { await feature.setHapticsEnabled(value) } }
+                ))
+                .accessibilityIdentifier("settings.player.haptics")
             }
             ThemedGroup(title: "Display",
                         footer: "Console colors give face buttons their original colors. OLED black turns the player's background fully black.") {
@@ -383,6 +472,7 @@ struct PlayerSettingsPage: View {
 /// Settings › Cores and BIOS: firmware import and the emulators in this build.
 struct CoresSettingsPage: View {
     @Environment(\.rommioTheme) private var theme
+    @Environment(\.pageLight) private var light
     let model: RommioAppModel
     let feature: SettingsFeatureModel
     @State private var selectingBIOS = false
@@ -398,7 +488,7 @@ struct CoresSettingsPage: View {
                 } label: {
                     Label("Import BIOS files", systemImage: "square.and.arrow.down")
                         .themeText(.bodyEmphasis, size: 16)
-                        .foregroundStyle(theme.readableTint)
+                        .foregroundStyle(light.readableTint)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(RowButtonStyle())

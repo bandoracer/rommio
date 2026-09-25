@@ -25,6 +25,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -158,8 +159,19 @@ fun Modifier.softShadow(
     blur: Dp,
     spread: Dp = 0.dp,
     layers: Int = 10,
-): Modifier = drawBehind {
-    if (color.alpha <= 0f) return@drawBehind
+): Modifier = drawBehind { drawSoftShadow(color, cornerRadius, offsetY, blur, spread, layers) }
+
+/** [softShadow] for a shape of [size] at the origin of this scope. */
+internal fun DrawScope.drawSoftShadow(
+    color: Color,
+    cornerRadius: Dp,
+    offsetY: Dp,
+    blur: Dp,
+    spread: Dp = 0.dp,
+    layers: Int = 10,
+    size: Size = this.size,
+) {
+    if (color.alpha <= 0f) return
     val radius = minOf(cornerRadius.toPx(), size.minDimension / 2f)
     val clip = Path().apply { addRoundRect(RoundRect(0f, 0f, size.width, size.height, CornerRadius(radius))) }
     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P && spread.value == 0f) {
@@ -178,7 +190,7 @@ fun Modifier.softShadow(
                 canvas.nativeCanvas.drawRoundRect(0f, 0f, size.width, size.height, radius, radius, paint)
             }
         }
-        return@drawBehind
+        return
     }
     clipPath(clip, ClipOp.Difference) {
         val step = color.copy(alpha = color.alpha / layers)
@@ -202,7 +214,7 @@ fun Modifier.softShadow(
  * Aurora glass edge (docs/theme-layouts.md §1.6): a 0.5 dp white keyline (70 % by day, 8 % by
  * night) and a 1 dp white top rim (95 % / 16 %) fading to clear by 12 % of the height.
  */
-internal fun DrawScope.glassEdge(radiusPx: Float, dark: Boolean, strength: Float = 1f) {
+internal fun DrawScope.glassEdge(radiusPx: Float, dark: Boolean, strength: Float = 1f, size: Size = this.size) {
     val r = minOf(radiusPx, size.minDimension / 2f)
     val keyline = 0.5.dp.toPx()
     drawRoundRect(
@@ -255,6 +267,8 @@ fun Modifier.themedSurface(
     nested: Boolean = false,
     selected: Boolean = false,
     keyline: Boolean = true,
+    /** Aurora's selected outline: the page light's `mark1` ([RommioTheme.light]). */
+    selectedEdge: Color = Color.Unspecified,
 ): Modifier {
     val shape = if (cornerRadius >= 999.dp) {
         androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)
@@ -283,10 +297,10 @@ fun Modifier.themedSurface(
         this
             .then(if (nested) Modifier else Modifier.dropShadow(shadow.color, radius, shadow.radius, shadow.y))
             .clip(shape)
-            .then(if (nested) Modifier else Modifier.glassBackdropBlur(theme.material.glassBlur.dp))
+            .then(if (nested) Modifier else Modifier.glassBackdropBlur())
             .background(fill)
             .drawBehind { glassEdge(radius.toPx(), theme.isDark, if (nested) 0.5f else 1f) }
-            .then(if (selected) Modifier.border(1.5.dp, theme.mark1, shape) else Modifier)
+            .then(if (selected && selectedEdge.isSpecified) Modifier.border(1.5.dp, selectedEdge, shape) else Modifier)
     }
 }
 
@@ -321,10 +335,12 @@ fun GlassSurface(
     val theme = RommioTheme.current
     val nested = LocalInCard.current
     val fill = if (strong) theme.colors.surfaceStrong else theme.colors.surface
+    // Only a selected surface reads the page light (its outline is the light's mark).
+    val selectedEdge = if (selected && !theme.isRiso) RommioTheme.light.mark1 else Color.Unspecified
     CompositionLocalProvider(LocalContentColor provides theme.colors.ink, LocalInCard provides true) {
         Column(
             modifier = modifier
-                .themedSurface(theme, cornerRadius, fill = fill, nested = nested, selected = selected)
+                .themedSurface(theme, cornerRadius, fill = fill, nested = nested, selected = selected, selectedEdge = selectedEdge)
                 .then(
                     if (onClick != null) {
                         Modifier.clickable(onClickLabel = onClickLabel, role = Role.Button, onClick = onClick)

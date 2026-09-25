@@ -72,7 +72,8 @@ import io.github.bandoracer.rommio.ui.theme.RommioThemeValue
 @Composable
 fun CoverPlaceholder(title: String, modifier: Modifier = Modifier) {
     val theme = RommioTheme.current
-    val c = theme.colors
+    // Aurora's stand-in is drawn in the page's lights (the lit accents); Riso's plates never light.
+    val c = if (theme.isRiso) theme.colors else RommioTheme.light.colors
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -152,11 +153,15 @@ fun GameCover(
     ) {
         CoverPlaceholder(title)
         if (!imageUrl.isNullOrBlank()) {
+            val context = LocalContext.current
             AsyncImage(
                 model = imageUrl,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
+                // A shown cover gets its palette worked out in the background, so its Game page
+                // (or any page it lights) opens lit on the first frame.
+                onSuccess = { CoverArt.warmPalette(context, imageUrl) },
             )
         }
         Box(Modifier.fillMaxSize().border(0.5.dp, c.ink.copy(alpha = if (theme.isDark) 0.14f else 0.1f), shape))
@@ -399,10 +404,15 @@ fun RoomCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     width: Dp = 176.dp,
+    /** The card's height (0.76 × [width] when not given). */
+    height: Dp? = null,
+    /** A captured frame (a resume point's preview) shown instead of the cover; never art-treated. */
+    previewPath: String? = null,
+    showsPlatform: Boolean = true,
 ) {
     val theme = RommioTheme.current
     val shape = RoundedCornerShape(18.dp)
-    val height = width * 0.76f
+    val height = height ?: (width * 0.76f)
     Box(
         modifier = modifier
             .size(width, height)
@@ -413,19 +423,34 @@ fun RoomCard(
         contentAlignment = Alignment.BottomStart,
     ) {
         CoverPlaceholder(title)
-        if (!imageUrl.isNullOrBlank()) {
-            AsyncImage(model = imageUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        if (previewPath != null) {
+            AsyncImage(
+                model = java.io.File(previewPath),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                filterQuality = androidx.compose.ui.graphics.FilterQuality.None,
+                modifier = Modifier.fillMaxSize().background(OverArt.frameGround),
+            )
+        } else if (!imageUrl.isNullOrBlank()) {
+            val context = LocalContext.current
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+                onSuccess = { CoverArt.warmPalette(context, imageUrl) },
+            )
         }
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.3f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.78f))))
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            RoleText(platformSlug.uppercase(), theme.type.section, size = 10f, color = Color.White.copy(alpha = 0.72f), maxLines = 1)
+            if (showsPlatform) RoleText(platformSlug.uppercase(), theme.type.section, size = 10f, color = Color.White.copy(alpha = 0.72f), maxLines = 1)
             RoleText(title, theme.type.bodyEmphasis, size = 15f, color = Color.White, maxLines = 1)
             detail?.let { RoleText(it, theme.type.caption, size = 11.5f, color = Color.White.copy(alpha = 0.76f), maxLines = 1) }
         }
         Box(
             Modifier
                 .fillMaxSize()
-                .border(if (selected) 2.dp else 0.5.dp, if (selected) theme.mark1 else Color.White.copy(alpha = 0.14f), shape),
+                .border(if (selected) 2.dp else 0.5.dp, if (selected) RommioTheme.light.mark1 else Color.White.copy(alpha = 0.14f), shape),
         )
     }
 }

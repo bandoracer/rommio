@@ -40,6 +40,7 @@ import io.github.bandoracer.rommio.domain.playdata.LaunchOptions
 import io.github.bandoracer.rommio.domain.playdata.LaunchStart
 import io.github.bandoracer.rommio.domain.playdata.SaveEntry
 import io.github.bandoracer.rommio.domain.playdata.SaveKind
+import io.github.bandoracer.rommio.ui.theme.LitMaterialTheme
 import io.github.bandoracer.rommio.ui.theme.RommioTheme
 
 /** "Automatic resume · 3 min ago · This phone" (or the save state it came from). */
@@ -84,7 +85,8 @@ fun LaunchChoiceSheet(
     val theme = RommioTheme.current
     val c = theme.colors
     var selected by rememberSaveable(options.resume.key.checkpointId, options.gameSave.key.checkpointId) { mutableStateOf(options.default) }
-    ModalBottomSheet(
+    // A stock sheet: its drag handle and scrim take the page's lit scheme.
+    LitMaterialTheme { ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),
         containerColor = c.groundRaised,
@@ -145,7 +147,7 @@ fun LaunchChoiceSheet(
             )
             TextAction("Not now", onClick = onDismiss, modifier = Modifier.align(Alignment.CenterHorizontally).testTag("launch.dismiss"))
         }
-    }
+    } }
 }
 
 /**
@@ -172,7 +174,7 @@ private fun LaunchChoiceRow(
     } else {
         Modifier
             .themedSurface(theme, cornerRadius = radius)
-            .then(if (selected) Modifier.border(2.dp, theme.mark1, shape) else Modifier)
+            .then(if (selected) Modifier.border(2.dp, RommioTheme.light.mark1, shape) else Modifier)
     }
     Row(
         modifier

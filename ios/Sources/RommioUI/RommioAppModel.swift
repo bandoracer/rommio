@@ -95,6 +95,19 @@ public final class RommioAppModel {
     @ObservationIgnored
     let artworkPipeline: ArtworkPipeline
 
+    // Tab pages' content, built from the feature models off the render path and
+    // published only when it changes (`DerivedContent`).
+    @ObservationIgnored private(set) lazy var playContent = DerivedContent { [unowned self] in PlayContent.build(self) }
+    @ObservationIgnored private(set) lazy var libraryContent = DerivedContent { [unowned self] in LibraryContent.build(self) }
+    @ObservationIgnored private(set) lazy var searchContent = DerivedContent { [unowned self] in SearchContent.build(self) }
+    @ObservationIgnored private(set) lazy var statsContent = DerivedContent { [unowned self] in StatsContent.build(self) }
+    @ObservationIgnored private(set) lazy var downloadsContent = DerivedContent { [unowned self] in DownloadsContent.build(self) }
+
+    /// Games downloaded to this device.
+    var installedRomIDs: Set<Int> {
+        Set(downloadsFeature.records.filter { $0.status == .completed }.map(\.romID))
+    }
+
     public var isBusy = false
     public var isRefreshing = false
     public var errorMessage: String?
@@ -194,6 +207,13 @@ public final class RommioAppModel {
                 await self?.deleteProfile(profile)
             }
         )
+        // Built (and tracking their feature models) before any page renders, so a
+        // page's first render depends only on its content, not on what builds it.
+        playContent.prepare()
+        libraryContent.prepare()
+        searchContent.prepare()
+        statsContent.prepare()
+        downloadsContent.prepare()
     }
 
     public var onboardingRoute: OnboardingRoute? {
@@ -225,6 +245,9 @@ public final class RommioAppModel {
 
     public func bootstrap() async {
         guard route == .gate else { return }
+        // Hash-verify the bundled cores once, in the background, before any page needs them.
+        BackgroundScans.warmCoreVerification(installer: coreInstaller, catalog: coreCatalog,
+                                             libraryStore: services.libraryStore, bundle: coreBundle)
         await reloadProfiles()
         await resumeDownloads()
         transitionFromGateDecision()
@@ -1443,6 +1466,10 @@ public final class RommioAppModel {
             }
         )
         player.backdropURL = artworkURL(path: rom.urlCover)
+        // The title strip's line: "Super Nintendo · 25 min played" (docs/player-controls.md).
+        let played = statsFeature.stats.games.first { $0.romID == rom.id }?.playtime ?? 0
+        player.titleDetail = PlayFormat.line([rom.platformName.isEmpty ? nil : rom.platformName,
+                                              played >= 60 ? "\(PlayFormat.duration(played)) played" : nil])
         let chosen = pendingStartOption
         pendingStartOption = nil
         // The choice is made before the player opens (docs/theme-layouts.md, Launch choice).

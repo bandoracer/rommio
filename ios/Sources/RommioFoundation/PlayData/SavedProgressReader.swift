@@ -88,12 +88,18 @@ public actor SavedProgressReader {
 
     /// Recent saves (Play): newest first, at most `limit`.
     public func recent(_ account: ProgressAccount, limit: Int = recentLimit) async throws -> [SaveEntry] {
+        try await recentAndLatest(account, limit: limit).recent
+    }
+
+    /// Recent saves (Play) and each game's latest place to continue from (Play's
+    /// screens), from one read of the store.
+    public func recentAndLatest(_ account: ProgressAccount, limit: Int = recentLimit) async throws -> (recent: [SaveEntry], latest: [Int64: SaveEntry]) {
         let context = try await context(account)
         var entries: [SaveEntry] = []
         for identity in context.identities {
             entries += try await self.entries(context, identity, prune: true)
         }
-        return SavedProgressRules.recent(entries, limit: limit)
+        return (SavedProgressRules.recent(entries, limit: limit), SavedProgressRules.latestByGame(entries))
     }
 
     /// One game's saves. The install's content generation (its file and content

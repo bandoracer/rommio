@@ -137,7 +137,35 @@ data class PlayerControlsPreferences(
     val rumbleToDeviceEnabled: Boolean = true,
     val oledBlackModeEnabled: Boolean = false,
     val consoleColorsEnabled: Boolean = true,
+    /** Touch-control haptics (docs/player-controls.md): device-local, on by default. */
+    val hapticsEnabled: Boolean = true,
 )
+
+/**
+ * A game's touch-stick tuning (docs/player-controls.md, "Per-game tuning"): device-local, per game;
+ * the default is the console profile as it is.
+ */
+data class PlayerStickTuning(
+    val sensitivity: Sensitivity = Sensitivity.NORMAL,
+    val deadZone: DeadZone = DeadZone.NORMAL,
+    val centre: Centre = Centre.FLOATING,
+) {
+    /** Low needs more thumb travel for full tilt, High less. */
+    enum class Sensitivity(val label: String, val travelFactor: Double) {
+        LOW("Low", 1.2), NORMAL("Normal", 1.0), HIGH("High", 0.8)
+    }
+
+    enum class DeadZone(val label: String, val factor: Double) {
+        SMALL("Small", 0.6), NORMAL("Normal", 1.0), LARGE("Large", 1.6)
+    }
+
+    /** Floating: touch-down sets the centre (and it follows the thumb); Fixed: the zone's centre. */
+    enum class Centre(val label: String) {
+        FLOATING("Floating"), FIXED("Fixed")
+    }
+
+    val isDefault: Boolean get() = this == PlayerStickTuning()
+}
 
 data class PlayerControlsState(
     val platformProfile: PlatformControlProfile,

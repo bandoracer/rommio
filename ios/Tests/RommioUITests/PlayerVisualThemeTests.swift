@@ -45,7 +45,11 @@ final class PlayerVisualThemeTests: XCTestCase {
         )
 
         let theme = resolvePlayerVisualTheme(controls: controls)
-        XCTAssertNotEqual(theme.faceStyle(label: "A").fillColor, theme.neutralControlStyle.fillColor)
+        // Aurora (docs/player-controls.md, Look): the face stays frosted; the console
+        // colour is the legend and a 2 pt ring.
+        XCTAssertEqual(theme.faceStyle(label: "A").fillColor, theme.neutralControlStyle.fillColor)
+        XCTAssertNotNil(theme.faceStyle(label: "A").ring)
+        XCTAssertNotEqual(theme.faceStyle(label: "A").ring, theme.faceStyle(label: "X").ring)
         XCTAssertNotEqual(theme.faceStyle(label: "X").contentColor, theme.faceStyle(label: "A").contentColor)
     }
 }

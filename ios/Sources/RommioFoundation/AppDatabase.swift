@@ -326,6 +326,25 @@ public final class AppDatabase: @unchecked Sendable {
                 )
                 """)
         }
+        // Touch-control haptics (docs/player-controls.md): on by default, device-local.
+        migrator.registerMigration("v8_player_haptics") { db in
+            try db.execute(sql: "ALTER TABLE player_control_preferences ADD COLUMN haptics_enabled INTEGER NOT NULL DEFAULT 1")
+        }
+        // Per-game touch-control settings (docs/player-controls.md): PlayStation's Analog
+        // controls (off by default) and the touch-stick tuning (the console profile by
+        // default). Device-local; never synced.
+        migrator.registerMigration("v9_player_game_controls") { db in
+            try db.execute(sql: """
+                CREATE TABLE player_game_controls (
+                    rom_id INTEGER PRIMARY KEY NOT NULL,
+                    analog_controls INTEGER NOT NULL DEFAULT 0,
+                    stick_sensitivity TEXT NOT NULL DEFAULT 'normal',
+                    stick_dead_zone TEXT NOT NULL DEFAULT 'normal',
+                    stick_centre TEXT NOT NULL DEFAULT 'floating',
+                    updated_at_epoch_ms INTEGER NOT NULL
+                )
+                """)
+        }
         return migrator
     }
 }

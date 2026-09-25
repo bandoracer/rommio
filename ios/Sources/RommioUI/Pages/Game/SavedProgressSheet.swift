@@ -6,6 +6,7 @@ import RommioFoundation
 /// and earlier save of this game with its preview, device and sync. Save states can
 /// be named here; loading one happens in the player (Pause › Save states), where the
 /// current progress is kept in a safety copy first. Same sections and copy as Android.
+/// The lists are built as they scroll into view.
 struct SavedProgressSheet: View {
     @Environment(\.rommioTheme) private var theme
     let gameTitle: String
@@ -20,15 +21,13 @@ struct SavedProgressSheet: View {
     private static let historyShown = 20
 
     var body: some View {
+        let rename: (SaveEntry) -> Void = { renaming = $0 }
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("To load a save state, start the game and open Save states from the pause menu. Your current progress is kept in a safety copy first.")
-                        .themeText(.secondary)
-                        .foregroundStyle(theme.inkSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                LazyVStack(alignment: .leading, spacing: 14) {
+                    SavedProgressIntro()
                     if let resume = saves.resume {
-                        rows("Resume point", [resume])
+                        SaveRows(title: "Resume point", entries: [resume], coverURL: coverURL, gameTitle: gameTitle, rename: rename)
                         if canPlay {
                             Button(action: onResume) { Label("Resume", systemImage: "play.fill") }
                                 .buttonStyle(PrimaryButtonStyle())
@@ -36,20 +35,19 @@ struct SavedProgressSheet: View {
                         }
                     }
                     if saves.saveStates.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            SectionHeader(title: "Save states")
-                            Text("No save states yet.").themeText(.secondary).foregroundStyle(theme.inkSecondary)
-                        }
+                        NoSaveStates()
                     } else {
-                        rows("Save states", saves.saveStates)
+                        SaveRows(title: "Save states", entries: saves.saveStates, coverURL: coverURL, gameTitle: gameTitle, rename: rename)
                     }
                     if !saves.history.isEmpty {
-                        rows("Earlier resume points", Array(saves.history.prefix(Self.historyShown)), detail: "\(saves.history.count)")
+                        SaveRows(title: "Earlier resume points", entries: Array(saves.history.prefix(Self.historyShown)), detail: "\(saves.history.count)",
+                                 coverURL: coverURL, gameTitle: gameTitle, rename: rename)
                     }
                     if let latest = saves.gameSaveData.first {
-                        rows("Game-save data", [latest],
-                             footer: "Saved with every capture; a cold boot starts from the latest."
-                                + (saves.gameSaveData.count > 1 ? " \(saves.gameSaveData.count - 1) earlier capture\(saves.gameSaveData.count == 2 ? "" : "s") kept on this device." : ""))
+                        SaveRows(title: "Game-save data", entries: [latest],
+                                 footer: "Saved with every capture; a cold boot starts from the latest."
+                                    + (saves.gameSaveData.count > 1 ? " \(saves.gameSaveData.count - 1) earlier capture\(saves.gameSaveData.count == 2 ? "" : "s") kept on this device." : ""),
+                                 coverURL: coverURL, gameTitle: gameTitle, rename: rename)
                     }
                 }
                 .padding(.horizontal, theme.spacing.gutter)
@@ -67,14 +65,43 @@ struct SavedProgressSheet: View {
         .renameSaveAlert($renaming, tagPrefix: "game.saves") { entry, name in onRename(entry, name) }
         .accessibilityIdentifier("game.saves.sheet")
     }
+}
 
-    private func rows(_ title: String, _ entries: [SaveEntry], detail: String? = nil, footer: String? = nil) -> some View {
-        ThemedGroup(title: title, detail: detail, footer: footer, inset: 92) {
-            ForEach(entries) { entry in
-                SaveRow(entry: entry, coverURL: coverURL, gameTitle: gameTitle, renameIdentifier: "game.saves.rename",
-                        onRename: { renaming = $0 })
-                    .accessibilityIdentifier("game.saves.row")
-            }
+private struct SavedProgressIntro: View {
+    @Environment(\.rommioTheme) private var theme
+
+    var body: some View {
+        Text("To load a save state, start the game and open Save states from the pause menu. Your current progress is kept in a safety copy first.")
+            .themeText(.secondary)
+            .foregroundStyle(theme.inkSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+private struct NoSaveStates: View {
+    @Environment(\.rommioTheme) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            SectionHeader(title: "Save states")
+            Text("No save states yet.").themeText(.secondary).foregroundStyle(theme.inkSecondary)
+        }
+    }
+}
+
+private struct SaveRows: View {
+    let title: String
+    let entries: [SaveEntry]
+    var detail: String?
+    var footer: String?
+    let coverURL: URL?
+    let gameTitle: String
+    let rename: (SaveEntry) -> Void
+
+    var body: some View {
+        ThemedLazyGroup(title: title, detail: detail, footer: footer, inset: 92, items: entries) { entry in
+            SaveRow(entry: entry, coverURL: coverURL, gameTitle: gameTitle, renameIdentifier: "game.saves.rename", onRename: rename)
+                .accessibilityIdentifier("game.saves.row")
         }
     }
 }

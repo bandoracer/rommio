@@ -40,19 +40,27 @@ class FirmwareStore(
         (profile.requiredBiosFiles + if (platformSlug.lowercase() == "segacd" && profile.runtimeId in setOf("genesis_plus_gx", "picodrive"))
             listOf("bios_CD_E.bin", "bios_CD_U.bin", "bios_CD_J.bin") else emptyList()).distinct()
 
-    fun missing(profile: RuntimeProfile, platformSlug: String): List<String> = requiredPaths(profile, platformSlug).filter { path ->
-        val definition = catalog.firstOrNull { it.path == path }
-        if (profile.runtimeId == "opera" && path == "panafz10.bin" && catalog.any { it.path in OPERA_BOOT_FILES && valid(it, systemFile(it.path)) }) false
-        else definition == null || !valid(definition, systemFile(path))
+    /**
+     * The required BIOS files that are absent or not a known dump. Readiness (Settings, a game's
+     * page) identifies each file once per file identity ([identified]); [fresh] re-reads every
+     * byte, as runtime preparation does before a launch.
+     */
+    fun missing(profile: RuntimeProfile, platformSlug: String, fresh: Boolean = false): List<String> {
+        val check: (FirmwareDefinition, File) -> Boolean = if (fresh) ::valid else ::identified
+        return requiredPaths(profile, platformSlug).filter { path ->
+            val definition = catalog.firstOrNull { it.path == path }
+            if (profile.runtimeId == "opera" && path == "panafz10.bin" && catalog.any { it.path in OPERA_BOOT_FILES && check(it, systemFile(it.path)) }) false
+            else definition == null || !check(definition, systemFile(path))
+        }
     }
 
     suspend fun status(): List<FirmwareStatus> = StorageAccess.normal { withContext(Dispatchers.IO) {
         catalog.map { definition ->
             val target = systemFile(definition.path)
-            val ready = valid(definition, target)
+            val ready = identified(definition, target)
             val legacy = listOf(File(library.biosDirectory(), definition.path), File(library.biosDirectory(), File(definition.path).name),
                 File(library.systemDirectory(), File(definition.path).name)).distinctBy { it.absolutePath }
-                .filter { it.absolutePath != target.absolutePath && valid(definition, it) }
+                .filter { it.absolutePath != target.absolutePath && identified(definition, it) }
             FirmwareStatus(definition, ready, if (target.exists() && !ready) "Existing file has the wrong content or is linked; it has been preserved." else null,
                 legacy.map { it.absolutePath })
         }
@@ -99,13 +107,16 @@ class FirmwareStore(
                 check(digest(backup, "SHA-256") == digest(target, "SHA-256")) { "Unable to preserve the previous firmware." }
             }
             AtomicFiles.install(staged, target)
-        } finally { staged.delete() }
+        } finally {
+            staged.delete()
+            identifications.clear()
+        }
     }
 
     suspend fun prepare(installation: DownloadedRomEntity, profile: RuntimeProfile): RuntimeFirmware = StorageAccess.normal { withContext(Dispatchers.IO) {
         mutex.withLock {
             if (profile.runtimeId == "ppsspp") return@withLock preparePSPAssets()
-            val missing = missing(profile, installation.platformSlug)
+            val missing = missing(profile, installation.platformSlug, fresh = true)
             check(missing.isEmpty()) { "Import valid BIOS files in Settings before playing: ${missing.joinToString()}." }
             // Only these runtime layouts are qualified by this contract. Other runtime assets keep their existing path until R07/R08 describe them.
             val paths = if (installation.platformSlug.lowercase() == "naomi") null else pathsForRuntime(profile.runtimeId)
@@ -185,6 +196,31 @@ class FirmwareStore(
         checkSafe(file)
         file.isFile && file.length() in 1..MAX_BIOS_BYTES && digest(file, "MD5") == definition.md5
     }.getOrDefault(false)
+
+    /** Each file's MD5 by path, with the identity it was read at (see [fileIdentity]). */
+    private val identifications = java.util.concurrent.ConcurrentHashMap<String, Pair<String, String>>()
+
+    /**
+     * [valid] for readiness: the containment check runs every time; the file's MD5 is read again
+     * only when its identity (inode, size, modification time) changes, so resolving every family
+     * does not hash every BIOS again. A replaced, resized or rewritten file is identified afresh.
+     */
+    private fun identified(definition: FirmwareDefinition, file: File): Boolean = runCatching {
+        checkSafe(file)
+        if (!file.isFile || file.length() !in 1..MAX_BIOS_BYTES) return@runCatching false
+        val identity = fileIdentity(file) ?: return@runCatching digest(file, "MD5") == definition.md5
+        val key = file.absolutePath
+        val md5 = identifications[key]?.takeIf { it.first == identity }?.second
+            ?: digest(file, "MD5").also { identifications[key] = identity to it }
+        md5 == definition.md5
+    }.getOrDefault(false)
+
+    /** A file's inode, size and modification time (to the nanosecond where kept); null if unreadable. */
+    private fun fileIdentity(file: File): String? = runCatching {
+        val attributes = java.nio.file.Files.readAttributes(file.toPath(), java.nio.file.attribute.BasicFileAttributes::class.java,
+            java.nio.file.LinkOption.NOFOLLOW_LINKS)
+        "${attributes.fileKey()}|${attributes.size()}|${attributes.lastModifiedTime().to(java.util.concurrent.TimeUnit.NANOSECONDS)}"
+    }.getOrNull()
     private fun checkSafe(file: File) {
         val root = library.rootDirectory().absoluteFile
         val relative = file.absoluteFile.relativeToOrNull(root)?.invariantSeparatorsPath ?: error("Firmware path is outside the library.")

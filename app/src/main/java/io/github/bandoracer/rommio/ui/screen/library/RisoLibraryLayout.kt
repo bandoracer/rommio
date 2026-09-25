@@ -5,15 +5,17 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.runtime.Composable
@@ -28,15 +30,12 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.github.bandoracer.rommio.domain.player.EmbeddedSupportTier
-import io.github.bandoracer.rommio.model.CollectionKind
 import io.github.bandoracer.rommio.model.PlatformDto
-import io.github.bandoracer.rommio.model.RommCollectionDto
-import io.github.bandoracer.rommio.ui.component.DotLeader
 import io.github.bandoracer.rommio.ui.component.EmptyState
 import io.github.bandoracer.rommio.ui.component.Kicker
 import io.github.bandoracer.rommio.ui.component.KickerFill
 import io.github.bandoracer.rommio.ui.component.LeaderLayout
-import io.github.bandoracer.rommio.ui.component.PageArtSubject
+import io.github.bandoracer.rommio.ui.component.LitPage
 import io.github.bandoracer.rommio.ui.component.PageFieldStyle
 import io.github.bandoracer.rommio.ui.component.PageHeader
 import io.github.bandoracer.rommio.ui.component.PlayFormat
@@ -50,40 +49,69 @@ import io.github.bandoracer.rommio.ui.theme.RommioTheme
 /**
  * Riso Library: a contents page. Platforms are numbered entries grouped by how they play, each
  * with dot leaders to its game count and how many are on this device; collections follow as
- * ruled entries.
+ * ruled entries. Each entry is a lazy item.
  */
 @Composable
-fun RisoLibraryLayout(state: LibraryUiState, actions: LibraryActions) {
+fun RisoLibraryLayout(page: LibraryPage, actions: LibraryActions) {
     val theme = RommioTheme.current
-    PageArtSubject(null, PageFieldStyle.QUIET)
-    val numbers = state.platforms.map { it.platform.id }
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-        Column(
-            Modifier
-                .widthIn(max = 760.dp)
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .testTag("shell.libraryList")
-                .padding(horizontal = theme.spacing.gutter)
-                .padding(top = 8.dp, bottom = 40.dp),
-        ) {
-            PageHeader(title = "Library", modifier = Modifier.padding(bottom = 6.dp))
-            if (state.platforms.isEmpty()) {
-                EmptyState(
-                    title = if (state.isLoading) "Loading your library" else "No platforms yet",
-                    message = if (state.isLoading) "" else state.errorMessage ?: "Pull to refresh once your server is reachable.",
-                    icon = Icons.Outlined.VideoLibrary,
-                )
-                return@Column
-            }
-            RoleText(state.summary, theme.type.body, size = 15f, italic = true, color = theme.colors.inkSecondary, modifier = Modifier.padding(bottom = 14.dp))
-            Key()
-            state.sections().forEach { (tier, platforms) -> Part(tier, platforms, state, numbers, actions) }
-            Collections(state.collections, actions)
-            state.staleMessage?.let { message ->
-                Column(Modifier.padding(top = 20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Kicker("Showing your saved library", fill = KickerFill.YELLOW)
-                    RoleText(message, theme.type.caption, color = theme.colors.inkSecondary)
+    LitPage(null, PageFieldStyle.QUIET) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+            LazyColumn(
+                Modifier.widthIn(max = 760.dp).fillMaxSize().testTag("shell.libraryList"),
+                contentPadding = PaddingValues(start = theme.spacing.gutter, end = theme.spacing.gutter, top = 8.dp, bottom = 40.dp),
+            ) {
+                item(key = "header", contentType = "header") { PageHeader(title = "Library", modifier = Modifier.padding(bottom = 6.dp)) }
+                if (!page.hasPlatforms) {
+                    item(key = "empty", contentType = "empty") {
+                        EmptyState(
+                            title = if (page.isLoading) "Loading your library" else "No platforms yet",
+                            message = if (page.isLoading) "" else page.errorMessage ?: "Pull to refresh once your server is reachable.",
+                            icon = Icons.Outlined.VideoLibrary,
+                        )
+                    }
+                    return@LazyColumn
+                }
+                item(key = "summary", contentType = "summary") {
+                    RoleText(page.summary, theme.type.body, size = 15f, italic = true, color = theme.colors.inkSecondary, modifier = Modifier.padding(bottom = 14.dp))
+                }
+                item(key = "key", contentType = "key") { Key() }
+                page.sections.forEach { section ->
+                    item(key = "part/${section.tier}", contentType = "partHeader") { PartHeader(section) }
+                    items(section.platforms, key = { "platform/${it.platform.id}" }, contentType = { "chapter" }) { entry ->
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable(role = Role.Button, onClickLabel = "Open ${entry.platform.name}") { actions.openPlatform(entry.platform) }
+                                .testTag("library.platform.${entry.platform.slug}"),
+                        ) {
+                            ChapterRow(
+                                number = entry.number,
+                                platform = entry.platform,
+                                installed = entry.installed,
+                                dimmed = section.tier == EmbeddedSupportTier.UNSUPPORTED,
+                                modifier = Modifier.padding(vertical = 2.dp),
+                            )
+                            PrintRule(weight = RuleWeight.HAIRLINE)
+                        }
+                    }
+                    // The part closes with 18 dp of paper.
+                    item(key = "partEnd/${section.tier}", contentType = "partEnd") { Box(Modifier.height(18.dp)) }
+                }
+                if (page.collections.isNotEmpty()) {
+                    item(key = "collectionsHeader", contentType = "sectionHeader") {
+                        SectionHeader(title = "Collections", meta = page.collections.size.toString(), modifier = Modifier.padding(top = 10.dp))
+                    }
+                    items(page.collections, key = { "collection/${it.collection.kind}/${it.collection.id}" }, contentType = { "collection" }) { item ->
+                        CollectionEntry(item, actions)
+                    }
+                }
+                page.staleMessage?.let { message ->
+                    item(key = "stale", contentType = "stale") {
+                        Column(Modifier.padding(top = 20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Kicker("Showing your saved library", fill = KickerFill.YELLOW)
+                            RoleText(message, theme.type.caption, color = theme.colors.inkSecondary)
+                        }
+                    }
                 }
             }
         }
@@ -104,42 +132,20 @@ private fun Key() {
     }
 }
 
+/** A part of the contents: the heavy rule, the tier as a headline with its badge and dek, a fine rule. */
 @Composable
-private fun Part(
-    tier: EmbeddedSupportTier,
-    platforms: List<LibraryPlatform>,
-    state: LibraryUiState,
-    numbers: List<Int>,
-    actions: LibraryActions,
-) {
+private fun PartHeader(section: LibrarySection) {
     val theme = RommioTheme.current
-    Column(Modifier.padding(bottom = 18.dp)) {
+    Column {
         PrintRule(weight = RuleWeight.HEAVY)
         Column(Modifier.padding(top = 10.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.Bottom) {
-                RoleText(tierTitle(tier), theme.type.headline, size = 28f, color = theme.colors.ink, modifier = Modifier.weight(1f).semantics { heading() })
-                SupportTierBadge(tier, Modifier.padding(start = 8.dp, bottom = 4.dp))
+                RoleText(section.title, theme.type.headline, size = 28f, color = theme.colors.ink, modifier = Modifier.weight(1f).semantics { heading() })
+                SupportTierBadge(section.tier, Modifier.padding(start = 8.dp, bottom = 4.dp))
             }
-            RoleText(tierDek(tier), theme.type.caption, size = 13.5f, italic = true, color = theme.colors.inkSecondary)
+            RoleText(section.dek, theme.type.caption, size = 13.5f, italic = true, color = theme.colors.inkSecondary)
         }
         PrintRule(weight = RuleWeight.FINE)
-        platforms.forEach { entry ->
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable(role = Role.Button, onClickLabel = "Open ${entry.platform.name}") { actions.openPlatform(entry.platform) }
-                    .testTag("library.platform.${entry.platform.slug}"),
-            ) {
-                ChapterRow(
-                    number = numbers.indexOf(entry.platform.id) + 1,
-                    platform = entry.platform,
-                    installed = state.installed(entry),
-                    dimmed = tier == EmbeddedSupportTier.UNSUPPORTED,
-                    modifier = Modifier.padding(vertical = 2.dp),
-                )
-                PrintRule(weight = RuleWeight.HAIRLINE)
-            }
-        }
     }
 }
 
@@ -209,47 +215,36 @@ fun ChapterRow(
 }
 
 @Composable
-private fun Collections(collections: List<RommCollectionDto>, actions: LibraryActions) {
+private fun CollectionEntry(item: LibraryCollectionItem, actions: LibraryActions) {
     val theme = RommioTheme.current
     val c = theme.colors
-    if (collections.isEmpty()) return
-    Column {
-        SectionHeader(title = "Collections", meta = collections.size.toString(), modifier = Modifier.padding(top = 10.dp))
-        collections.forEach { collection ->
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable(role = Role.Button, onClickLabel = "Open ${collection.name}") { actions.openCollection(collection) }
-                    .semantics(mergeDescendants = true) { contentDescription = "${collection.name}, ${PlayFormat.games(collection.romCount)}" }
-                    .testTag("library.collection.${collection.id}"),
-            ) {
-                Box(Modifier.fillMaxWidth().heightIn(min = 54.dp).padding(vertical = 6.dp), contentAlignment = Alignment.CenterStart) {
-                    LeaderLayout(
-                        gap = 10.dp,
-                        start = {
-                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                RoleText(collection.name, theme.type.bodyEmphasis, size = 16f, color = c.ink, maxLines = 2)
-                                RoleText(
-                                    collection.description.ifBlank { collectionKind(collection) },
-                                    theme.type.caption,
-                                    size = 12.5f,
-                                    italic = true,
-                                    color = c.inkSecondary,
-                                    maxLines = 1,
-                                )
-                            }
-                        },
-                        end = { RoleText("${collection.romCount}", theme.type.statValue, size = 26f, color = c.ink) },
-                    )
-                }
-                PrintRule(weight = RuleWeight.HAIRLINE)
-            }
+    val collection = item.collection
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clickable(role = Role.Button, onClickLabel = "Open ${collection.name}") { actions.openCollection(collection) }
+            .semantics(mergeDescendants = true) { contentDescription = "${collection.name}, ${item.countText}" }
+            .testTag("library.collection.${collection.id}"),
+    ) {
+        Box(Modifier.fillMaxWidth().heightIn(min = 54.dp).padding(vertical = 6.dp), contentAlignment = Alignment.CenterStart) {
+            LeaderLayout(
+                gap = 10.dp,
+                start = {
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        RoleText(collection.name, theme.type.bodyEmphasis, size = 16f, color = c.ink, maxLines = 2)
+                        RoleText(
+                            item.line,
+                            theme.type.caption,
+                            size = 12.5f,
+                            italic = true,
+                            color = c.inkSecondary,
+                            maxLines = 1,
+                        )
+                    }
+                },
+                end = { RoleText("${collection.romCount}", theme.type.statValue, size = 26f, color = c.ink) },
+            )
         }
+        PrintRule(weight = RuleWeight.HAIRLINE)
     }
-}
-
-private fun collectionKind(collection: RommCollectionDto): String = when (collection.kind) {
-    CollectionKind.SMART -> "Smart collection"
-    CollectionKind.VIRTUAL -> "Made by RomM"
-    CollectionKind.REGULAR -> "Made by you"
 }

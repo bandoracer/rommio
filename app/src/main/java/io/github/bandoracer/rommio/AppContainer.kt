@@ -26,6 +26,7 @@ import io.github.bandoracer.rommio.domain.storage.AppManagedLibraryStore
 import io.github.bandoracer.rommio.domain.sync.RommSyncBridge
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.launch
 
 class AppContainer(appContext: Context, progressEngineFactory: () -> io.github.bandoracer.rommio.domain.player.PlayerEngine = { LibretroPlayerEngine() }) {
     private val appContextFilesForRecovery = appContext.noBackupFilesDir
@@ -217,6 +218,17 @@ class AppContainer(appContext: Context, progressEngineFactory: () -> io.github.b
         formFactor = { io.github.bandoracer.rommio.data.playdata.DeviceFormFactors.resolve(appContext) },
     )
     val coreResolver = CoreCatalogResolver(appContext, libraryStore, firmwareStore, coreArtifacts, packagedCores)
+
+    /**
+     * Verifies the installed cores, reads the bundled core manifests and identifies BIOS files once,
+     * in the background at launch, so Settings › Cores and BIOS and a game's page find them in
+     * memory. Each is verified again only when its file changes; a launch always re-verifies.
+     */
+    fun warmCoreVerification() {
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO).launch {
+            runCatching { io.github.bandoracer.rommio.domain.player.CoreInventory.resolve(coreResolver) }
+        }
+    }
     val controlProfileResolver = PlatformControlProfileResolver()
     val coreInstaller = LibretroCoreInstaller(libraryStore, coreArtifacts, packaged = packagedCores)
     val syncBridge = RommSyncBridge(

@@ -322,6 +322,24 @@ public enum SavedProgressRules {
         return Array(kept.sorted(by: newestFirst).prefix(limit))
     }
 
+    /// Each game's latest place to continue from (Play's screens): its newest current
+    /// resume point, else its newest save state still on this device (or current slot).
+    public static func latestByGame(_ entries: [SaveEntry]) -> [Int64: SaveEntry] {
+        var result: [Int64: SaveEntry] = [:]
+        for entry in unique(entries).sorted(by: newestFirst) {
+            let resume = entry.kind == .resumePoint && entry.isCurrentResume
+            let state = entry.kind == .saveState && (entry.loadable || entry.isCurrentSlot)
+            guard resume || state else { continue }
+            if let chosen = result[entry.romId] {
+                // A resume point beats a save state; otherwise the newest (already chosen) stays.
+                if resume && chosen.kind != .resumePoint { result[entry.romId] = entry }
+            } else {
+                result[entry.romId] = entry
+            }
+        }
+        return result
+    }
+
     /// One game's saves: its current resume point, save states and the rest of its history.
     public static func forGame(_ entries: [SaveEntry]) -> GameSaves {
         let sorted = unique(entries).sorted(by: newestFirst)

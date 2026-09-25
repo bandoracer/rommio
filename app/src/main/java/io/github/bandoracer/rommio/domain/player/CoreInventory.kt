@@ -27,9 +27,7 @@ data class CoreInventoryEntry(
 /** The runtime inventory: every family the player knows, resolved against this device. */
 object CoreInventory {
     fun entry(family: PlatformRuntimeFamily, resolution: CoreResolution): CoreInventoryEntry {
-        val profile = resolution.runtimeProfile
-            ?: family.runtimeOptions.firstOrNull { it.runtimeId == family.defaultRuntimeId }
-            ?: family.runtimeOptions.firstOrNull()
+        val profile = resolution.runtimeProfile ?: family.defaultProfile
         val status = when (resolution.capability) {
             PlayerCapability.READY -> CoreInventoryStatus.READY
             PlayerCapability.MISSING_BIOS -> CoreInventoryStatus.NEEDS_BIOS

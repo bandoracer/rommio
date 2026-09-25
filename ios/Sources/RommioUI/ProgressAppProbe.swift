@@ -96,10 +96,9 @@ extension RommioAppModel {
                             switch command["action"] as? String {
                             case "button":
                                 guard let key = command["keyCode"] as? Int, (0...15).contains(key) else { throw ProgressStoreError.invalid("Invalid 3DS button") }
-                                let action = ControlAction.digital(actionID: "qa", keyCode: key, label: "QA")
-                                await feature.press(action)
+                                feature.touchInput(.digital(key: key, pressed: true))
                                 try await Task.sleep(for: .milliseconds(duration))
-                                await feature.release(action)
+                                feature.touchInput(.digital(key: key, pressed: false))
                             case "pointer":
                                 guard let x = command["x"] as? Double, let y = command["y"] as? Double,
                                       (0...1).contains(x), (0...1).contains(y) else { throw ProgressStoreError.invalid("Invalid 3DS pointer") }

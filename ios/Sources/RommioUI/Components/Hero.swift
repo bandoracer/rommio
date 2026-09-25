@@ -56,22 +56,36 @@ struct GlowingCover: View {
 /// with its caption (Aurora, studio `.a-rc`).
 struct RoomCard: View {
     @Environment(\.rommioTheme) private var theme
+    @Environment(\.pageLight) private var light
     let item: PlayGameItem
     var width: CGFloat = 168
+    /// Defaults to 0.76 of the width.
+    var height: CGFloat? = nil
     var selected = false
+    var showsPlatform = true
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        let height = self.height ?? width * 0.76
         ZStack(alignment: .bottomLeading) {
-            ArtworkImage(url: item.artworkURL, maxPointSize: width * 1.2) { CoverPlaceholder(title: item.rom.displayName) }
-                .frame(width: width, height: width * 0.76)
-                .clipped()
+            // The game's own screen when there is one (never treated), else its cover.
+            Group {
+                if let preview = item.previewURL {
+                    SavePreviewImage(url: preview, coverURL: item.artworkURL, title: item.rom.displayName, contentMode: .fill)
+                } else {
+                    ArtworkImage(url: item.artworkURL, maxPointSize: width * 1.2) { CoverPlaceholder(title: item.rom.displayName) }
+                }
+            }
+            .frame(width: width, height: height)
+            .clipped()
             LinearGradient(stops: [.init(color: .clear, location: 0.3), .init(color: Color.black.opacity(0.78), location: 1)],
                            startPoint: .top, endPoint: .bottom)
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.rom.platformSlug.uppercased())
-                    .themeText(.section, size: 10)
-                    .foregroundStyle(.white.opacity(0.72))
+                if showsPlatform {
+                    Text(item.rom.platformSlug.uppercased())
+                        .themeText(.section, size: 10)
+                        .foregroundStyle(.white.opacity(0.72))
+                }
                 Text(item.rom.displayName)
                     .themeText(.bodyEmphasis, size: 15)
                     .foregroundStyle(.white)
@@ -85,9 +99,9 @@ struct RoomCard: View {
             }
             .padding(12)
         }
-        .frame(width: width, height: width * 0.76)
+        .frame(width: width, height: height)
         .clipShape(shape)
-        .overlay { shape.strokeBorder(selected ? theme.mark1 : Color.white.opacity(0.14), lineWidth: selected ? 2 : 0.5) }
+        .overlay { shape.strokeBorder(selected ? light.mark1 : Color.white.opacity(0.14), lineWidth: selected ? 2 : 0.5) }
         .shadow(color: .black.opacity(theme.isDark ? 0.45 : 0.16), radius: 14, y: 10)
         .accessibilityElement(children: .combine)
     }

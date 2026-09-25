@@ -59,7 +59,14 @@ import io.github.bandoracer.rommio.ui.component.GlassSurface
 import io.github.bandoracer.rommio.ui.component.ListDivider
 import io.github.bandoracer.rommio.ui.component.ListGroup
 import io.github.bandoracer.rommio.ui.component.ListRow
-import io.github.bandoracer.rommio.ui.component.PageArtSubject
+import io.github.bandoracer.rommio.ui.component.LazyCardGroups
+import io.github.bandoracer.rommio.ui.component.LitPage
+import io.github.bandoracer.rommio.ui.component.drawCardGroups
+import io.github.bandoracer.rommio.ui.component.rememberLazyCardGroups
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import io.github.bandoracer.rommio.ui.component.PageField
 import io.github.bandoracer.rommio.ui.component.PageFieldStyle
 import io.github.bandoracer.rommio.ui.component.PageHeader
@@ -95,25 +102,34 @@ internal fun rememberSettingsViewModel(container: AppContainer): SettingsViewMod
 
 /**
  * A settings page (docs/theme-layouts.md "Settings and sub-pages"): the quiet field, max width
- * 760, a large title, and the page's groups.
+ * 760, a large title, and the page's groups as lazy items (`section` apart). Pass [groups] and
+ * [listState] when the page has lazy row groups ([lazyListGroup]).
  */
 @Composable
-internal fun SettingsPage(testTag: String, title: String?, content: @Composable () -> Unit) {
+internal fun SettingsPage(
+    testTag: String,
+    title: String?,
+    groups: LazyCardGroups = rememberLazyCardGroups(),
+    listState: LazyListState = rememberLazyListState(),
+    spaced: Boolean = true,
+    content: LazyListScope.() -> Unit,
+) {
     val theme = RommioTheme.current
-    PageArtSubject(null, PageFieldStyle.QUIET)
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-        Column(
-            Modifier
-                .widthIn(max = 760.dp)
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .testTag(testTag)
-                .padding(horizontal = theme.spacing.gutter)
-                .padding(top = if (title == null) 4.dp else 8.dp, bottom = 40.dp),
-            verticalArrangement = Arrangement.spacedBy(theme.spacing.section),
-        ) {
-            title?.let { PageHeader(title = it) }
-            content()
+    LitPage(null, PageFieldStyle.QUIET) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+            LazyColumn(
+                Modifier
+                    .widthIn(max = 760.dp)
+                    .fillMaxSize()
+                    .drawCardGroups(listState, groups, theme.spacing.gutter)
+                    .testTag(testTag),
+                state = listState,
+                contentPadding = PaddingValues(start = theme.spacing.gutter, end = theme.spacing.gutter, top = if (title == null) 4.dp else 8.dp, bottom = 40.dp),
+                verticalArrangement = if (spaced) Arrangement.spacedBy(theme.spacing.section) else Arrangement.Top,
+            ) {
+                title?.let { item(key = "title", contentType = "title") { PageHeader(title = it) } }
+                content()
+            }
         }
     }
 }
@@ -134,27 +150,60 @@ fun SettingsScreen(
 ) {
     val viewModel = rememberSettingsViewModel(container)
     val state by viewModel.uiState.collectAsStateWithLifecycleCompat()
-    val theme = RommioTheme.current
     val scope = rememberCoroutineScope()
     val offline = state.offlineState
 
     SettingsPage("shell.settingsList", "Settings") {
-        AccountCard(state, onOpenProfiles)
-        ListGroup(title = "Appearance", footer = "Saved on this device only. Backups don't include it.", modifier = Modifier.testTag("settings.appearance")) {
-            Box(Modifier.padding(horizontal = RowPaddingH(), vertical = RowPaddingV())) { AppearancePreview() }
-            ListDivider()
-            Choice("Theme") {
-                SegmentedChoice(AppearanceTheme.entries, state.appearance.theme, { it.label }, viewModel::setTheme, Modifier.testTag("appearance.theme"))
-            }
-            ListDivider()
-            Choice("Appearance") {
-                SegmentedChoice(AppearanceScheme.entries, state.appearance.scheme, { it.label }, viewModel::setScheme, Modifier.testTag("appearance.scheme"))
-            }
+        item(key = "account", contentType = "account") { AccountCard(state.activeProfile, offline, onOpenProfiles) }
+        item(key = "appearance", contentType = "appearance") { AppearanceGroup(state.appearance, viewModel::setTheme, viewModel::setScheme) }
+        item(key = "rommio", contentType = "rommio") {
+            RommioGroup(state.profiles.size, state.coreSummary, onOpenProfiles, onOpenPlayer, onOpenCores, onOpenBackup)
         }
+        item(key = "storage", contentType = "storage") {
+            StorageGroup(state.installedGameCount, state.installedFileCount, state.storageBytes, offline.cacheBytes, state.libraryPath)
+        }
+        (offline.lastError ?: state.errorMessage)?.let { message ->
+            item(key = "stale", contentType = "stale") { StaleGroup(message) }
+        }
+        item(key = "accountActions", contentType = "accountActions") {
+            AccountActions(onReauthenticate) { scope.launch { onLogout() } }
+        }
+        item(key = "version", contentType = "version") { Version() }
+    }
+}
+
+@Composable
+private fun AppearanceGroup(
+    appearance: io.github.bandoracer.rommio.model.AppearancePreferences,
+    setTheme: (AppearanceTheme) -> Unit,
+    setScheme: (AppearanceScheme) -> Unit,
+) {
+    ListGroup(title = "Appearance", footer = "Saved on this device only. Backups don't include it.", modifier = Modifier.testTag("settings.appearance")) {
+        Box(Modifier.padding(horizontal = RowPaddingH(), vertical = RowPaddingV())) { AppearancePreview() }
+        ListDivider()
+        Choice("Theme") {
+            SegmentedChoice(AppearanceTheme.entries, appearance.theme, { it.label }, setTheme, Modifier.testTag("appearance.theme"))
+        }
+        ListDivider()
+        Choice("Appearance") {
+            SegmentedChoice(AppearanceScheme.entries, appearance.scheme, { it.label }, setScheme, Modifier.testTag("appearance.scheme"))
+        }
+    }
+}
+
+@Composable
+private fun RommioGroup(
+    profileCount: Int,
+    coreSummary: String?,
+    onOpenProfiles: () -> Unit,
+    onOpenPlayer: () -> Unit,
+    onOpenCores: () -> Unit,
+    onOpenBackup: () -> Unit,
+) {
         ListGroup(title = "Rommio") {
             ListRow(
                 title = "Profiles and servers",
-                subtitle = if (state.profiles.size == 1) "1 server" else "${state.profiles.size} servers",
+                subtitle = if (profileCount == 1) "1 server" else "$profileCount servers",
                 leading = { RowIcon(Icons.Outlined.Dns, Tone.LIVE) },
                 showChevron = true,
                 onClick = onOpenProfiles,
@@ -172,8 +221,7 @@ fun SettingsScreen(
             ListDivider(inset = 58.dp)
             ListRow(
                 title = "Cores and BIOS",
-                subtitle = if (state.coreInventory.isEmpty()) "Emulators and system files"
-                    else io.github.bandoracer.rommio.domain.player.CoreInventory.summary(state.coreInventory),
+                subtitle = coreSummary ?: "Emulators and system files",
                 leading = { RowIcon(Icons.Outlined.Memory, Tone.WAIT) },
                 showChevron = true,
                 onClick = onOpenCores,
@@ -189,36 +237,52 @@ fun SettingsScreen(
                 modifier = Modifier.testTag("settings.backup"),
             )
         }
-        ListGroup(title = "Storage") {
-            ListRow(title = "Installed games", value = state.installedGameCount.toString())
-            ListDivider()
-            ListRow(title = "Installed files", value = state.installedFileCount.toString())
-            ListDivider()
-            ListRow(title = "Library on this device", value = formatBytes(state.storageBytes))
-            ListDivider()
-            ListRow(title = "Catalog cache", value = formatBytes(offline.cacheBytes))
-            ListDivider()
-            ListRow(title = "Library folder", subtitle = state.libraryPath, subtitleMaxLines = 3)
-        }
-        (offline.lastError ?: state.errorMessage)?.let { message ->
-            ListGroup(title = "Showing saved settings") {
-                Box(Modifier.padding(horizontal = RowPaddingH(), vertical = RowPaddingV())) {
-                    RoleText(message, theme.type.caption, color = theme.colors.inkSecondary)
-                }
-            }
-        }
-        ListGroup(title = "Account") {
-            ActionRow("Sign in again", theme.tintText, onReauthenticate, Modifier.testTag("settings.reauthenticate"))
-            ListDivider()
-            ActionRow("Sign out", theme.colors.badText, { scope.launch { onLogout() } }, Modifier.testTag("settings.signOut"))
-        }
-        RoleText(
-            text = "Rommio ${BuildConfig.VERSION_NAME}",
-            role = theme.type.caption,
-            color = theme.colors.inkTertiary,
-            modifier = Modifier.padding(horizontal = 4.dp),
-        )
+}
+
+@Composable
+private fun StorageGroup(installedGames: Int, installedFiles: Int, storageBytes: Long, cacheBytes: Long, libraryPath: String) {
+    ListGroup(title = "Storage") {
+        ListRow(title = "Installed games", value = installedGames.toString())
+        ListDivider()
+        ListRow(title = "Installed files", value = installedFiles.toString())
+        ListDivider()
+        ListRow(title = "Library on this device", value = formatBytes(storageBytes))
+        ListDivider()
+        ListRow(title = "Catalog cache", value = formatBytes(cacheBytes))
+        ListDivider()
+        ListRow(title = "Library folder", subtitle = libraryPath, subtitleMaxLines = 3)
     }
+}
+
+@Composable
+private fun StaleGroup(message: String) {
+    val theme = RommioTheme.current
+    ListGroup(title = "Showing saved settings") {
+        Box(Modifier.padding(horizontal = RowPaddingH(), vertical = RowPaddingV())) {
+            RoleText(message, theme.type.caption, color = theme.colors.inkSecondary)
+        }
+    }
+}
+
+@Composable
+private fun AccountActions(onReauthenticate: () -> Unit, onLogout: () -> Unit) {
+    val theme = RommioTheme.current
+    ListGroup(title = "Account") {
+        ActionRow("Sign in again", RommioTheme.light.tintText, onReauthenticate, Modifier.testTag("settings.reauthenticate"))
+        ListDivider()
+        ActionRow("Sign out", theme.colors.badText, onLogout, Modifier.testTag("settings.signOut"))
+    }
+}
+
+@Composable
+private fun Version() {
+    val theme = RommioTheme.current
+    RoleText(
+        text = "Rommio ${BuildConfig.VERSION_NAME}",
+        role = theme.type.caption,
+        color = theme.colors.inkTertiary,
+        modifier = Modifier.padding(horizontal = 4.dp),
+    )
 }
 
 @Composable
@@ -262,12 +326,11 @@ internal fun ActionRow(title: String, color: Color, onClick: () -> Unit, modifie
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun AccountCard(state: SettingsUiState, onOpenProfiles: () -> Unit) {
+private fun AccountCard(activeProfile: io.github.bandoracer.rommio.model.ServerProfile?, offline: io.github.bandoracer.rommio.model.OfflineState, onOpenProfiles: () -> Unit) {
     val theme = RommioTheme.current
     val c = theme.colors
-    val offline = state.offlineState
-    val label = state.activeProfile?.label ?: "No active server"
-    val host = state.activeProfile?.baseUrl?.let { runCatching { java.net.URI(it).host }.getOrNull() ?: it }
+    val label = activeProfile?.label ?: "No active server"
+    val host = activeProfile?.baseUrl?.let { runCatching { java.net.URI(it).host }.getOrNull() ?: it }
         ?: "Set up a server to keep using Rommio."
     val syncLine = offline.lastFullSyncAtEpochMs?.let { "Library synced ${PlayFormat.relative(it)}" }
     val chips: @Composable () -> Unit = {
@@ -305,7 +368,7 @@ private fun AccountCard(state: SettingsUiState, onOpenProfiles: () -> Unit) {
                     .border(2.dp, OverArt.rim.copy(alpha = 0.6f), CircleShape)
                     .padding(3.dp)
                     .clip(CircleShape)
-                    .background(Brush.linearGradient(listOf(theme.mark1, theme.mark2)))
+                    .background(Brush.linearGradient(listOf(RommioTheme.light.mark1, RommioTheme.light.mark2)))
                     .clearAndSetSemantics {},
                 contentAlignment = Alignment.Center,
             ) {

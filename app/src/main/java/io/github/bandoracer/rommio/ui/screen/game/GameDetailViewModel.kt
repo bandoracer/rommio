@@ -24,6 +24,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.merge
@@ -76,15 +80,58 @@ enum class GameDetailActionKind {
     SYNC,
 }
 
+/** The Game page: loading and error, or the game's content (built once per data change). */
+@androidx.compose.runtime.Immutable
+data class GamePage(
+    val isLoading: Boolean = true,
+    val errorMessage: String? = null,
+    val content: GameContent? = null,
+    /** The main action (the bar shows Play or Download). */
+    val primary: GameDetailAction? = null,
+)
+
 @OptIn(kotlinx.coroutines.FlowPreview::class)
 class GameDetailViewModel(
     private val repository: RommRepository,
     private val romId: Int,
     private val savedProgress: SavedProgressRepository? = null,
     playDataChanges: Flow<Long> = emptyFlow(),
+    /** This game's play on this device (only this game's totals are read). */
+    playActivity: io.github.bandoracer.rommio.data.stats.PlayActivityRepository? = null,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(GameDetailUiState())
     val uiState: StateFlow<GameDetailUiState> = _uiState.asStateFlow()
+
+    /**
+     * The page both layouts draw, built off the main thread and published only when it changes. It
+     * reads this game's play totals, not all of Stats.
+     */
+    val page: StateFlow<GamePage> = kotlinx.coroutines.flow.combine(
+        _uiState,
+        (playActivity?.stats ?: kotlinx.coroutines.flow.flowOf(io.github.bandoracer.rommio.domain.stats.PlayStats()))
+            .map { stats -> stats.games.firstOrNull { it.romId.toInt() == romId } }
+            .distinctUntilChanged(),
+        repository.activeProfileFlow().map { it?.baseUrl }.distinctUntilChanged(),
+    ) { state, played, baseUrl ->
+        GamePage(
+            isLoading = state.isLoading,
+            errorMessage = state.errorMessage,
+            content = state.rom?.let { rom ->
+                GameContent.build(
+                    state = state,
+                    rom = rom,
+                    baseUrl = baseUrl,
+                    selectedFile = state.selectedFile(),
+                    selectedInstalled = state.currentInstall() != null,
+                    played = played,
+                )
+            },
+            primary = state.actionPresentation.primary,
+        )
+    }
+        .distinctUntilChanged()
+        .flowOn(kotlinx.coroutines.Dispatchers.Default)
+        .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, GamePage())
     private var downloadJob: Job? = null
     private var syncJob: Job? = null
     private var recoveryJob: Job? = null
@@ -108,6 +155,7 @@ class GameDetailViewModel(
                 cachedRom to files
             }.collect { (cachedRom, files) ->
                 val rom = cachedRom ?: files.toFallbackRom()
+                val before = _uiState.value.selectedFileId
                 val nextSelectedFileId = _uiState.value.let { current ->
                     current.selectedFileId?.takeIf { selectedId ->
                         rom?.files?.any { it.id == selectedId } == true
@@ -120,15 +168,18 @@ class GameDetailViewModel(
                 val support = rom?.let { cachedRom ->
                     val selectedFile = cachedRom.files.firstOrNull { it.id == nextSelectedFileId }
                         ?: cachedRom.files.firstOrNull()
-                    repository.resolveCoreSupport(cachedRom, selectedFile)
+                    // Resolving reads the disk (BIOS, the installed core): on the IO dispatcher.
+                    repository.coreSupport(cachedRom, selectedFile)
                 }
                 val supportTier = rom?.let(repository::embeddedSupportTier) ?: EmbeddedSupportTier.UNSUPPORTED
                 _uiState.updateState { current ->
+                    // A file chosen while the core resolved stays chosen; selectFile resolves its support.
+                    val chosen = current.selectedFileId?.takeIf { id -> id != before && rom?.files?.any { it.id == id } == true }
                     current.copy(
                         rom = rom,
                         installedFiles = files,
-                        selectedFileId = nextSelectedFileId,
-                        support = support,
+                        selectedFileId = chosen ?: nextSelectedFileId,
+                        support = if (chosen != null) current.support else support,
                         supportTier = supportTier,
                         isLocalOnly = cachedRom == null && files.isNotEmpty(),
                         isLoading = false,
@@ -261,10 +312,14 @@ class GameDetailViewModel(
         _uiState.updateState {
             it.copy(
                 selectedFileId = fileId,
-                support = repository.resolveCoreSupport(rom, file),
                 supportTier = repository.embeddedSupportTier(rom),
                 coreMessage = null,
             )
+        }
+        // The file's core support reads the disk: resolved off the main thread, kept if still chosen.
+        viewModelScope.launch {
+            val support = repository.coreSupport(rom, file)
+            _uiState.updateState { if (it.selectedFileId == fileId) it.copy(support = support) else it }
         }
         refreshSaves()
         if (_uiState.value.installedFiles.any { it.fileId == fileId }) {

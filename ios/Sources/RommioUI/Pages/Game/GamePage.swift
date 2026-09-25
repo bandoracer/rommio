@@ -68,8 +68,9 @@ struct GameDetailItem: Hashable {
     }
 }
 
-/// Everything the Game layouts draw, from `GameDetailFeatureModel`.
-struct GameContent {
+/// Everything the Game layouts draw, from `GameDetailFeatureModel` and the play on
+/// this device; built once per change (`GameContent.build`), never in a view.
+struct GameContent: Equatable {
     let rom: RomDTO
     let artworkURL: URL?
     let tier: EmbeddedSupportTier
@@ -127,15 +128,84 @@ struct GameContent {
     /// Shows the Saved progress section: the store has saves, or the legacy browser applies.
     var showsSavedProgress: Bool { usesProgressStore || savedSummary != nil }
 
+    /// The resume point's sync (the heading's badge).
+    var resumeSync: SyncBadgeState? {
+        usesProgressStore ? saves.resume?.sync.badge : timeline.first(where: { $0.kind == .resume })?.sync
+    }
+
     /// The first sentence of the summary, for standfirsts.
     var standfirst: String? {
         guard let summary = hero.summaryText else { return nil }
         let sentence = summary.split(separator: ".", maxSplits: 1).first.map { String($0) + "." } ?? summary
         return sentence.count > 180 ? String(sentence.prefix(177)) + "…" : sentence
     }
+
+    /// The game's page from its feature model and this device's play of it.
+    @MainActor
+    static func build(_ feature: GameDetailFeatureModel, model: RommioAppModel) -> GameContent {
+        let hero = feature.heroPresentation
+        let played = model.statsFeature.stats.games.first { $0.romID == feature.rom.id }
+        let state = feature.selectedFileState
+        let artwork = model.artworkURL(path: feature.rom.urlCover)
+        return GameContent(
+            rom: feature.rom,
+            artworkURL: artwork,
+            tier: feature.controlProfile.supportTier,
+            hero: hero,
+            deck: feature.actionDeckPresentation,
+            fileID: state?.file.id,
+            file: feature.selectedFilePresentation,
+            fileOptions: feature.fileSelectionOptions,
+            showsFilePicker: feature.showsSegmentedFileSelection,
+            selectedFileID: state?.file.id ?? feature.fileSelectionOptions.first?.id ?? 0,
+            savedSummary: feature.stateSummaryPresentation,
+            timeline: feature.usesProgressStore ? SaveTimelineItem.stops(feature.saves) : legacyTimeline(feature.stateBrowser),
+            saves: feature.saves,
+            usesProgressStore: feature.usesProgressStore,
+            conflict: feature.conflicts.sorted { ($0.kind == .resume ? 0 : 1) < ($1.kind == .resume ? 0 : 1) }.first.map {
+                ConflictItem(conflict: $0, rom: feature.rom, artworkURL: artwork, installed: state?.localPath != nil)
+            },
+            details: GameDetailItem.items(feature.rom.metadata),
+            screenshots: feature.rom.metadata.screenshots.compactMap { model.artworkURL(path: $0) },
+            playtime: played?.playtime ?? 0,
+            sessionCount: played?.sessionCount ?? 0,
+            lastPlayedAt: played?.lastPlayedAt,
+            preserved: feature.preservedContentPresentation,
+            statusTone: hero.statusTone,
+            availabilityTone: feature.selectedFilePresentation?.availabilityTone ?? .neutral,
+            playabilityTone: state.map(GameDetailView.playabilityTone) ?? .neutral,
+            showsStartOptions: feature.actionDeckPresentation?.primary.map { $0.kind == .play && $0.enabled } == true
+                && feature.conflicts.isEmpty && LaunchChoice.offersStartOptions(feature.saves)
+        )
+    }
+
+    /// The saves as a timeline, newest first.
+    private static func legacyTimeline(_ browser: GameStateBrowser) -> [SaveTimelineItem] {
+        var items: [SaveTimelineItem] = []
+        if let resume = browser.resume, resume.available {
+            items.append(SaveTimelineItem(
+                id: "resume", kind: .resume, kindTitle: "Automatic resume", title: resume.primaryStatusMessage,
+                date: resume.updatedAtEpochMS.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) },
+                device: resume.sourceOrigin == .remoteDevice ? (resume.sourceDeviceName ?? "Another device") : "This device",
+                sync: GameDetailView.badge(resume.statusKind)))
+        }
+        for state in browser.saveSlots {
+            items.append(SaveTimelineItem(
+                id: state.id, kind: .saveState, kindTitle: state.slot.map { "Save state · Slot \($0)" } ?? "Save state", title: state.label,
+                date: Date(timeIntervalSince1970: TimeInterval(state.updatedAtEpochMS) / 1000),
+                device: state.sourceDeviceName ?? "This device", sync: nil))
+        }
+        for state in browser.snapshots {
+            items.append(SaveTimelineItem(
+                id: state.id, kind: .snapshot, kindTitle: "Snapshot", title: state.label,
+                date: Date(timeIntervalSince1970: TimeInterval(state.updatedAtEpochMS) / 1000),
+                device: state.sourceDeviceName ?? "This device", sync: nil))
+        }
+        return items.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
+    }
 }
 
-struct GameActions {
+struct GameActions: PageActions {
     let perform: (GameDetailAction) -> Void
     let selectFile: (Int) -> Void
     let browseSaves: () -> Void
@@ -145,99 +215,101 @@ struct GameActions {
     var startOptions: () -> Void = {}
 }
 
+/// A game's feature model and its page content.
+@MainActor
+final class GamePageModel {
+    let feature: GameDetailFeatureModel
+    let content: DerivedContent<GameContent>
+
+    init(model: RommioAppModel, rom: RomDTO) {
+        let feature = model.makeGameDetailFeature(rom: rom)
+        self.feature = feature
+        content = DerivedContent { [unowned model] in GameContent.build(feature, model: model) }
+    }
+}
+
 /// Game: reached from Play, Library, Search and Stats. Aurora: an art-forward
 /// hero lit by the cover, with the game's saves as a timeline. Riso: an article
 /// with where you left off and a details box.
 struct GameDetailView: View {
     @Environment(\.rommioTheme) private var theme
     let model: RommioAppModel
-    @State private var feature: GameDetailFeatureModel
+    @State private var page: GamePageModel
 
     init(model: RommioAppModel, rom: RomDTO) {
         self.model = model
-        _feature = State(initialValue: model.makeGameDetailFeature(rom: rom))
+        _page = State(initialValue: GamePageModel(model: model, rom: rom))
     }
+
+    private var feature: GameDetailFeatureModel { page.feature }
 
     var body: some View {
-        Group {
-            if theme.isRiso {
-                RisoGameLayout(content: content, actions: actions)
-            } else {
-                AuroraGameLayout(content: content, actions: actions)
-            }
-        }
-        .toolbar {
-            // The title is the page's headline; the bar stays clear over the art.
-            ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1).accessibilityHidden(true) }
-            if let primary = feature.actionDeckPresentation?.primary,
-               let fileID = feature.selectedFileState?.file.id,
-               primary.kind == .play || primary.kind == .downloadNow {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        // With two resume points, Play asks which to keep first.
-                        if primary.kind == .play && !feature.conflicts.isEmpty { feature.conflictPresented = true; return }
-                        Task { await feature.perform(primary, fileID: fileID) }
-                    } label: {
-                        Label(primary.kind == .play ? "Play" : "Download", systemImage: primary.kind == .play ? "play.fill" : "arrow.down.circle")
+        let content = page.content.value
+        GameLayout(content: content, actions: actions, riso: theme.isRiso)
+            .toolbar {
+                // The title is the page's headline; the bar stays clear over the art.
+                ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1).accessibilityHidden(true) }
+                if let primary = content.deck?.primary, let fileID = content.fileID,
+                   primary.kind == .play || primary.kind == .downloadNow {
+                    ToolbarItem(placement: .primaryAction) {
+                        GameToolbarAction(primary: primary, fileID: fileID, perform: actions.perform)
                     }
-                    .disabled(!primary.enabled)
-                    .accessibilityIdentifier("gameDetail.toolbar.\(primary.kind.rawValue)")
                 }
             }
-        }
-        .navigationTitle(feature.rom.displayName)
-        .inlineNavigationTitle()
-        .task { await feature.refresh(forceRemote: false) }
-        .task { await feature.monitorDownloads() }
-        .onChange(of: model.activePlayer?.id) { _, playerID in
-            if playerID == nil { Task { await feature.refresh(forceRemote: false) } }
-        }
-        .refreshable { await feature.refresh(forceRemote: true) }
-        .sheet(isPresented: Binding(
-            get: { feature.savedProgressPresented },
-            set: { feature.savedProgressPresented = $0 }
-        )) {
-            SavedProgressSheet(
-                gameTitle: feature.rom.displayName,
-                saves: feature.saves,
-                coverURL: model.artworkURL(path: feature.rom.urlCover),
-                canPlay: feature.actionDeckPresentation?.primary.map { $0.kind == .play && $0.enabled } ?? false,
-                onResume: { feature.savedProgressPresented = false; Task { await feature.playFromResume() } },
-                onRename: { entry, name in Task { await feature.renameSave(entry, to: name) } },
-                onClose: { feature.savedProgressPresented = false }
-            )
-            .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: Binding(
-            get: { feature.conflictPresented },
-            set: { feature.conflictPresented = $0 }
-        )) {
-            if let item = content.conflict {
-                ConflictSheet(item: item) { choice in Task { await model.keepPlaying(item.conflict, choice: choice) } }
-                    .presentationDetents([.large])
-                    .presentationDragIndicator(.visible)
+            .navigationTitle(content.rom.displayName)
+            .inlineNavigationTitle()
+            .task { await feature.refresh(forceRemote: false) }
+            .task { await feature.monitorDownloads() }
+            .modifier(RefreshAfterPlayer(model: model, feature: feature))
+            .refreshable { await feature.refresh(forceRemote: true) }
+            .sheet(isPresented: Binding(
+                get: { feature.savedProgressPresented },
+                set: { feature.savedProgressPresented = $0 }
+            )) {
+                SavedProgressSheet(
+                    gameTitle: content.rom.displayName,
+                    saves: content.saves,
+                    coverURL: content.artworkURL,
+                    canPlay: content.deck?.primary.map { $0.kind == .play && $0.enabled } ?? false,
+                    onResume: { feature.savedProgressPresented = false; Task { await feature.playFromResume() } },
+                    onRename: { entry, name in Task { await feature.renameSave(entry, to: name) } },
+                    onClose: { feature.savedProgressPresented = false }
+                )
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
             }
-        }
-        .sheet(isPresented: Binding(
-            get: { feature.stateBrowserPresented },
-            set: { feature.stateBrowserPresented = $0 }
-        )) {
-            StateBrowserView(
-                browser: feature.stateBrowser,
-                onUseResume: { Task { await feature.playFromResume() } },
-                onLoadState: { state in Task { await feature.playFromState(state) } },
-                onDeleteState: { state in Task { await feature.deleteState(state) } },
-                onClose: { feature.stateBrowserPresented = false }
-            )
-            .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
-            .accessibilityIdentifier("gameDetail.stateBrowser.sheet")
-        }
+            .sheet(isPresented: Binding(
+                get: { feature.conflictPresented },
+                set: { feature.conflictPresented = $0 }
+            )) {
+                if let item = content.conflict {
+                    ConflictSheet(item: item) { choice in Task { await model.keepPlaying(item.conflict, choice: choice) } }
+                        .presentationDetents([.large])
+                        .presentationDragIndicator(.visible)
+                }
+            }
+            .sheet(isPresented: Binding(
+                get: { feature.stateBrowserPresented },
+                set: { feature.stateBrowserPresented = $0 }
+            )) {
+                StateBrowserView(
+                    browser: feature.stateBrowser,
+                    onUseResume: { Task { await feature.playFromResume() } },
+                    onLoadState: { state in Task { await feature.playFromState(state) } },
+                    onDeleteState: { state in Task { await feature.deleteState(state) } },
+                    onClose: { feature.stateBrowserPresented = false }
+                )
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .accessibilityIdentifier("gameDetail.stateBrowser.sheet")
+            }
     }
 
+    /// Actions read the feature model when called (never a copy taken at render).
     private var actions: GameActions {
-        GameActions(
+        let feature = feature
+        let model = model
+        return GameActions(
             perform: { action in
                 guard let fileID = feature.selectedFileState?.file.id else { return }
                 // With two resume points, Play asks which to keep first (docs/theme-layouts.md, Game saves rule).
@@ -254,67 +326,6 @@ struct GameDetailView: View {
                 }
             }
         )
-    }
-
-    private var content: GameContent {
-        let hero = feature.heroPresentation
-        let played = model.statsFeature.stats.games.first { $0.romID == feature.rom.id }
-        let state = feature.selectedFileState
-        return GameContent(
-            rom: feature.rom,
-            artworkURL: model.artworkURL(path: feature.rom.urlCover),
-            tier: feature.controlProfile.supportTier,
-            hero: hero,
-            deck: feature.actionDeckPresentation,
-            fileID: state?.file.id,
-            file: feature.selectedFilePresentation,
-            fileOptions: feature.fileSelectionOptions,
-            showsFilePicker: feature.showsSegmentedFileSelection,
-            selectedFileID: state?.file.id ?? feature.fileSelectionOptions.first?.id ?? 0,
-            savedSummary: feature.stateSummaryPresentation,
-            timeline: feature.usesProgressStore ? SaveTimelineItem.stops(feature.saves) : timeline(feature.stateBrowser),
-            saves: feature.saves,
-            usesProgressStore: feature.usesProgressStore,
-            conflict: feature.conflicts.sorted { ($0.kind == .resume ? 0 : 1) < ($1.kind == .resume ? 0 : 1) }.first.map {
-                ConflictItem(conflict: $0, rom: feature.rom, artworkURL: model.artworkURL(path: feature.rom.urlCover), installed: state?.localPath != nil)
-            },
-            details: GameDetailItem.items(feature.rom.metadata),
-            screenshots: feature.rom.metadata.screenshots.compactMap { model.artworkURL(path: $0) },
-            playtime: played?.playtime ?? 0,
-            sessionCount: played?.sessionCount ?? 0,
-            lastPlayedAt: played?.lastPlayedAt,
-            preserved: feature.preservedContentPresentation,
-            statusTone: hero.statusTone,
-            availabilityTone: feature.selectedFilePresentation?.availabilityTone ?? .neutral,
-            playabilityTone: state.map(Self.playabilityTone) ?? .neutral,
-            showsStartOptions: feature.actionDeckPresentation?.primary.map { $0.kind == .play && $0.enabled } == true
-                && feature.conflicts.isEmpty && LaunchChoice.offersStartOptions(feature.saves)
-        )
-    }
-
-    /// The saves as a timeline, newest first.
-    private func timeline(_ browser: GameStateBrowser) -> [SaveTimelineItem] {
-        var items: [SaveTimelineItem] = []
-        if let resume = browser.resume, resume.available {
-            items.append(SaveTimelineItem(
-                id: "resume", kind: .resume, kindTitle: "Automatic resume", title: resume.primaryStatusMessage,
-                date: resume.updatedAtEpochMS.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) },
-                device: resume.sourceOrigin == .remoteDevice ? (resume.sourceDeviceName ?? "Another device") : "This device",
-                sync: Self.badge(resume.statusKind)))
-        }
-        for state in browser.saveSlots {
-            items.append(SaveTimelineItem(
-                id: state.id, kind: .saveState, kindTitle: state.slot.map { "Save state · Slot \($0)" } ?? "Save state", title: state.label,
-                date: Date(timeIntervalSince1970: TimeInterval(state.updatedAtEpochMS) / 1000),
-                device: state.sourceDeviceName ?? "This device", sync: nil))
-        }
-        for state in browser.snapshots {
-            items.append(SaveTimelineItem(
-                id: state.id, kind: .snapshot, kindTitle: "Snapshot", title: state.label,
-                date: Date(timeIntervalSince1970: TimeInterval(state.updatedAtEpochMS) / 1000),
-                device: state.sourceDeviceName ?? "This device", sync: nil))
-        }
-        return items.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
     }
 
     static func badge(_ kind: ResumeStateStatusKind) -> SyncBadgeState? {
@@ -345,17 +356,62 @@ struct GameDetailView: View {
     }
 }
 
+/// Refreshes the page when the player closes (play changes the saves).
+private struct RefreshAfterPlayer: ViewModifier {
+    let model: RommioAppModel
+    let feature: GameDetailFeatureModel
+
+    func body(content: Content) -> some View {
+        content.onChange(of: model.activePlayer?.id) { _, playerID in
+            if playerID == nil { Task { await feature.refresh(forceRemote: false) } }
+        }
+    }
+}
+
+/// The toolbar's Play or Download.
+private struct GameToolbarAction: View {
+    let primary: GameDetailAction
+    let fileID: Int
+    let perform: (GameDetailAction) -> Void
+
+    var body: some View {
+        Button {
+            perform(primary)
+        } label: {
+            Label(primary.kind == .play ? "Play" : "Download", systemImage: primary.kind == .play ? "play.fill" : "arrow.down.circle")
+        }
+        .disabled(!primary.enabled)
+        .accessibilityIdentifier("gameDetail.toolbar.\(primary.kind.rawValue)")
+    }
+}
+
+private struct GameLayout: View {
+    let content: GameContent
+    let actions: GameActions
+    let riso: Bool
+
+    var body: some View {
+        if riso {
+            RisoGameLayout(content: content, actions: actions)
+        } else {
+            AuroraGameLayout(content: content, actions: actions)
+        }
+    }
+}
+
 // MARK: Shared pieces
 
 /// The main action and the quieter ones for the selected file, with progress and notes.
 struct GameActionDeck: View {
     @Environment(\.rommioTheme) private var theme
-    let content: GameContent
+    let deck: GameDetailActionDeckPresentation?
+    let fileID: Int?
+    let showsStartOptions: Bool
     let actions: GameActions
     var showsNotes = true
 
     var body: some View {
-        if let deck = content.deck, let fileID = content.fileID {
+        if let deck, let fileID {
             VStack(alignment: .leading, spacing: 12) {
                 if let primary = deck.primary {
                     Button { actions.perform(primary) } label: {
@@ -365,7 +421,7 @@ struct GameActionDeck: View {
                     .disabled(!primary.enabled)
                     .accessibilityIdentifier("gameDetail.primary.\(fileID).\(primary.kind.rawValue)")
                 }
-                if content.showsStartOptions {
+                if showsStartOptions {
                     Button(action: actions.startOptions) {
                         Label("Start options", systemImage: "slider.horizontal.3")
                     }
@@ -391,19 +447,28 @@ struct GameActionDeck: View {
                     }
                 }
                 if showsNotes {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(deck.subtitle).themeText(.secondary).foregroundStyle(theme.inkSecondary)
-                        if let core = deck.recommendedCoreName {
-                            Text("Runs on \(core)").themeText(.caption).foregroundStyle(theme.inkTertiary)
-                        }
-                        ForEach(deck.notes, id: \.self) { note in
-                            Text(note).themeText(.caption).foregroundStyle(theme.inkSecondary)
-                        }
-                        if let error = deck.errorMessage, !error.isEmpty {
-                            Text(error).themeText(.caption).foregroundStyle(theme.badText)
-                        }
-                    }
+                    GameDeckNotes(deck: deck)
                 }
+            }
+        }
+    }
+}
+
+private struct GameDeckNotes: View {
+    @Environment(\.rommioTheme) private var theme
+    let deck: GameDetailActionDeckPresentation
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(deck.subtitle).themeText(.secondary).foregroundStyle(theme.inkSecondary)
+            if let core = deck.recommendedCoreName {
+                Text("Runs on \(core)").themeText(.caption).foregroundStyle(theme.inkTertiary)
+            }
+            ForEach(deck.notes, id: \.self) { note in
+                Text(note).themeText(.caption).foregroundStyle(theme.inkSecondary)
+            }
+            if let error = deck.errorMessage, !error.isEmpty {
+                Text(error).themeText(.caption).foregroundStyle(theme.badText)
             }
         }
     }
@@ -411,13 +476,15 @@ struct GameActionDeck: View {
 
 /// The file picker when a game has several files.
 struct GameFilePicker: View {
-    let content: GameContent
-    let actions: GameActions
+    let shows: Bool
+    let options: [GameDetailFileOption]
+    let selectedFileID: Int
+    let select: (Int) -> Void
 
     var body: some View {
-        if content.showsFilePicker {
-            Picker("File", selection: Binding(get: { content.selectedFileID }, set: { actions.selectFile($0) })) {
-                ForEach(content.fileOptions) { option in
+        if shows {
+            Picker("File", selection: Binding(get: { selectedFileID }, set: { select($0) })) {
+                ForEach(options) { option in
                     Text(option.title).tag(option.id)
                 }
             }
@@ -498,16 +565,8 @@ struct GameScreenshotsRow: View {
                 SectionHeader(title: "Screenshots", detail: "\(urls.count)")
                     .padding(.horizontal, gutter + (theme.isGlass ? 6 : 0))
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) {
-                        ForEach(urls, id: \.self) { url in
-                            let shape = RoundedRectangle(cornerRadius: theme.isRiso ? 0 : min(theme.radius.cover, 12), style: .continuous)
-                            ArtworkImage(url: url, contentMode: .fit, maxPointSize: 360) { theme.player.ground.color }
-                                .frame(width: 176, height: 132)
-                                .background(theme.player.ground.color)
-                                .clipShape(shape)
-                                .overlay { shape.strokeBorder(theme.isRiso ? theme.ink : theme.ink.opacity(0.1), lineWidth: theme.isRiso ? 1 : 0.5) }
-                                .accessibilityLabel("Screenshot")
-                        }
+                    LazyHStack(spacing: 10) {
+                        ForEach(urls, id: \.self) { url in GameScreenshot(url: url) }
                     }
                     .padding(.horizontal, gutter)
                 }
@@ -516,6 +575,22 @@ struct GameScreenshotsRow: View {
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("game.screenshots")
         }
+    }
+}
+
+/// One RomM screenshot, as delivered.
+private struct GameScreenshot: View {
+    @Environment(\.rommioTheme) private var theme
+    let url: URL
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: theme.isRiso ? 0 : min(theme.radius.cover, 12), style: .continuous)
+        ArtworkImage(url: url, contentMode: .fit, maxPointSize: 360) { theme.player.ground.color }
+            .frame(width: 176, height: 132)
+            .background(theme.player.ground.color)
+            .clipShape(shape)
+            .overlay { shape.strokeBorder(theme.isRiso ? theme.ink : theme.ink.opacity(0.1), lineWidth: theme.isRiso ? 1 : 0.5) }
+            .accessibilityLabel("Screenshot")
     }
 }
 

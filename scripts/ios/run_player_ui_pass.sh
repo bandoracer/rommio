@@ -1,19 +1,24 @@
 #!/bin/bash
-# Exercise an already-installed simulator app using explicit JSON actions.
+# Exercise the already-installed app using explicit JSON actions (ios/AppUITests/UIActionRunner.swift).
+# The actions are embedded in the runner bundle, so the same pass runs on a simulator or a device.
+#
+#   run_player_ui_pass.sh SIMULATOR_UDID ACTIONS_JSON
+#   run_player_ui_pass.sh --device DEVICE_UDID ACTIONS_JSON   (needs ROMMIO_DEVELOPMENT_TEAM for signing)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+PLATFORM="iOS Simulator"
+if [[ "${1:-}" == "--device" ]]; then
+  PLATFORM="iOS"
+  shift
+fi
 if [[ $# -ne 2 ]]; then
-  echo "Usage: $0 SIMULATOR_UDID ACTIONS_JSON" >&2
+  echo "Usage: $0 [--device] UDID ACTIONS_JSON" >&2
   exit 2
 fi
 DEVICE="$1"
 ACTIONS="$2"
-# XCTest's simulator runner shares the host /tmp. Remove the opt-in file on exit
-# so ordinary test runs cannot accidentally repeat an exploratory pass.
-cp "$ACTIONS" /tmp/rommio-player-ui-actions.json
-trap 'rm -f /tmp/rommio-player-ui-actions.json' EXIT
-ruby "$ROOT/scripts/ios/generate_player_ui_runner.rb"
+ruby "$ROOT/scripts/ios/generate_player_ui_runner.rb" --actions "$ACTIONS"
 xcodebuild test -project "$ROOT/ios/build/PlayerUIRunner.xcodeproj" \
-  -scheme PlayerUIRunner -destination "platform=iOS Simulator,id=$DEVICE" \
+  -scheme PlayerUIRunner -destination "platform=$PLATFORM,id=$DEVICE" \
   -derivedDataPath "$ROOT/ios/build/player-ui-runner" -parallel-testing-enabled NO \
   -only-testing:PlayerUIRunner/PlayerExplorationTests

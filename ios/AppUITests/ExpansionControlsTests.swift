@@ -67,6 +67,11 @@ final class ExpansionControlsTests: XCTestCase {
         app.terminate(); app.launchEnvironment = [:]; app.launch()
     }
 
+    private func hittable(_ element: XCUIElement, timeout: TimeInterval = 3) -> Bool {
+        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND isHittable == true"), object: element)
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
     func testConsoleControls() throws {
         guard ProcessInfo.processInfo.environment["ROMMIO_CONTROLS_TEST"] == "1" || FileManager.default.fileExists(atPath: "/tmp/rommio-controls-test") else { throw XCTSkip("Opt-in console controls test") }
         let contract = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: "/tmp/rommio-controls-contract.json"))) as! [String: [String: Any]]
@@ -95,7 +100,10 @@ final class ExpansionControlsTests: XCTestCase {
                     XCTAssertTrue(events.label.contains("D\(key):0"), "Missing release \(family) \(label): \(events.label)")
                 } else if let stick = control["stick"] as? Int {
                     let start = target.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-                    let end = target.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+                    // Past the zone's edge: a touch stick's travel is the console's (up to
+                    // 48 pt), and a secondary zone can be as small as 90 pt; the touch keeps
+                    // the stick outside its zone.
+                    let end = target.coordinate(withNormalizedOffset: CGVector(dx: 1.2, dy: 0.5))
                     start.press(forDuration: 0.1, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.1)
                     // Fractional target centers round to simulator pixels. A horizontal
                     // drag can produce a 1% orthogonal offset on compact controls.
@@ -126,15 +134,21 @@ final class ExpansionControlsTests: XCTestCase {
             up.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.1, thenDragTo: up.coordinate(withNormalizedOffset: CGVector(dx: 2, dy: 0.5)))
             XCTAssertTrue(events.label.contains("D4:0"), "Drag-out release missing")
             app.buttons["Mirror"].tap()
-            XCTAssertTrue(app.buttons["player.control.Start"].exists || app.buttons["player.control.Pause"].exists)
+            // Mirroring moves the rails, never the utilities (Start, Pause, Reset, Coin…).
+            let utilities = (contract[family]!["buttons"] as! [[String: Any]]).filter { ($0["side"] as? String) == "center" }
+            if let first = utilities.first?["label"] as? String {
+                XCTAssertTrue(app.buttons["player.control.\(first)"].exists, "\(family) \(first) after mirroring")
+            }
             app.buttons["player.menu"].tap()
-            XCTAssertFalse(app.buttons["player.control.Up"].exists)
-            XCTAssertTrue(app.buttons["player.menu"].isHittable)
+            XCTAssertTrue(app.buttons["player.control.Up"].waitForNonExistence(timeout: 3))
+            XCTAssertTrue(hittable(app.buttons["player.menu"]))
             app.buttons["player.menu"].tap()
-            XCTAssertTrue(app.buttons["player.control.Up"].isHittable)
+            XCTAssertTrue(hittable(app.buttons["player.control.Up"]))
             XCUIDevice.shared.orientation = .portrait
-            XCTAssertTrue(app.buttons["player.control.Up"].isHittable)
-            XCTAssertTrue(app.buttons["player.menu"].isHittable)
+            // Read frames once the rotation has settled.
+            Thread.sleep(forTimeInterval: 1.5)
+            XCTAssertTrue(hittable(app.buttons["player.control.Up"]))
+            XCTAssertTrue(hittable(app.buttons["player.menu"]))
             for control in contract[family]!["buttons"] as! [[String: Any]] {
                 let target = app.buttons["player.control.\(control["label"] as! String)"]
                 XCTAssertTrue(app.frame.contains(target.frame), "Portrait clip \(family)")

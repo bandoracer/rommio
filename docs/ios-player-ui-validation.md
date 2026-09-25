@@ -52,11 +52,13 @@ The final simulator app builds successfully. Focused Swift suites passed: 12 dow
 
 ## Repeating the UI pass
 
-The opt-in `ios/AppUITests/PlayerExplorationTests.swift` runner operates the app already installed on the specified simulator. It does not log in, install an app, supply ROMs, or alter a release manifest. Use a QA account and games available on that server.
+The opt-in `ios/AppUITests/PlayerExplorationTests.swift` runner operates the app already installed on the specified simulator or device. It does not log in, install an app, supply ROMs, or alter a release manifest. Use a QA account and games available on that server. `scripts/ios/generate_player_ui_runner.rb --actions FILE` embeds the actions in the test bundle (`rommio-ui-actions.json`), so the same pass runs on a device; on a simulator the runner also reads the host's `/tmp/rommio-player-ui-actions.json` when nothing is embedded. The actions are interpreted by `ios/AppUITests/UIActionRunner.swift`.
 
 ```sh
 # Requires the same xcodeproj Ruby gem as the normal project generator.
 scripts/ios/run_player_ui_pass.sh SIMULATOR_UDID /path/to/actions.json
+# A device (signs the runner with your team):
+ROMMIO_DEVELOPMENT_TEAM=TEAMID scripts/ios/run_player_ui_pass.sh --device DEVICE_UDID /path/to/actions.json
 ```
 
 Action example (labels must match the current screen):
@@ -71,6 +73,14 @@ Action example (labels must match the current screen):
   {"capture": "pause"}
 ]
 ```
+
+A pass may start with `{"launch": "-appearance.theme riso -appearance.scheme dark"}` (optionally
+`"env": "KEY=VALUE;KEY=VALUE"`) to relaunch the app with a theme and appearance for this run only (the
+UserDefaults argument domain; nothing is saved). `{"tapFirst": "library.platform."}` taps the first
+element whose identifier starts with the prefix (scrolling to it), `{"tapTab": "Stats"}` taps a tab,
+`{"back": "1"}` taps the navigation bar's back button and `{"waitFor": "gameDetail.hero"}` waits for an
+element. After every action the app must still be in the foreground, so a crash fails the pass at the
+step that caused it.
 
 Other actions: `{"touch": "identifier", "x": "0.5", "y": "0.5"}` taps any element by identifier,
 `{"search": "text"}` types into the first search field, `{"type": "text"}` types into the focused
@@ -89,6 +99,24 @@ player presents it (`PlayerPanelPresentation`): a sheet on narrow windows, and o
 (`qa.viewport`) clear of it. The menu button then opens and closes Pause instead of hiding the
 controls; the pause buttons only log to `qa.events`.
 
+Touch controls v2 (`docs/player-controls.md`) on a running game: `PlayerTouchControlsTests`
+(simulator, opt-in with the host file `/tmp/rommio-touch-tests`; the app signed in to the scratch
+mock server so Search finds "NES pattern test"). It launches with `ROMMIO_INPUT_LOG=1` (Debug only),
+which makes the engine record every input the core receives (`D<key>:<1|0>`, `A<stick>:<x>,<y>`)
+and shows them in the hidden `player.debug.inputLog` element, then checks a touch 10 pt outside A's
+circle, the chord between A and B, a d-pad drag that leaves the pad, five quick taps, rolling from B
+to A, and A's edge in landscape. Build the runner with `scripts/ios/generate_player_ui_runner.rb`
+and run `-only-testing:PlayerUIRunner/PlayerTouchControlsTests`. The runner's `drag` and `pull`
+actions scroll Play's carousel and pull to refresh (`app.swipeLeft()` does not page the carousel).
+
+Analog sticks and per-console layouts: `PlayerStickControlsTests` (simulator, opt-in with the host
+file `/tmp/rommio-stick-tests`, no server needed) drives the controls QA harness. It checks that an
+N64 stick's centre floats to the touch (a press off-centre reads 0,0; the travel from there is full
+deflection; a drag far outside the zone keeps the stick), that PlayStation shows its sticks, L3 and
+R3 only with Analog controls (the harness shows them unless `ROMMIO_CONTROLS_QA_ANALOG=0`), and that
+taps on the DS and 3DS touch screens, including their corners next to the controls, reach the game
+(the harness logs them as `screen1:x,y` in `qa.events`) while the 3DS circle pad drives stick 0.
+
 The resume-conflict seed (`ROMMIO_SEED_RESUME_CONFLICT=1`, Debug builds only; `ConflictSeedProbe.swift`)
 exists to exercise the Conflict sheet against the mock server, which has no progress endpoints.
 **Use it with test accounts only.** At launch it writes into the real local progress store of the
@@ -103,7 +131,54 @@ For screenshots of the Setup code sheet, `ROMMIO_SETUP_STUB=1` (Debug builds onl
 one-touch pairing service with a fixed code that stays pending and makes no request, so captures
 never contact the production setup service.
 
-Captures and accessibility dumps are written to `/tmp/rommio-ui-NAME.{png,txt}` and screenshots attach to the XCTest result under `ios/build/player-ui-runner/Logs/Test`. For visual review after rotation, use `xcrun simctl io UDID screenshot PATH`: Early XCTest app screenshots on this simulator had stale orientation/cropped content; the runner now uses the full-screen screenshot API. The native simulator screenshot is an independent orientation check. A successful runner exit establishes that requested controls were found and operated, not that game content was semantically correct; review screenshots and the game itself.
+Captures and accessibility dumps attach to the XCTest result under `ios/build/player-ui-runner/Logs/Test`; on a simulator they are also written to `/tmp/rommio-ui-NAME.{png,txt}`. For visual review after rotation, use `xcrun simctl io UDID screenshot PATH`: Early XCTest app screenshots on this simulator had stale orientation/cropped content; the runner now uses the full-screen screenshot API. The native simulator screenshot is an independent orientation check. A successful runner exit establishes that requested controls were found and operated, not that game content was semantically correct; review screenshots and the game itself.
+
+## Navigation pass and transition metrics
+
+`ios/AppUITests/NavigationPassTests.swift` walks the page list against the signed-in account on a
+simulator or device: every tab, Downloads, a platform and one of its games, a collection and one of
+its games, Search and its best match, Stats, and each Settings sub-page, going back after each push.
+Every stop is captured as an attachment. It is read-only (it plays, downloads and changes nothing)
+and fails at the first step after which the app is no longer running. Three more tests measure
+pushes and pops (Library › Platform, Platform › Game, Settings › Cores and BIOS) with
+`XCTOSSignpostMetric.navigationTransitionMetric`.
+
+```sh
+# Simulator:
+scripts/ios/run_navigation_pass.sh --simulator UDID --theme riso --scheme dark
+# Device (the installed app, signed in; the runner is signed with your team):
+scripts/ios/run_navigation_pass.sh --device UDID --theme aurora --scheme light --team TEAMID
+# Only the pass, or only the metrics; the Search query and measure iterations:
+scripts/ios/run_navigation_pass.sh --device UDID --theme riso --scheme light --team TEAMID --tests transitions --iterations 5
+```
+
+Theme and appearance reach the app as `-appearance.theme` / `-appearance.scheme` launch arguments
+(from `rommio-ui-config.json`, embedded by `generate_player_ui_runner.rb --theme --scheme`, or
+`TEST_RUNNER_ROMMIO_THEME` / `TEST_RUNNER_ROMMIO_SCHEME`). The script writes the result bundle, the
+exported captures and a summary of the measured transitions to
+`ios/build/navigation-pass/<theme>-<scheme>/` (`attachments/manifest.json` names each capture). A tab
+tap ends an active search first (the keyboard covers the tab bar) and fails if the tab does not open,
+so a stop is never captured on the wrong page.
+
+On the Simulator every measured push took 0.50–0.53 s, before and after the 2026-09-24 stack work
+alike: that is the push animation's own length, and a Mac-hosted Simulator does not show the phone's
+cost. The numbers that matter come from the device run.
+
+## Simulator enforces the device stack limit
+
+Simulator builds of the app are linked with `-Wl,-stack_size,0x100000`
+(`OTHER_LDFLAGS[sdk=iphonesimulator*]` in `scripts/ios/generate_xcodeproj.rb`), the 1 MB
+main-thread stack an iPhone gives the app, instead of the Mac's 8 MB. A page whose view tree is too
+deep for the phone now crashes in the Simulator (`EXC_BAD_ACCESS` in the view's body, like the
+device's "Thread stack size exceeded") instead of only on the device. Device builds are unchanged.
+Confirm with `otool -l ios/build/Debug-iphonesimulator/Rommio.app/Rommio | grep -A3 LC_MAIN`
+(`stacksize 1048576`). `StackBudgetTests` (`swift test --package-path ios`) additionally measures
+each page and sheet on the Mac and holds it to 256 KB.
+
+Checked on 2026-09-24 (iPhone 17 Pro simulator, iOS 27.0): the app as it was before the stack work,
+linked with this setting, crashed opening a Riso game page (`EXC_BAD_ACCESS`, `SIGSEGV` in
+`RisoGameLayout`'s body), as the phone did; the current app passes the navigation pass with it in
+both themes, light and dark.
 
 ## Additional simulator cores
 

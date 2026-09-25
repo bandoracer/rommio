@@ -64,23 +64,32 @@ class SavedProgressRepository(
 ) {
     private val mutex = Mutex()
     private val recentState = MutableStateFlow<List<SaveEntry>>(emptyList())
+    private val latestState = MutableStateFlow<Map<Long, SaveEntry>>(emptyMap())
     private val labelRevision = MutableStateFlow(0L)
 
     /** Newest first; empty until the first [refreshRecent]. */
     val recent: StateFlow<List<SaveEntry>> = recentState.asStateFlow()
+
+    /**
+     * Each game's latest place to continue from (its current resume point, else a save state),
+     * by ROM id: the screens on Aurora Play. Read with [recent], from every save (not only the
+     * newest shown).
+     */
+    val latest: StateFlow<Map<Long, SaveEntry>> = latestState.asStateFlow()
 
     /** Bumps after a rename so open pages can re-read. */
     val labelChanges: StateFlow<Long> = labelRevision.asStateFlow()
 
     /** Recomputes Recent saves. Failures (storage busy during an import) keep the last value. */
     suspend fun refreshRecent(limit: Int = RECENT_LIMIT): List<SaveEntry> = mutex.withLock {
-        val next = try {
+        val (next, latest) = try {
             withContext(Dispatchers.IO) {
-                val context = readContext() ?: return@withContext emptyList()
+                val context = readContext() ?: return@withContext emptyList<SaveEntry>() to emptyMap()
                 val entries = context.identities.flatMap { identity -> entriesFor(context, identity, prune = true) }
-                SavedProgressRules.recent(entries, limit)
+                SavedProgressRules.recent(entries, limit) to SavedProgressRules.latestByGame(entries)
             }
         } catch (error: CancellationException) { throw error } catch (_: Exception) { return@withLock recentState.value }
+        latestState.value = latest
         recentState.value = next
         next
     }
@@ -116,6 +125,7 @@ class SavedProgressRepository(
         if (label == null) dao.deleteLabel(key.namespaceId, key.contentId, key.checkpointId)
         else dao.upsertLabel(SaveStateLabelEntity(key.namespaceId, key.contentId, key.checkpointId, label, System.currentTimeMillis()))
         recentState.update { list -> list.map { if (it.key == key) it.copy(label = label) else it } }
+        latestState.update { map -> map.mapValues { (_, entry) -> if (entry.key == key) entry.copy(label = label) else entry } }
         labelRevision.update { it + 1 }
     }
 

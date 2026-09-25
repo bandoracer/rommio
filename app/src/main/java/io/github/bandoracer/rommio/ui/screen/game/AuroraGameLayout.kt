@@ -52,7 +52,6 @@ import io.github.bandoracer.rommio.ui.component.GlassSurface
 import io.github.bandoracer.rommio.ui.component.ListDivider
 import io.github.bandoracer.rommio.ui.component.ListGroup
 import io.github.bandoracer.rommio.ui.component.ListRow
-import io.github.bandoracer.rommio.ui.component.PageArtSubject
 import io.github.bandoracer.rommio.ui.component.PageFieldStyle
 import io.github.bandoracer.rommio.ui.component.Fmt
 import io.github.bandoracer.rommio.ui.component.PlayFormat
@@ -87,9 +86,10 @@ internal fun Modifier.overlapTop(amount: Dp): Modifier = layout { measurable, co
 fun AuroraGameLayout(content: GameContent, actions: GameActions, scroll: ScrollState) {
     val theme = RommioTheme.current
     val regular = isRegularWidth()
-    PageArtSubject(content.coverUrl, PageFieldStyle.PAGE)
+    // The page is lit by the screen (LitPage around the layouts); the sections are small and take
+    // only what they draw from [GameContent], which the model builds.
     Column(Modifier.fillMaxSize().verticalScroll(scroll)) {
-        GameArtHero(content, heroHeight(0.46f))
+        GameArtHero(content.coverUrl, content.rom.displayName, heroHeight(0.46f))
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
             Column(
                 Modifier
@@ -114,7 +114,7 @@ fun AuroraGameLayout(content: GameContent, actions: GameActions, scroll: ScrollS
                     }
                     Timeline(content, actions)
                     // Details and Screenshots side by side under the timeline.
-                    val details = metadataDetails(content.rom.metadata)
+                    val details = content.details
                     val shots = content.rom.metadata.screenshots
                     if (details.isNotEmpty() || shots.isNotEmpty()) {
                         Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
@@ -128,7 +128,7 @@ fun AuroraGameLayout(content: GameContent, actions: GameActions, scroll: ScrollS
                     GameFilePicker(content, actions)
                     GameActionDeck(content, actions)
                     Timeline(content, actions)
-                    DetailsSection(metadataDetails(content.rom.metadata))
+                    DetailsSection(content.details)
                     ScreenshotsSection(content)
                     FileGroup(content, actions)
                     About(content)
@@ -204,6 +204,8 @@ private fun Timeline(content: GameContent, actions: GameActions) {
 private fun TimelineStop(stop: SaveStop, content: GameContent, first: Boolean, last: Boolean) {
     val theme = RommioTheme.current
     val c = theme.colors
+    // The timeline is drawn in the page's light (its marks, lit ground and lights).
+    val light = RommioTheme.light
     val width = 164.dp
     val shape = RoundedCornerShape(14.dp)
     Column(
@@ -217,15 +219,15 @@ private fun TimelineStop(stop: SaveStop, content: GameContent, first: Boolean, l
                     .offset(x = 6.dp)
                     .width(if (last) 8.dp else width + 14.dp)
                     .height(1.5.dp)
-                    .background(theme.mark1.copy(alpha = 0.6f)),
+                    .background(light.mark1.copy(alpha = 0.6f)),
             )
             Box(
                 Modifier
                     .size(11.dp)
-                    .then(if (first) Modifier.dropShadow(theme.mark1.copy(alpha = 0.7f), 999.dp, 5.dp, 0.dp) else Modifier)
+                    .then(if (first) Modifier.dropShadow(light.mark1.copy(alpha = 0.7f), 999.dp, 5.dp, 0.dp) else Modifier)
                     .clip(CircleShape)
-                    .background(if (first) theme.mark1 else c.ground)
-                    .border(1.5.dp, theme.mark1, CircleShape),
+                    .background(if (first) light.mark1 else light.ground)
+                    .border(1.5.dp, light.mark1, CircleShape),
             )
         }
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -237,7 +239,7 @@ private fun TimelineStop(stop: SaveStop, content: GameContent, first: Boolean, l
                         if (stop.entry.thumbnailPath != null) {
                             Brush.linearGradient(listOf(theme.player.ground, theme.player.ground))
                         } else {
-                            Brush.linearGradient(listOf(c.accent1.copy(alpha = if (theme.isDark) 0.5f else 0.8f), c.accent2.copy(alpha = if (theme.isDark) 0.5f else 0.8f)))
+                            Brush.linearGradient(listOf(light.colors.accent1.copy(alpha = if (theme.isDark) 0.5f else 0.8f), light.colors.accent2.copy(alpha = if (theme.isDark) 0.5f else 0.8f)))
                         },
                     )
                     .border(0.5.dp, OverArt.rim.copy(alpha = if (theme.isDark) 0.1f else 0.5f), shape),

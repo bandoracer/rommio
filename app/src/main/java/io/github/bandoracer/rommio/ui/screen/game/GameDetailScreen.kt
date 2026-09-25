@@ -4,7 +4,6 @@ import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -24,10 +23,10 @@ import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,13 +55,15 @@ import io.github.bandoracer.rommio.domain.player.EmbeddedSupportTier
 import io.github.bandoracer.rommio.domain.playdata.SaveEntry
 import io.github.bandoracer.rommio.domain.playdata.SaveKind
 import io.github.bandoracer.rommio.domain.playdata.SaveSyncStatus
-import io.github.bandoracer.rommio.domain.stats.PlayStats
+import io.github.bandoracer.rommio.domain.stats.GamePlayTotal
 import io.github.bandoracer.rommio.model.DownloadStatus
 import io.github.bandoracer.rommio.model.RomDto
 import io.github.bandoracer.rommio.model.RomFileDto
 import io.github.bandoracer.rommio.ui.component.EmptyState
 import io.github.bandoracer.rommio.ui.component.GameCover
+import io.github.bandoracer.rommio.ui.component.LitPage
 import io.github.bandoracer.rommio.ui.component.LoadingSkeletonPanel
+import io.github.bandoracer.rommio.ui.component.PageFieldStyle
 import io.github.bandoracer.rommio.ui.component.PlayFormat
 import io.github.bandoracer.rommio.ui.component.PrimaryButton
 import io.github.bandoracer.rommio.ui.component.RoleText
@@ -72,7 +73,7 @@ import io.github.bandoracer.rommio.ui.component.SegmentedChoice
 import io.github.bandoracer.rommio.ui.component.Tone
 import io.github.bandoracer.rommio.ui.component.formatBytes
 import io.github.bandoracer.rommio.ui.component.formatPlayTime
-import io.github.bandoracer.rommio.ui.screen.collectAsStateWithLifecycleCompat
+import io.github.bandoracer.rommio.ui.theme.LitMaterialTheme
 import io.github.bandoracer.rommio.ui.theme.RommioTheme
 import io.github.bandoracer.rommio.util.resolveRemoteAssetUrl
 
@@ -89,9 +90,11 @@ data class SaveStop(
 /**
  * Everything both Game layouts draw (docs/theme-layouts.md "Game — two layouts"): the game, its
  * tier, where it stands, the action deck, the files, its saved progress (Android: from the local
- * saves reader, with previews), this device's play and the RomM details.
+ * saves reader, with previews), this device's play and the RomM details. Built by
+ * [GameDetailViewModel] once per data change (never in composition); compared by value.
  */
-class GameContent(
+@Immutable
+data class GameContent(
     val state: GameDetailUiState,
     val rom: RomDto,
     val coverUrl: String?,
@@ -102,76 +105,100 @@ class GameContent(
     val playedMs: Long,
     val sessionCount: Int,
     val lastPlayedAtEpochMs: Long?,
+    /** "Super Nintendo · 1994" (the year when RomM knows it). */
+    val platformLine: String,
+    val tierLabel: String,
+    /** Where the game stands on this device. */
+    val statusText: String,
+    val statusTone: Tone,
+    /** "Played 1 h 05 min · 3 sessions · last 2 hours ago". */
+    val playLine: String?,
+    /** The first sentence of the summary, for standfirsts. */
+    val standfirst: String?,
+    /** The resume point's sync badge ("Synced · resume"), when it has one. */
+    val resumeSync: SaveSyncStatus?,
+    /** "1 resume point · 2 save states". */
+    val savesCount: String,
+    val hasSaves: Boolean,
+    /** The conflict copy with its count ("… has two resume points. Choose which to keep playing."). */
+    val problemText: String?,
+    /** "Start options" (the Launch choice): the game can start and has both a resume point and game-save data. */
+    val showsStartOptions: Boolean,
+    val showsFilePicker: Boolean,
+    val coreName: String?,
+    val controllerNote: String?,
+    val fileMeta: String?,
+    /** RomM's details, in reading order. */
+    val details: List<Pair<String, String>>,
 ) {
     val tier: EmbeddedSupportTier get() = state.supportTier
 
-    /** "Super Nintendo · 1994" (the year when RomM knows it). */
-    val platformLine: String
-        get() = listOfNotNull(rom.platformName.takeIf { it.isNotBlank() }, rom.metadata.releaseYear?.toString()).joinToString(" · ")
-    val tierLabel: String get() = io.github.bandoracer.rommio.ui.component.supportTierLabel(tier)
-
-    /** Where the game stands on this device. */
-    val statusText: String
-        get() = when {
-            state.isLocalOnly -> "On this device · removed from RomM"
-            selectedInstalled -> "On this device"
-            state.downloadRecord?.status == DownloadStatus.RUNNING -> "Downloading"
-            state.downloadRecord?.status == DownloadStatus.QUEUED -> "Queued"
-            state.downloadRecord?.status == DownloadStatus.FAILED -> "Download failed"
-            else -> "Not downloaded"
+    companion object {
+        fun build(
+            state: GameDetailUiState,
+            rom: RomDto,
+            baseUrl: String?,
+            selectedFile: RomFileDto?,
+            selectedInstalled: Boolean,
+            played: GamePlayTotal?,
+            now: Long = System.currentTimeMillis(),
+        ): GameContent {
+            val sessionCount = played?.sessionCount ?: 0
+            val playedMs = played?.playedMs ?: 0L
+            val lastPlayed = played?.lastPlayedAtEpochMs
+            val summary = rom.summary?.trim()?.takeIf { it.isNotEmpty() }
+            return GameContent(
+                state = state,
+                rom = rom,
+                coverUrl = resolveRemoteAssetUrl(baseUrl, rom.urlCover),
+                baseUrl = baseUrl,
+                selectedFile = selectedFile,
+                selectedInstalled = selectedInstalled,
+                stops = saveStops(state),
+                playedMs = playedMs,
+                sessionCount = sessionCount,
+                lastPlayedAtEpochMs = lastPlayed,
+                platformLine = listOfNotNull(rom.platformName.takeIf { it.isNotBlank() }, rom.metadata.releaseYear?.toString()).joinToString(" · "),
+                tierLabel = io.github.bandoracer.rommio.ui.component.supportTierLabel(state.supportTier),
+                statusText = when {
+                    state.isLocalOnly -> "On this device · removed from RomM"
+                    selectedInstalled -> "On this device"
+                    state.downloadRecord?.status == DownloadStatus.RUNNING -> "Downloading"
+                    state.downloadRecord?.status == DownloadStatus.QUEUED -> "Queued"
+                    state.downloadRecord?.status == DownloadStatus.FAILED -> "Download failed"
+                    else -> "Not downloaded"
+                },
+                statusTone = when {
+                    selectedInstalled -> Tone.OK
+                    state.downloadRecord?.status == DownloadStatus.RUNNING || state.downloadRecord?.status == DownloadStatus.QUEUED -> Tone.LIVE
+                    state.downloadRecord?.status == DownloadStatus.FAILED -> Tone.BAD
+                    else -> Tone.MUTE
+                },
+                playLine = if (sessionCount <= 0) null else listOfNotNull(
+                    "Played ${formatPlayTime(playedMs)}",
+                    "$sessionCount session${if (sessionCount == 1) "" else "s"}",
+                    lastPlayed?.let { "last ${PlayFormat.relative(it, now)}" },
+                ).joinToString(" · "),
+                standfirst = summary?.let {
+                    val sentence = it.substringBefore(". ", it).let { first -> if (first.length < it.length) "$first." else first }
+                    if (sentence.length > 180) sentence.take(177) + "…" else sentence
+                },
+                resumeSync = state.saves.resume?.sync?.takeIf { it != SaveSyncStatus.UNKNOWN },
+                savesCount = listOfNotNull(
+                    state.saves.resume?.let { "1 resume point" },
+                    state.saves.saveStates.size.takeIf { it > 0 }?.let { "$it save state${if (it == 1) "" else "s"}" },
+                ).joinToString(" · "),
+                hasSaves = !state.saves.isEmpty,
+                problemText = state.saves.conflict?.prompt(rom.displayName),
+                showsStartOptions = state.saves.launchOptions != null && state.actionPresentation.primary?.kind == GameDetailActionKind.PLAY && selectedInstalled,
+                showsFilePicker = rom.files.size in 2..4,
+                coreName = state.support?.runtimeProfile?.displayName,
+                controllerNote = state.support?.message?.takeIf { it.isNotBlank() },
+                fileMeta = selectedFile?.let { "${it.effectiveFileExtension.ifBlank { "file" }.uppercase()} · ${formatBytes(it.fileSizeBytes)}" },
+                details = metadataDetails(rom.metadata),
+            )
         }
-
-    val statusTone: Tone
-        get() = when {
-            selectedInstalled -> Tone.OK
-            state.downloadRecord?.status == DownloadStatus.RUNNING || state.downloadRecord?.status == DownloadStatus.QUEUED -> Tone.LIVE
-            state.downloadRecord?.status == DownloadStatus.FAILED -> Tone.BAD
-            else -> Tone.MUTE
-        }
-
-    /** "Played 1 h 05 min · 3 sessions · last 2 hours ago". */
-    val playLine: String?
-        get() {
-            if (sessionCount <= 0) return null
-            return listOfNotNull(
-                "Played ${formatPlayTime(playedMs)}",
-                "$sessionCount session${if (sessionCount == 1) "" else "s"}",
-                lastPlayedAtEpochMs?.let { "last ${PlayFormat.relative(it)}" },
-            ).joinToString(" · ")
-        }
-
-    /** The first sentence of the summary, for standfirsts. */
-    val standfirst: String?
-        get() {
-            val summary = rom.summary?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-            val sentence = summary.substringBefore(". ", summary).let { if (it.length < summary.length) "$it." else it }
-            return if (sentence.length > 180) sentence.take(177) + "…" else sentence
-        }
-
-    /** The resume point's sync badge ("Synced · resume"), when it has one. */
-    val resumeSync: SaveSyncStatus? get() = state.saves.resume?.sync?.takeIf { it != SaveSyncStatus.UNKNOWN }
-
-    /** "1 resume point · 2 save states". */
-    val savesCount: String
-        get() = listOfNotNull(
-            state.saves.resume?.let { "1 resume point" },
-            state.saves.saveStates.size.takeIf { it > 0 }?.let { "$it save state${if (it == 1) "" else "s"}" },
-        ).joinToString(" · ")
-
-    val hasSaves: Boolean get() = !state.saves.isEmpty
-    /** The conflict copy with its count ("… has two resume points. Choose which to keep playing."). */
-    val problemText: String?
-        get() = state.saves.conflict?.prompt(rom.displayName)
-
-    /** "Start options" (the Launch choice): shown when the game can start and has both a resume point and game-save data. */
-    val showsStartOptions: Boolean
-        get() = state.saves.launchOptions != null && state.actionPresentation.primary?.kind == GameDetailActionKind.PLAY && selectedInstalled
-
-    val showsFilePicker: Boolean get() = rom.files.size in 2..4
-    val coreName: String? get() = state.support?.runtimeProfile?.displayName
-    val controllerNote: String? get() = state.support?.message?.takeIf { it.isNotBlank() }
-    val fileMeta: String?
-        get() = selectedFile?.let { "${it.effectiveFileExtension.ifBlank { "file" }.uppercase()} · ${formatBytes(it.fileSizeBytes)}" }
+    }
 }
 
 fun SaveSyncStatus.tone(): Tone = when (this) {
@@ -211,7 +238,7 @@ private object SavedProgressReason {
  * Game (docs/theme-layouts.md "Game — two layouts"): reached from Play, Library, Search and
  * Stats. Aurora: an art-forward hero lit by the cover, with the game's saves as a timeline. Riso:
  * an article with where you left off and a details box. The page draws its own title under a
- * bar that is clear over the art.
+ * bar that is clear over the art. The page is built by [GameDetailViewModel] ([GamePage]).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -225,83 +252,91 @@ fun GameDetailScreen(
     val viewModel: GameDetailViewModel = viewModel(
         key = "game-$romId",
         factory = viewModelFactory {
-            initializer { GameDetailViewModel(container.repository, romId, container.savedProgress, container.playDataChanges) }
+            initializer { GameDetailViewModel(container.repository, romId, container.savedProgress, container.playDataChanges, container.playActivity) }
         },
     )
-    val state by viewModel.uiState.collectAsStateWithLifecycleCompat()
-    val stats by (container.playActivity.stats).collectAsStateWithLifecycle(initialValue = PlayStats())
-    val baseUrl = container.repository.activeProfileFlow().collectAsStateWithLifecycle(initialValue = null).value?.baseUrl
+    val page by viewModel.page.collectAsStateWithLifecycle()
     var showSheet by remember { mutableStateOf(false) }
-    val theme = RommioTheme.current
-    val rom = state.rom
-    val selectedFile = viewModel.selectedFile()
     val scroll = rememberScrollState()
+    val content = page.content
 
-    // The installed file this page would start, and the game as the launch flow sees it.
-    val installedFileId = viewModel.selectedInstall()?.let { selectedFile?.id }
-    val target = rom?.let {
-        io.github.bandoracer.rommio.ui.screen.LaunchTarget(it.id, it.displayName, installedFileId, resolveRemoteAssetUrl(baseUrl, it.urlCover), platformSlug = it.platformSlug)
+    // The installed file this page would start, and the game as the launch flow sees it (read when
+    // an action runs, not while drawing).
+    val actions = remember(viewModel, launchFlow, romId) {
+        fun target(): io.github.bandoracer.rommio.ui.screen.LaunchTarget? {
+            val state = viewModel.uiState.value
+            val rom = state.rom ?: return null
+            val baseUrl = viewModel.page.value.content?.baseUrl
+            val installedFileId = viewModel.selectedInstall()?.let { viewModel.selectedFile()?.id }
+            return io.github.bandoracer.rommio.ui.screen.LaunchTarget(rom.id, rom.displayName, installedFileId, resolveRemoteAssetUrl(baseUrl, rom.urlCover), platformSlug = rom.platformSlug)
+        }
+        // Play with a conflict asks which to keep first (Conflict sheet); a resume point this device
+        // can't load asks how to start (Launch choice).
+        val play: (Int, Int) -> Unit = { _, _ -> target()?.let { launchFlow.play(it, known = viewModel.uiState.value.saves) } }
+        GameScreenActions(
+            play = play,
+            game = GameActions(
+                perform = { action -> handleAction(action.kind, viewModel, romId, viewModel.selectedFile()?.id, play) },
+                selectFile = viewModel::selectFile,
+                browseSaves = { showSheet = true },
+                chooseResume = { target()?.let { launchFlow.chooseConflict(it, known = viewModel.uiState.value.saves) } },
+                startOptions = { target()?.let { launchFlow.startOptions(it, known = viewModel.uiState.value.saves) } },
+            ),
+        )
     }
-    // Play with a conflict asks which to keep first (Conflict sheet); a resume point this device
-    // can't load asks how to start (Launch choice).
-    val play: (Int, Int) -> Unit = { _, _ -> target?.let { launchFlow.play(it, known = state.saves) } }
-    val actions = GameActions(
-        perform = { action -> handleAction(action.kind, viewModel, romId, selectedFile?.id, play) },
-        selectFile = viewModel::selectFile,
-        browseSaves = { showSheet = true },
-        chooseResume = { target?.let { launchFlow.chooseConflict(it, known = state.saves) } },
-        startOptions = { target?.let { launchFlow.startOptions(it, known = state.saves) } },
-    )
 
-    Box(Modifier.fillMaxSize().testTag("shell.gameList")) {
-        if (rom == null) {
-            Column(
-                Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars).padding(top = 56.dp).padding(horizontal = theme.spacing.gutter),
-                verticalArrangement = Arrangement.spacedBy(theme.spacing.section),
-            ) {
-                if (state.isLoading) LoadingSkeletonPanel(showArtwork = true, lines = 5)
-                state.errorMessage?.let { message ->
-                    EmptyState(
-                        title = "Game unavailable",
-                        message = "$message If it was removed from RomM, you can still manage any copy on this device from Downloads.",
+    val riso = RommioTheme.isRiso
+    LitPage(if (riso) null else content?.coverUrl, if (riso) PageFieldStyle.QUIET else PageFieldStyle.PAGE) {
+        Box(Modifier.fillMaxSize().testTag("shell.gameList")) {
+            if (content == null) {
+                GameUnavailable(page)
+            } else if (riso) {
+                RisoGameLayout(content, actions.game, scroll)
+            } else {
+                AuroraGameLayout(content, actions.game, scroll)
+            }
+            GameTopBar(page.primary, scroll, onBack, onToolbar = actions.game.perform)
+        }
+
+        if (showSheet && content != null) {
+            // A stock sheet: its drag handle and scrim take the page's lit scheme.
+            LitMaterialTheme {
+                ModalBottomSheet(
+                    onDismissRequest = { showSheet = false },
+                    containerColor = RommioTheme.colors.groundRaised,
+                ) {
+                    SavedProgressSheet(
+                        gameTitle = content.rom.displayName,
+                        saves = content.state.saves,
+                        coverUrl = content.coverUrl,
+                        canPlay = content.state.actionPresentation.primary?.kind == GameDetailActionKind.PLAY,
+                        onResume = {
+                            showSheet = false
+                            viewModel.selectedFile()?.id?.let { actions.play(romId, it) }
+                        },
+                        onRename = { entry, name -> viewModel.renameSave(entry.key, name) },
+                        onClose = { showSheet = false },
                     )
                 }
             }
-        } else {
-            val played = stats.games.firstOrNull { it.romId.toInt() == rom.id }
-            val content = GameContent(
-                state = state,
-                rom = rom,
-                coverUrl = resolveRemoteAssetUrl(baseUrl, rom.urlCover),
-                baseUrl = baseUrl,
-                selectedFile = selectedFile,
-                selectedInstalled = viewModel.selectedInstall() != null,
-                stops = saveStops(state),
-                playedMs = played?.playedMs ?: 0L,
-                sessionCount = played?.sessionCount ?: 0,
-                lastPlayedAtEpochMs = played?.lastPlayedAtEpochMs,
-            )
-            if (theme.isRiso) RisoGameLayout(content, actions, scroll) else AuroraGameLayout(content, actions, scroll)
         }
-        GameTopBar(state, scroll, onBack, onToolbar = { action -> handleAction(action.kind, viewModel, romId, selectedFile?.id, play) })
     }
+}
 
-    if (showSheet && rom != null) {
-        ModalBottomSheet(
-            onDismissRequest = { showSheet = false },
-            containerColor = theme.colors.groundRaised,
-        ) {
-            SavedProgressSheet(
-                gameTitle = rom.displayName,
-                saves = state.saves,
-                coverUrl = resolveRemoteAssetUrl(baseUrl, rom.urlCover),
-                canPlay = state.actionPresentation.primary?.kind == GameDetailActionKind.PLAY,
-                onResume = {
-                    showSheet = false
-                    selectedFile?.id?.let { play(romId, it) }
-                },
-                onRename = { entry, name -> viewModel.renameSave(entry.key, name) },
-                onClose = { showSheet = false },
+private class GameScreenActions(val play: (Int, Int) -> Unit, val game: GameActions)
+
+@Composable
+private fun GameUnavailable(page: GamePage) {
+    val theme = RommioTheme.current
+    Column(
+        Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars).padding(top = 56.dp).padding(horizontal = theme.spacing.gutter),
+        verticalArrangement = Arrangement.spacedBy(theme.spacing.section),
+    ) {
+        if (page.isLoading) LoadingSkeletonPanel(showArtwork = true, lines = 5)
+        page.errorMessage?.let { message ->
+            EmptyState(
+                title = "Game unavailable",
+                message = "$message If it was removed from RomM, you can still manage any copy on this device from Downloads.",
             )
         }
     }
@@ -309,16 +344,17 @@ fun GameDetailScreen(
 
 /**
  * The Game page's bar: back and, when the main action is Play or Download, that action. Clear
- * over the art; the page ground once the content scrolls under it.
+ * over the art; the page ground once the content scrolls under it (it recomposes only when the
+ * scroll crosses that point, not on every scroll frame).
  */
 @Composable
-private fun GameTopBar(state: GameDetailUiState, scroll: ScrollState, onBack: () -> Unit, onToolbar: (GameDetailAction) -> Unit) {
-    val theme = RommioTheme.current
-    val scrolled = scroll.value > with(LocalDensity.current) { 180.dp.toPx() }
+private fun GameTopBar(primary: GameDetailAction?, scroll: ScrollState, onBack: () -> Unit, onToolbar: (GameDetailAction) -> Unit) {
+    val threshold = with(LocalDensity.current) { 180.dp.toPx() }
+    val scrolled by remember(scroll, threshold) { derivedStateOf { scroll.value > threshold } }
     Row(
         Modifier
             .fillMaxWidth()
-            .background(if (scrolled) theme.colors.ground else Color.Transparent)
+            .then(if (scrolled) Modifier.background(RommioTheme.light.ground) else Modifier)
             .windowInsetsPadding(WindowInsets.statusBars)
             .height(56.dp)
             .padding(horizontal = 4.dp),
@@ -333,7 +369,6 @@ private fun GameTopBar(state: GameDetailUiState, scroll: ScrollState, onBack: ()
             modifier = Modifier.testTag("shell.back"),
         )
         Box(Modifier.weight(1f))
-        val primary = state.actionPresentation.primary
         if (primary != null && (primary.kind == GameDetailActionKind.PLAY || primary.kind == GameDetailActionKind.DOWNLOAD_NOW)) {
             val play = primary.kind == GameDetailActionKind.PLAY
             io.github.bandoracer.rommio.ui.component.IconCircleButton(
@@ -360,18 +395,18 @@ internal fun heroHeight(fraction: Float): Dp {
  * 35 %, 45 % at 70 %, clear at the bottom). Riso: printed, with a 1.5 dp ink rule under it.
  */
 @Composable
-internal fun GameArtHero(content: GameContent, height: Dp) {
+internal fun GameArtHero(coverUrl: String?, title: String, height: Dp) {
     val theme = RommioTheme.current
     Box(
         Modifier
             .fillMaxWidth()
             .height(height)
-            .semantics(mergeDescendants = true) { contentDescription = "Cover art for ${content.rom.displayName}" }
+            .semantics(mergeDescendants = true) { contentDescription = "Cover art for $title" }
             .testTag("gameDetail.hero"),
     ) {
         GameCover(
-            content.coverUrl,
-            content.rom.displayName,
+            coverUrl,
+            title,
             modifier = Modifier
                 .fillMaxSize()
                 .then(

@@ -207,7 +207,7 @@ fun AppMark(size: Dp = 30.dp) {
                     Modifier
                         .size(size)
                         .clip(RoundedCornerShape(size * 0.28f))
-                        .background(Brush.linearGradient(listOf(theme.mark1, theme.mark2))),
+                        .background(Brush.linearGradient(RommioTheme.light.let { listOf(it.mark1, it.mark2) })),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(Icons.Filled.SportsEsports, contentDescription = null, tint = OverArt.rim, modifier = Modifier.size(size * 0.55f))

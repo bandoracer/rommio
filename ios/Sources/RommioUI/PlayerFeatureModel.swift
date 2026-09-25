@@ -36,8 +36,13 @@ public final class PlayerFeatureModel: Identifiable {
     private var resumeAfterBackground = false
     private var backgrounded = false
     var controlsState: PlayerControlsState?
+    /// This game's touch-control settings: PlayStation's Analog controls and the stick tuning.
+    var gameControls = PlayerGameControls()
+    var analogControls: Bool { gameControls.analogControls }
     /// Game artwork shown softly behind letterboxing so the player fills the display.
     var backdropURL: URL?
+    /// The title strip's play line: "Super Nintendo · 25 min played".
+    var titleDetail: String?
     var pauseSheetPresented = false
     var controlsSheetPresented = false
     var stateBrowserPresented = false
@@ -484,6 +489,15 @@ public final class PlayerFeatureModel: Identifiable {
         }
     }
 
+    func setHapticsEnabled(_ enabled: Bool) async {
+        do {
+            try await services.playerControlsRepository.setHapticsEnabled(enabled)
+            await reloadControlsState()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func updateTouchOpacity(_ value: Double) async {
         await mutateTouchLayout { $0.opacity = value }
     }
@@ -494,6 +508,35 @@ public final class PlayerFeatureModel: Identifiable {
 
     func setLeftHanded(_ enabled: Bool) async {
         await mutateTouchLayout { $0.leftHanded = enabled }
+    }
+
+    /// The family has sticks that the Analog controls setting shows or hides.
+    var offersAnalogControls: Bool { controlsState?.platformProfile.familyID == "psx" }
+
+    func setAnalogControls(_ enabled: Bool) async {
+        await updateGameControls { $0.analogControls = enabled }
+    }
+
+    /// The Stick group shows while the game has touch sticks on screen.
+    var offersStickTuning: Bool { controlPlan?.hasSticks ?? false }
+
+    func updateStickTuning(_ update: (inout PlayerStickTuning) -> Void) async {
+        await updateGameControls { update(&$0.stick) }
+    }
+
+    func resetStickTuning() async {
+        await updateGameControls { $0.stick = .standard }
+    }
+
+    private func updateGameControls(_ update: (inout PlayerGameControls) -> Void) async {
+        var value = gameControls
+        update(&value)
+        do {
+            try await services.playerControlsRepository.saveGameControls(value, romID: presentation.romID)
+            await reloadControlsState()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     func updateDeadzone(_ deadzone: Double) async {
@@ -552,26 +595,107 @@ public final class PlayerFeatureModel: Identifiable {
         }
     }
 
-    // Keep touch-down, motion, and release ordered even when a core operation suspends.
+    // MARK: Touch controls (docs/player-controls.md)
+
+    /// The family's touch controls, kept while the family and the game's settings stay the same.
+    @ObservationIgnored private var cachedPlan: (family: String, game: PlayerGameControls, plan: PlayerControlPlan?)?
+
+    var controlPlan: PlayerControlPlan? {
+        guard let family = controlsState?.platformProfile.familyID else { return nil }
+        if let cachedPlan, cachedPlan.family == family, cachedPlan.game == gameControls { return cachedPlan.plan }
+        let plan = PlayerControlPlan(family: family, analogControls: gameControls.analogControls, stickTuning: gameControls.stick)
+        cachedPlan = (family, gameControls, plan)
+        return plan
+    }
+
+    /// Touch controls are on and this family plays by touch.
+    var reservesTouchSpace: Bool {
+        guard let state = controlsState else { return false }
+        return state.showTouchControls && state.platformProfile.supportTier == .touchSupported
+    }
+
+    /// Every touch control, the Menu button and the title strip for this window: the
+    /// same stage the renderer draws the game in.
+    func touchLayout(containerSize: CGSize, safeAreaInsets: PlayerViewportSafeAreaInsets) -> PlayerTouchLayout? {
+        guard let state = controlsState else { return nil }
+        let plan = controlPlan
+        let stage = resolvePlayerStageLayout(
+            containerSize: containerSize, safeAreaInsets: safeAreaInsets,
+            aspectRatio: state.platformProfile.preferredViewportAspectRatio,
+            topAlignedInPortrait: state.platformProfile.supportTier == .touchSupported,
+            controlDeckHeight: ExpansionControls.deckHeight(ExpansionControls.controls(for: state.platformProfile.familyID) ?? []),
+            controlScale: state.touchLayout?.globalScale ?? 1,
+            reserveTouchSpace: reservesTouchSpace && plan != nil,
+            utilityCount: 1,
+            stage: stageContext,
+            controls: plan,
+            mirrored: state.touchLayout?.leftHanded ?? false)
+        return stage.controls ?? PlayerTouchLayout(
+            controls: [], faceZone: nil, chord: nil,
+            menuCenter: CGPoint(x: stage.deck.utilityX(index: 0, count: 1, width: containerSize.width), y: stage.deck.utilityY),
+            menuDiameter: PlayerControlMetrics.menuDiameter, titleStrip: nil, metrics: PlayerControlMetrics(scale: 1))
+    }
+
+    var hapticsEnabled: Bool { controlsState?.preferences.hapticsEnabled ?? true }
+
+    /// Touch input, applied now and in order (no task hop): the touch surface calls this
+    /// for every press, release and stick movement.
+    func touchInput(_ output: PlayerTouchOutput) {
+        switch output {
+        case let .digital(key, pressed):
+            sendDigital(key, pressed: pressed)
+        case let .motion(stick, x, y):
+            sendMotion(stick, x: x, y: y)
+        case .pressHaptic, .directionHaptic, .stickHaptic:
+            break
+        }
+    }
+
+    private func sendDigital(_ key: Int, pressed: Bool) {
+        if pressed { dismissTransientMessages() }
+        if let immediate = engine as? ImmediatePlayerInput {
+            do { try immediate.sendDigital(keyCode: key, pressed: pressed, port: 0) } catch { reportInputError(error) }
+        } else {
+            let previous = consoleInputTask
+            consoleInputTask = Task { @MainActor in
+                await previous?.value
+                do { try await engine.dispatchDigital(keyCode: key, pressed: pressed, port: 0) } catch { reportInputError(error) }
+            }
+        }
+    }
+
+    private func sendMotion(_ stick: Int, x: Double, y: Double) {
+        if abs(x) + abs(y) > 0.01 { dismissTransientMessages() }
+        let source: PlayerMotionSource = stick == 0 ? .analogLeft : .analogRight
+        if let immediate = engine as? ImmediatePlayerInput {
+            do { try immediate.sendMotion(source: source, x: x, y: y, port: 0) } catch { reportInputError(error) }
+        } else {
+            let previous = consoleInputTask
+            consoleInputTask = Task { @MainActor in
+                await previous?.value
+                do { try await engine.dispatchMotion(source: source, x: x, y: y, port: 0) } catch { reportInputError(error) }
+            }
+        }
+    }
+
+    /// A session that isn't running yet drops input quietly (the core latches nothing).
+    private func reportInputError(_ error: Error) {
+        if case PlayerEngineError.sessionNotPrepared = error { return }
+        if errorMessage != error.localizedDescription { errorMessage = error.localizedDescription }
+    }
+
+    /// Clears a notice or error on the first press, without touching observed state otherwise.
+    private func dismissTransientMessages() {
+        if errorMessage != nil { errorMessage = nil }
+        if noticeMessage != nil { noticeMessage = nil }
+        if !primaryControlsVisible { bumpPrimaryControls() }
+    }
+
+    // Stylus input shares one ordered queue (a press is held long enough to be sampled).
     private var consoleInputTask: Task<Void, Never>?
-    func enqueueConsoleDigital(_ key: Int, pressed: Bool) {
-        if pressed { clearTransientMessages(); bumpPrimaryControls() }
-        let previous = consoleInputTask
-        consoleInputTask = Task { @MainActor in
-            await previous?.value
-            do { try await engine.dispatchDigital(keyCode: key, pressed: pressed, port: 0) }
-            catch { errorMessage = error.localizedDescription }
-        }
-    }
-    func enqueueConsoleMotion(_ stick: Int, x: Double, y: Double) {
-        if abs(x) + abs(y) > 0.01 { clearTransientMessages(); bumpPrimaryControls() }
-        let previous = consoleInputTask
-        consoleInputTask = Task { @MainActor in
-            await previous?.value
-            do { try await engine.dispatchMotion(source: stick == 0 ? .analogLeft : .analogRight, x: x, y: y, port: 0) }
-            catch { errorMessage = error.localizedDescription }
-        }
-    }
+    /// Controller buttons and sticks: immediate and ordered, like touch.
+    func enqueueConsoleDigital(_ key: Int, pressed: Bool) { sendDigital(key, pressed: pressed) }
+    func enqueueConsoleMotion(_ stick: Int, x: Double, y: Double) { sendMotion(stick, x: x, y: y) }
 
     #if canImport(GameController)
     @ObservationIgnored private var gamepadInput: PlayerGamepadInput?
@@ -582,7 +706,7 @@ public final class PlayerFeatureModel: Identifiable {
     /// never overtake its press; each press is held long enough for the core to
     /// sample it (about two frames).
     func enqueuePointer(normalizedX: Double, normalizedY: Double, pressed: Bool) {
-        if pressed, pointerPressedAt == nil { pointerPressedAt = .now; clearTransientMessages(); bumpPrimaryControls() }
+        if pressed, pointerPressedAt == nil { pointerPressedAt = .now; dismissTransientMessages() }
         let pressStart = pressed ? nil : pointerPressedAt
         if !pressed { pointerPressedAt = nil }
         let previous = consoleInputTask
@@ -597,34 +721,6 @@ public final class PlayerFeatureModel: Identifiable {
         }
     }
 
-    func press(_ action: ControlAction) async {
-        clearTransientMessages()
-        bumpPrimaryControls()
-        switch action {
-        case let .digital(_, keyCode, _):
-            do {
-                try await engine.dispatchDigital(keyCode: keyCode, pressed: true, port: 0)
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-        case .pointer:
-            break
-        }
-    }
-
-    func release(_ action: ControlAction) async {
-        switch action {
-        case let .digital(_, keyCode, _):
-            do {
-                try await engine.dispatchDigital(keyCode: keyCode, pressed: false, port: 0)
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-        case .pointer:
-            break
-        }
-    }
-
     func dispatchPointer(normalizedX: Double, normalizedY: Double, pressed: Bool = true) async {
         bumpPrimaryControls()
         do {
@@ -635,7 +731,7 @@ public final class PlayerFeatureModel: Identifiable {
     }
 
     func bumpPrimaryControls() {
-        primaryControlsVisible = true
+        if !primaryControlsVisible { primaryControlsVisible = true }
         primaryFadeTask?.cancel()
         guard !pauseSheetPresented, !controlsSheetPresented,
               controlsState?.connectedControllers.isEmpty == false else { return }
@@ -653,7 +749,7 @@ public final class PlayerFeatureModel: Identifiable {
         if wakePrimary {
             bumpPrimaryControls()
         }
-        tertiaryControlsVisible = true
+        if !tertiaryControlsVisible { tertiaryControlsVisible = true }
         tertiaryFadeTask?.cancel()
         guard !pauseSheetPresented, !controlsSheetPresented,
               controlsState?.connectedControllers.isEmpty == false else { return }
@@ -670,6 +766,7 @@ public final class PlayerFeatureModel: Identifiable {
     private func reloadControlsState() async {
         do {
             controlsState = try await services.playerControlsRepository.controls(platformSlug: presentation.platformSlug)
+            gameControls = (try? await services.playerControlsRepository.gameControls(romID: presentation.romID)) ?? PlayerGameControls()
             if let state = controlsState {
                 recomputeStage()
                 try await engine.updateInputConfiguration(PlayerInputConfiguration(
@@ -678,7 +775,9 @@ public final class PlayerFeatureModel: Identifiable {
                     controlDeckHeight: ExpansionControls.deckHeight(ExpansionControls.controls(for: state.platformProfile.familyID) ?? []),
                     controlScale: state.touchLayout?.globalScale ?? 1,
                     controlUtilityCount: (ExpansionControls.controls(for: state.platformProfile.familyID) ?? []).filter(\.center).count + 1,
-                    stage: stageContext))
+                    stage: stageContext,
+                    controlFamily: state.platformProfile.familyID,
+                    controlAnalog: analogControls))
             }
             availableControllerTypes = (try? await engine.availableControllerTypes(port: 0)) ?? availableControllerTypes
         } catch {
@@ -830,11 +929,6 @@ public final class PlayerFeatureModel: Identifiable {
 
     private func currentProfile() async -> ServerProfile? {
         try? await services.profileStore.activeProfile()
-    }
-
-    private func clearTransientMessages() {
-        errorMessage = nil
-        noticeMessage = nil
     }
 
     private func handleHotkey(_ action: PlayerHotkeyAction) async {

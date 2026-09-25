@@ -12,6 +12,8 @@ struct PlayerControlStyle {
     var borderWidth: CGFloat = 1
     /// Drawn as frosted glass over the game's light (Aurora).
     var frosted = false
+    /// A console colour's 2 pt ring (Aurora console colours).
+    var ring: Color? = nil
 }
 
 /// A face used for legends or labels in the player.
@@ -65,6 +67,8 @@ struct PlayerVisualTheme {
     var legendFont = PlayerFontSpec(ThemeTokens.aurora.type.playerLegend)
     var labelFont = PlayerFontSpec(ThemeTokens.aurora.type.playerLabel)
     var glyphs: PlayerGlyphSet = .chevrons
+    /// The player palette is the dark one (dark appearance or OLED black).
+    var dark = true
 
     func faceStyle(label: String) -> PlayerControlStyle {
         faceControlStyles[label.uppercased()] ?? baseFaceStyle
@@ -108,7 +112,7 @@ func resolvePlayerVisualTheme(controls: PlayerControlsState?, familyOverride: St
         borderColor: palette.controlStroke.color,
         pressedBorderColor: shape.frosted ? accentColor.opacity(0.7) : palette.controlInk.color,
         contentColor: palette.controlInk.color,
-        borderWidth: shape.frosted ? 1 : 1.5,
+        borderWidth: shape.frosted ? 0.5 : 1.5,
         frosted: shape.frosted
     )
     let face = shape.frosted ? neutral : PlayerControlStyle(
@@ -123,7 +127,7 @@ func resolvePlayerVisualTheme(controls: PlayerControlsState?, familyOverride: St
     let faceStyles: [String: PlayerControlStyle]
     if consoleColorsEnabled {
         faceStyles = consoleFaceColors(familyID: familyID).mapValues { color in
-            shape.frosted ? coloredStyle(color: color, dark: dark) : inkStyle(color: color, palette: palette)
+            shape.frosted ? coloredStyle(color: color, neutral: neutral, palette: palette) : inkStyle(color: color, palette: palette)
         }
     } else {
         // Without console colours every face button takes the theme's face style.
@@ -141,22 +145,50 @@ func resolvePlayerVisualTheme(controls: PlayerControlsState?, familyOverride: St
         palette: palette,
         legendFont: PlayerFontSpec(appTheme.tokens.type.playerLegend),
         labelFont: PlayerFontSpec(appTheme.tokens.type.playerLabel),
-        glyphs: shape.dpad == .twoPlateCross ? .triangles : .chevrons
+        glyphs: shape.dpad == .twoPlateCross ? .triangles : .chevrons,
+        dark: dark
     )
 }
 
-private func coloredStyle(color: Color, dark: Bool) -> PlayerControlStyle {
-    // On light player grounds the console colour darkens so legends stay legible.
-    let legend = dark ? color : color.mix(with: .black, by: 0.3)
-    // A wash of the console colour over the frosted face.
-    return PlayerControlStyle(
-        fillColor: color.opacity(dark ? 0.24 : 0.2),
-        pressedFillColor: color.opacity(0.42),
-        borderColor: color.opacity(0.55),
-        pressedBorderColor: dark ? .white.opacity(0.75) : .black.opacity(0.5),
-        contentColor: legend,
-        frosted: true
+/// Aurora console colours (docs/player-controls.md, Look): the frosted face stays as
+/// it is; the colour paints the legend and a 2 pt ring, never a wash that hides the
+/// button. The legend keeps 3:1 against the face.
+private func coloredStyle(color: Color, neutral: PlayerControlStyle, palette: PlayerColorTokens) -> PlayerControlStyle {
+    PlayerControlStyle(
+        fillColor: neutral.fillColor,
+        pressedFillColor: neutral.pressedFillColor,
+        borderColor: neutral.borderColor,
+        pressedBorderColor: neutral.pressedBorderColor,
+        contentColor: legibleLegend(color, on: palette),
+        borderWidth: neutral.borderWidth,
+        frosted: true,
+        ring: color
     )
+}
+
+/// The frosted face as seen: the control fill over the player ground.
+func effectiveControlFill(_ palette: PlayerColorTokens) -> ArtRGB {
+    let fill = palette.controlFill, ground = palette.ground
+    return ReadableTint.mix(ArtRGB(red: fill.red, green: fill.green, blue: fill.blue),
+                            over: ArtRGB(red: ground.red, green: ground.green, blue: ground.blue), alpha: fill.alpha)
+}
+
+/// A console colour stepped in lightness (darker on a light face, lighter on a dark
+/// one) until it reads at 3.5:1 against the frosted face. Legends and rings are drawn
+/// at full ink over a face faded by the opacity setting, so a legend keeps 3:1 even
+/// at the lowest face opacity (0.5).
+func legibleLegend(_ color: Color, on palette: PlayerColorTokens, minimum: Double = 3.5) -> Color {
+    let face = effectiveControlFill(palette)
+    let rgba = color.rgba
+    let hsl = ArtColorMath.hsl(ArtRGB(red: rgba.red, green: rgba.green, blue: rgba.blue))
+    let lighten = ReadableTint.luminance(face) < 0.2
+    var lightness = hsl.lightness
+    var candidate = ArtRGB(red: rgba.red, green: rgba.green, blue: rgba.blue)
+    for _ in 0 ..< 100 where ReadableTint.contrast(candidate, face) < minimum {
+        lightness = ArtColorMath.clamp(lightness + (lighten ? 0.01 : -0.01), 0, 1)
+        candidate = ArtColorMath.rgb(hue: hsl.hue, saturation: hsl.saturation, lightness: lightness)
+    }
+    return Color(.sRGB, red: candidate.red, green: candidate.green, blue: candidate.blue)
 }
 
 /// Riso prints a console's button colour in the nearest of its four inks, flat,

@@ -135,6 +135,59 @@ class PlayerScreenProgressTest {
         click("Leave game")
         ui.waitUntil(10_000) { container.progressSessions.active.value == null }
     }
+    /**
+     * Touch controls v2 through the production player (docs/player-controls.md, Verification): the
+     * debug input log records what the one touch surface sent to the core, in order.
+     */
+    @Test fun touchControlsReachTheCoreInOrder() = fixture { container, _, _ ->
+        playFixture()
+        val owner = active(container)
+        val log = io.github.bandoracer.rommio.ui.screen.player.PlayerInputLog
+        fun digital() = log.snapshot().filterIsInstance<io.github.bandoracer.rommio.ui.screen.player.PlayerTouchOutput.Digital>().map { it.key to it.pressed }
+        val density = ui.activity.resources.displayMetrics.density
+        val a = android.view.KeyEvent.KEYCODE_BUTTON_A
+        val b = android.view.KeyEvent.KEYCODE_BUTTON_B
+        val aBounds = ui.onNodeWithTag("player.control.A").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val bBounds = ui.onNodeWithTag("player.control.B").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val pad = ui.onNodeWithTag("player.dpad").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        // A's edge: 12 dp beyond the drawn button still presses it.
+        log.clear()
+        ui.onRoot().performTouchInput { down(androidx.compose.ui.geometry.Offset(aBounds.center.x, aBounds.top - 12 * density)); advanceEventTime(80); up() }
+        ui.runOnIdle { assertEquals(listOf(a to true, a to false), digital()) }
+        // Between A and B: both.
+        log.clear()
+        val mid = (aBounds.center + bBounds.center) / 2f
+        ui.onRoot().performTouchInput { down(mid); advanceEventTime(80); up() }
+        ui.runOnIdle { assertEquals(setOf(a to true, b to true), digital().take(2).toSet()); assertEquals(setOf(a to false, b to false), digital().drop(2).toSet()) }
+        // A d-pad drag off the pad keeps its direction.
+        log.clear()
+        ui.onRoot().performTouchInput {
+            down(androidx.compose.ui.geometry.Offset(pad.center.x + 40 * density, pad.center.y))
+            moveTo(androidx.compose.ui.geometry.Offset(pad.right + 60 * density, pad.center.y))
+        }
+        ui.runOnIdle { assertEquals(listOf(android.view.KeyEvent.KEYCODE_DPAD_RIGHT to true), digital()) }
+        ui.onRoot().performTouchInput { up() }
+        ui.runOnIdle { assertEquals(android.view.KeyEvent.KEYCODE_DPAD_RIGHT to false, digital().last()) }
+        // Quick taps never leave a button held.
+        log.clear()
+        ui.onRoot().performTouchInput { repeat(10) { down(aBounds.center); up(); down(bBounds.center); up() } }
+        ui.runOnIdle {
+            val events = digital()
+            assertEquals(40, events.size)
+            for ((_, list) in events.groupBy { it.first }) assertFalse(list.last().second)
+        }
+        delay(500)
+        ui.onNodeWithTag("player.control.A").assert(SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.StateDescription, "Released"))
+        // Pause lets go of a held button.
+        log.clear()
+        ui.onRoot().performTouchInput { down(aBounds.center) }
+        menu()
+        ui.runOnIdle { assertEquals(listOf(a to true, a to false), digital()) }
+        click("Leave game")
+        ui.waitUntil(10_000) { container.progressSessions.active.value == null }
+        assertNotNull(owner)
+    }
+
     @Test fun genesisPlayerControlsAndSnapshotMenu() = consolePlayer("genesis")
     @Test fun masterSystemPlayerControlsAndSnapshotMenu() = consolePlayer("sms")
     @Test fun gameGearPlayerControlsAndSnapshotMenu() = consolePlayer("gamegear")

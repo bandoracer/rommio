@@ -77,7 +77,7 @@ fun ThemedTextField(
             unfocusedTrailingIconColor = c.inkSecondary,
             focusedLabelColor = c.inkSecondary,
             unfocusedLabelColor = c.inkSecondary,
-            cursorColor = if (riso) c.ink else theme.tintText,
+            cursorColor = if (riso) c.ink else RommioTheme.light.tintText,
         ),
     )
 }

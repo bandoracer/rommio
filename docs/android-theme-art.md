@@ -12,7 +12,7 @@ its own variant (`ui/component/`).
 
 | Component | Aurora | Riso |
 | --- | --- | --- |
-| `GlassSurface`, `GlassBox`, `Modifier.themedSurface` | spec §1.6: on API 31+ the page field redrawn under the surface and blurred (`GlassBackdrop.kt`: the field records itself into a `GraphicsLayer` as it draws; each top-level glass surface draws that recording again, offset to its own position, clipped to its shape, inside a layer with `BlurEffect(material.glassBlur)`; surfaces in another window, e.g. sheets, and nested surfaces skip it), then translucent `surface`; below API 31 `surface` over the field. Edge (0.5 dp white 70 %/8 % keyline, 1 dp top rim 95 %/16 % → clear by 12 %) and shadow (black 7 % r18 y9 / 34 % r20 y12, a Gaussian `setShadowLayer` clipped outside the shape on API 28+, layered fallback below) | white `surface` block with a 1.5 dp ink keyline |
+| `GlassSurface`, `GlassBox`, `Modifier.themedSurface` | spec §1.6: on API 31+ the page field blurred under the surface (`GlassBackdrop.kt`: the field records itself into a `GraphicsLayer` as it draws; one blurred copy, `BlurEffect(material.glassBlur)` worked out at quarter resolution, is cached in an offscreen layer and recorded again only when the field or its size changes; each top-level glass surface draws its window onto that copy, clipped to its shape and moved by layer properties as it scrolls; surfaces in another window, e.g. sheets, and nested surfaces skip it), then translucent `surface`; below API 31 `surface` over the field. Edge (0.5 dp white 70 %/8 % keyline, 1 dp top rim 95 %/16 % → clear by 12 %) and shadow (black 7 % r18 y9 / 34 % r20 y12, a Gaussian `setShadowLayer` clipped outside the shape on API 28+, layered fallback below) | white `surface` block with a 1.5 dp ink keyline |
 | nested surface (`LocalInCard`) | no second shadow | no keyline — cards never stack borders |
 | `ListGroup`, `ListRow`, `ListDivider` | rows on one glass card, inset 0.5 dp hairlines | paper rows under a 1 dp ink rule, full-width hairlines, flush with the text column (`LocalRowInset` = 0) |
 | label…value rows (`ListRow(value=…)`, `LeaderLine`, `LeaderRow`) | label and value at either end | dot leaders on the baseline, mono value (`.ldr`) |
@@ -57,14 +57,17 @@ are always full-round otherwise).
   and in `cacheDir/cover-palettes/<sha256(url)>.palette.json` (`{"colors":["#rrggbb", …]}`; Coil's
   disk cache is not addressable, so the file sits in its own folder rather than next to the
   image), and caches blurred backdrops and prints.
-- `ui/theme/Theme.kt`: `RommioThemeValue.lit(lights)` (spec §1.2) swaps `ground`, `tint`,
-  `accent1..3` and adds `mark1..3`; unlit values derive marks from `tint`, `accent2`, `accent3`.
-  Riso never lights. `ProvideLitTheme` applies it (and the Material scheme) below the shell.
+- `ui/theme/PageLight.kt`: the page's light (spec §1.2) is separate from the base theme.
+  `PageLight` swaps `ground`, `tint`, `accent1..3` and adds `mark1..3` (unlit: marks from `tint`,
+  `accent2`, `accent3`), with `tintText`, `solidSurfaceStrong` and the lit Material scheme worked
+  out once per light. Riso never lights. Read it as `RommioTheme.light`; `LitMaterialTheme` gives
+  sheets and dialogs the lit Material scheme. See "Performance" below.
 - `ui/component/ArtBackdrop.kt` `PageField(style)` draws spec §1.3 for `room` / `page` / `quiet`
   / `welcome`: ground, the cover baked by `ArtBake` (96 px, CSS saturate matrix, brightness,
   separable Gaussian σ = blur / 603 × width, clamped edges) in the −25 % / −12 %, 150 % × 78 %
   frame with the 55 % → 0 fade, the three radial lights (screen in dark), and the veil. Pages
-  name their subject with `PageArtSubject(coverUrl, style)`; the shell lights the page from it.
+  name their subject with `LitPage(coverUrl, style)`, which lights the page from it and tells the
+  shell's field what to draw.
 - Riso paper (§1.4): a 180 px xorshift grain tile (`ArtBake.grainTile`), multiplied at 35 % by
   day, inverted and screened at 50 % by night.
 
@@ -148,9 +151,9 @@ sign-in differs by platform").
   relative time, day groups, durations, " · "). Controls sheet, toasts and the game-save rollback
   confirmation use the iOS wording; sliders show percentages.
 - **Contrast**: `ReadableTint.readableTint` (§1.2a, pinned by `ReadableTintTest`) gives
-  `RommioThemeValue.tintText`, used for text actions, section actions, tint pills, "Sign in again",
-  pause-tile glyphs and cursors; `badText` for error and destructive text (Material `error` maps
-  to it).
+  `PageLight.tintText` (`RommioTheme.light.tintText`), used for text actions, section actions,
+  tint pills, "Sign in again", pause-tile glyphs and cursors; `badText` for error and destructive
+  text (Material `error` maps to it).
 - **Colours over art** come from `OverArt` (Aurora's night tokens): Recent saves frames, scrims and
   chips, the player toast and scrims, and the light rims on Welcome, Game, Settings and Conflict.
 
@@ -159,13 +162,207 @@ sign-in differs by platform").
 `PlayerVisualTheme.style` (`PlayerStyle`) carries the player shape tokens, legend and label type
 (`playerLegend`, `playerLabel`), the glyph set (Aurora chevrons, Riso triangles), per-kind colours
 (face, shoulder, tertiary, menu, d-pad, pivot, plate) and Aurora's frosted edge.
-`PlayerControlRenderer.kt` draws: `PlayerControlGraphic` (face, shoulder, tertiary, menu, stick,
-d-pad arm) and `PlayerDpadGraphic`; `PlayerStageBackdrop` lights Aurora's stage from the game's
-cover palette (OLED black and Riso stay black). `ExpansionControlsOverlay` and
-`TouchControlsOverlay` keep all touch handling, hit areas, geometry, `player.*` tags and
-semantics and only hand the renderer a box to draw in. Console colours tint face buttons in both
-styles (Riso prints them flat with the pink plate); OLED black forces the dark palette.
-`PlayerStyleResolutionTest` covers the resolution; `ExpansionControlsTest` and
-`PlayerScreenProgressTest` run under all four theme × scheme combinations
-(`-e rommioTheme aurora|riso -e rommioScheme light|dark`). Pause, Save states and Controls
-sheets use the theme's components and type with their existing strings.
+`PlayerControlRenderer.kt` draws: `PlayerControlGraphic` (face, shoulder, tertiary, menu, stick)
+and `PlayerDpadGraphic`; `PlayerStageBackdrop` lights Aurora's stage from the game's cover palette
+(OLED black and Riso stay black). The renderer only draws: each control's box is its drawn frame
+from the touch model (below). OLED black forces the dark palette. `PlayerStyleResolutionTest`
+covers the resolution. Pause, Save states and Controls sheets use the theme's components and type
+with their existing strings.
+
+Look ([player-controls.md](player-controls.md), Look):
+
+- **Aurora** frosted controls: `controlFill` (`controlPressed` while held), a soft glass shadow
+  (black 55 % r14 y10 by night, `#28143c` 28 % r13 y9 by day), a 0.5 dp keyline and a 1 dp top rim
+  fading by 12 %. Pressed controls dip to 94 % over 60 ms. Legends at `playerLegend` scaled from
+  a 64 dp face (`size × (d + 24) / 88`: 22 on two-button faces, 20 on diamonds).
+- **Console colours** (Aurora) paint the legend and a 2 dp ring, never a wash; the legend is
+  stepped in HSL lightness until it reads at 3.5:1 against the frosted face
+  (`ReadableTint.legibleOn`, iOS `legibleLegend`). Riso prints each console colour flat in its
+  nearest ink by hue (pink, blue, yellow, green; `nearestInk`, as iOS) with the pink plate (blue
+  behind pink faces), at the new sizes; its plate prints outside the frame.
+- **Opacity** applies to Aurora only and never takes face buttons below 0.5
+  (`PlayerStyle.controlAlpha(opacity, face)`). A face fades only its body (shadow, fill, keyline,
+  rim); its legend and ring stay at full ink, so the legend keeps 3:1 at the lowest opacity. Riso
+  always prints at full ink.
+
+## Touch controls v2
+
+[player-controls.md](player-controls.md) on Android (iOS names kept where they fit):
+
+- **Pure model** (`ui/screen/player/`): `PlayerControlPlan` (a family's d-pad, faces and their
+  arrangement, shoulders, sticks, utilities, classified from `ExpansionControls`),
+  `PlayerControlMetrics` (the spec's sizes and floors, scale 0.8–1.3), `PlayerControlPlan.place`
+  → `PlayerTouchLayout` (every control's frame, the face zone, the chord pair, Menu, the title
+  strip), `StandardStage` / `resolvePlayerStage` (portrait: game at the top, title strip 12 dp
+  under it, clusters at 55 % of the band 20 dp from the edges, Select · Menu · Start 12 dp above
+  the gesture area; landscape: rails either side of a centred game, clusters at 60 %, shoulders at
+  the top, Select/Start at the feet, Menu under the game or beside Select), and
+  `PlayerTouchRules` / `PlayerTouchTracker` (hit regions = drawn shape + 14 dp, nearest centre
+  wins, no dead gaps inside a face cluster, the 22 % chord band, rolling within a kind with
+  hysteresis, release 40 dp beyond, the d-pad owned by its touch with an 18 % dead zone and 8-way
+  sectors with 40° diagonals, sticks owned by their touch until it lifts, key hold counts, ordered
+  output).
+  `PlayerTouchModelTest` ports the iOS `PlayerTouchModelTests` with the same phone sizes and
+  expectations, plus Android phones, a foldable and tablets, for every family with touch controls.
+- **One surface** (`PlayerControlsOverlay.kt`): a single `PointerInputModifierNode` over the
+  overlay feeds the tracker synchronously; control composables only draw and keep their
+  `player.control.*` / `player.dpad` tags, "Pressed"/"Released" state and click actions (for
+  TalkBack and tests). Menu stays an ordinary button (`player.menu`); the title strip is
+  `player.titleStrip`. The node shares input with its siblings, so a touch that misses every control
+  still reaches the game view (touch-screen cores); controls never overlap the game.
+- **Immediate, ordered input**: `PlayerEngine.sendDigital` / `sendMotion` queue presses and
+  releases on the core's command queue in call order, with no coroutine per event (the old
+  overlays launched one per event). Everything held is released when a touch ends or is
+  cancelled, when Pause (or Saved progress, or Controls) opens, on `ON_PAUSE`, on a new layout
+  (rotation, size) and when the overlay leaves.
+- **Haptics**: `View.performHapticFeedback(VIRTUAL_KEY)` on each button press edge and
+  `CLOCK_TICK` on each new d-pad direction (the system's haptic setting still applies). The
+  **Haptics** switch (on by default) is in Settings › Player and controls and the in-game
+  Controls sheet, stored as `haptics_enabled` in `PlayerControlsPreferencesStore` (device-local;
+  kept by the migration bundle's snapshot and restore; older exports read as on).
+- **Debug input log**: `PlayerInputLog` (debug builds only) records every output the surface sent
+  to the core and each haptic it played; instrumentation tests read it.
+- **Portrait shoulders** (revised 2026-09-24): each side's shoulder row sits 16 dp above the top of
+  its stack (`PlayerControlAnchors.Shoulders.AboveCluster`), aligned to the stack's outer edge and
+  kept inside the rail; landscape keeps them at the top of the rails (`Shoulders.Top`).
+- **Per-console layouts** (player-controls.md, "Analog sticks and per-console layouts"):
+  `PlayerControlPlan` has the iOS `dpadSlot` (`PRIMARY`, `ABOVE`, `BELOW`, `BESIDE` via
+  `compact()`), `leftStickPrimary`, `analogControls` and `RailContent(cluster, above, below,
+  beside, shoulderRow)`; stages stack each rail with `stack(up/down)`, cap secondary stick zones
+  (`fitted`, down to `minimumSecondaryZone`) before shrinking the controls, and level the primary
+  controls (`level`). Nintendo 64: the stick (160 dp zone) in the thumb spot, the 104 dp d-pad
+  above it, Z a 92 × 48 tab beside L at the top of the left rail, A 64 with B 56 down-left, the C
+  buttons a 44 dp diamond above-right of A (axis buttons on the right stick), Start beside Menu
+  bottom centre when Menu fits under the game. 3DS: a circle pad (`circlePad`, left analog)
+  added over a 104 dp d-pad, face diamond level with it. PSP: the nub (120 dp zone) under the
+  d-pad. PlayStation: sticks, L3 and R3 only with the game's **Analog controls** (Controls sheet ›
+  This game, `player.controls.analogControls`, off by default; stored per ROM id in
+  `analog_controls_rom_ids`, device-local); the Analog mode button always stays. Every other
+  family has no sticks.
+- **Touch sticks** (player-controls.md, "Touch sticks"): `PlayerStickProfile` (`forStick`: N64,
+  3DS, PSP, PlayStation left and right; `tuned` at the control size) and `PlayerStickModel.gateScale`,
+  `output`, `followCentre` and `fullTilt` — an exact port of
+  `scripts/touch_stick_reference.py`, pinned by `PlayerTouchModelTest` to every vector the script
+  prints (4 decimals, every profile). The tracker floats the centre where the thumb lands (clamped
+  so the travel ring stays in the zone), drags it behind a thumb past full travel (on moves, not on
+  touch-down), sends a value only when it changes, drops to zero on lift and plays one
+  `CLOCK_TICK` on entering full tilt (again only after leaving it). The ring draws at the centre and
+  brightens at full tilt (a 2.5 dp `controlInk` rim); the knob (travel × 0.95) sits at the output.
+  Per game, the Controls sheet's **Stick** group (consoles with sticks; PlayStation with Analog
+  controls on) sets Sensitivity (travel × 1.2 / 1 / 0.8), Dead zone (× 0.6 / 1 / 1.6) and Centre
+  (Floating / Fixed: the zone's centre, no follow), with Reset; stored per ROM id as
+  `stick_tuning_<id>` (device-local, removed on Reset).
+- **Game screens**: `PlayerTouchLayout.gameScreens` holds the game's rect; a touch that lands on it
+  goes to the game even where a control's grown hit region reaches over it, and any touch the
+  surface doesn't take is left unconsumed for the game view under it.
+- **Game view size** (NES frame offset, 2026-09-24): the game view is composed only once the
+  platform's controls are known (or after 1.5 s), so its SurfaceView's first size is its real one.
+  Composed early, it took the screen's shape and was resized a frame later; the SurfaceView kept
+  its first geometry, so the picture was cropped to the left with a black strip beside it. This
+  was already at `d814964`.
+- Android-only adaptations for screens iOS doesn't have: on a phone narrower than about 375 dp the
+  portrait utility row tightens (6 dp gaps, pills down to 30 dp) so many switches (Atari 2600)
+  still fit; a foot holding three or more utilities uses 36 dp pills; when a tall game (DS) on a
+  compact phone is already at the smallest control size, the title strip gives way to the game; and
+  since the 3DS goes through the phone stage on Android (iOS uses its DS rail stage), primaries
+  that can't share a height at the ideal level at the lowest height both allow, and in landscape a
+  primary stick's stack gives way in size until they can.
+- The old per-button overlays (`ExpansionControlsOverlay`, and the unreachable
+  `TouchControlsOverlay`) are gone; `PlayerControlDeckLayout` only places the game and Menu when
+  touch controls are off.
+- Tests: `PlayerTouchModelTest` (also the stick reference vectors, per-console placement, game
+  screens), `PlayerStyleResolutionTest` (unit); `PlayerTouchControlsTest` (a button's edge and the
+  gap between A and B register, a d-pad drag off the pad keeps its direction, quick taps never
+  leave a button held, rolling, pause/dispose release, haptics on/off, touches that miss every
+  control reach the game), `ExpansionControlsTest` (every family, both orientations, mirrored;
+  PlayStation with Analog controls on, then off),
+  `PlayerScreenProgressTest.touchControlsReachTheCoreInOrder` (the production player and the
+  debug input log), `PlayerHapticsPreferenceTest` (haptics, Analog controls and stick tuning per
+  game); `PlayerControlsShotsTest` renders review screenshots (the stick consoles in landscape, at
+  rest and held at full tilt). Instrumentation runs under all four theme × scheme combinations
+  (`-e rommioTheme aurora|riso -e rommioScheme light|dark`).
+
+## Play v2 (Aurora)
+
+[theme-layouts.md](theme-layouts.md) "Aurora (compact), v2": `PlayPage` carries each game's
+`platformLine` ("Super Nintendo · 1994"), `captionLine` (its latest resume point — "Automatic
+resume · 1 min ago · This phone", or a save state's name or kind — else how it was played),
+`previewPath` and `screenSync`, from `SavedProgressRepository.latest`
+(`SavedProgressRules.latestByGame`: the current resume point, else the newest loadable save state;
+never game-save data), read in the same pass as Recent saves. The carousel (`carousel`, six games)
+pages through each game's screen: the preview as captured (nearest-neighbour, at its own aspect on
+black, radius 22, 0.5 dp keyline, the frame blurred behind it in the game's light on API 31+),
+else the cover on its blurred backdrop; the next page peeks 16 dp; the sync or conflict chip sits
+bottom-left in dark glass. The caption, Resume and a 54 dp Details glass circle (info glyph at 20)
+follow; "In progress" carries the pager dots and the games beyond the carousel (`more`) as
+152 × 114 tiles. Regular width shows the screen (480 wide) beside the caption. Recent saves use
+mosaic v2 (`SaveMosaic`, as iOS): the compact rows are built by the model (`PlaySaveDay.rows`);
+regular width uses rows of four with a short last row stretched. `PlayV2Test` pins the rules.
+
+## Performance
+
+Navigation was slow for structural reasons, not one hot spot; each is fixed where it starts.
+Layouts, strings, test tags and navigation are unchanged (before/after screenshots of every page
+in the four theme × scheme combinations).
+
+- **Base theme and page light are separate.** `LocalRommioTheme` (static) holds the base theme
+  only: `RommioThemeValue` is `@Immutable` and equal by theme and scheme, so it changes only when
+  the user switches them. The page's light is `LocalPageLight` (`compositionLocalOf<PageLight?>`,
+  `ui/theme/PageLight.kt`), with its lit colours, `tintText`, marks and lit Material scheme worked
+  out once per light (`PageLight.of` keeps recent ones). When a page lights up, only composables
+  that read `RommioTheme.light` recompose: the field, lit marks, tint text, prominent buttons.
+  `PageLightRecompositionTest` counts compositions to prove it.
+- **Pages open lit.** When an Aurora cover decodes (`GameCover`, `RoomCard`),
+  `CoverArt.warmPalette` works out its palette on one background-priority thread and keeps it in
+  memory and on disk. `rememberCoverPalette` reads memory synchronously, so a page about a game
+  whose cover was on screen is lit on its first frame. When the light does change, only the
+  field crossfades: `PageField` animates its ground and lights in the draw phase and crossfades
+  the blurred cover. The page itself does not animate.
+- **Glass blur is recorded once.** The page field records itself into a layer, and one blurred
+  copy (quarter resolution, same Gaussian) is cached offscreen. It is recorded again only when
+  the field or its size changes. Each glass surface draws its window onto that copy, moved by
+  layer translation when it scrolls. Nothing is re-recorded or re-blurred per frame
+  (`GlassBackdrop.kt`).
+- **Pages are built by their models.** Each page's ViewModel builds its content (`PlatformPage`,
+  `CollectionPage`, `SearchPage`, `StatsPage`, `DownloadsPage`, `PlayPage`, `LibraryPage`,
+  `GamePage`) on `Dispatchers.Default` from its data, publishes it with `distinctUntilChanged` and
+  `stateIn`, and composables take its immutable items. Nothing is sorted, grouped or formatted in
+  composition. `PageBuildersTest` pins the builders. `app/compose-stability.conf` tells the
+  Compose compiler which model and collection types are immutable, so unchanged sections are
+  skipped.
+- **Unbounded lists are lazy.** Platform, Collection, Search, Stats, Downloads, Play's Recent
+  saves, Library's parts, saved progress and Settings › Cores and BIOS are `LazyColumn`s with keys
+  and content types. They keep the same designs: grids are lazy rows of cells, and Riso's A–Z
+  index is letter items. In Aurora a row group stays one glass card: `lazyListGroup` makes each
+  row an item, and `Modifier.drawCardGroups` draws the card (shadow, blurred field, fill, edge)
+  behind its visible rows (`ui/component/LazyGroups.kt`).
+- **No disk work on the main thread or per game.**
+  - A game's support tier comes from the catalogue (`CoreResolver.supportTier`: the family's tier,
+    or Browse only exactly when the full resolution is UNSUPPORTED, as before).
+    `CoreSupportTierTest` checks it against the resolver for every platform and file type,
+    including a missing core and a failed core setup.
+  - The full resolution (`RommRepository.coreSupport`) runs on the IO dispatcher.
+  - Readiness identifies each BIOS once per file identity (inode, size, modification time).
+    Runtime preparation still reads every byte.
+  - Each bundled core manifest is read once, and installed cores stay verified per file identity
+    (`CoreArtifactStore`); a launch re-verifies.
+  - The Cores and BIOS subtitle is counted in `SettingsViewModel`.
+  - The app warms this inventory in the background at launch
+    (`AppContainer.warmCoreVerification`).
+  - `CoreReadinessCacheTest` pins the caches.
+
+**Measured (2026-09-24).** Setup: the same scripted pass (Play, Downloads, Library, a
+170-game Platform, a Game, a Collection, Search, Stats, Settings and its four sub-pages), debug
+builds of the code before and after this work, the API 35 emulator with software rendering, and a
+mock server. Before and after runs alternated, three each per theme. Medians from
+`dumpsys gfxinfo`:
+
+| Theme (dark) | Janky frames | p90 | p95 | p99 | Frames rendered |
+| --- | --- | --- | --- | --- | --- |
+| Aurora, before → after | 50.2 % → 45.6 % | 77 → 73 ms | 85 → 85 ms | 150 → 109 ms | 2701 → 3182 |
+| Riso, before → after | 27.5 % → 27.2 % | 61 → 61 ms | 77 → 81 ms | 150 → 150 ms | 3220 → 3284 |
+
+On this emulator, janky frames are dominated by software GPU draw time. Within one build, runs
+vary by up to 4 ms at p90, up to 12 ms at p95 and more at p99 (Riso before: 117–150 ms), so
+Riso's changes are within noise. Numbers from a physical device, and from a release build, are still to
+be taken.

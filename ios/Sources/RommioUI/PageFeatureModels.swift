@@ -40,7 +40,7 @@ final class StatsFeatureModel {
         defer { isLoading = false }
         do {
             guard let profile = try await services.profileStore.activeProfile() else {
-                stats = .empty
+                update(\.stats, .empty)
                 return
             }
             let store = try await services.progress.store()
@@ -57,17 +57,19 @@ final class StatsFeatureModel {
             // Writes of a session that just ended land before the table is read.
             await services.playData.flush()
             let recorded = try account.map { try services.playData.store.sessions(serverKey: $0.serverKey, accountId: $0.accountId) } ?? []
-            stats = PlayStatsDerivation.merge(recorded: recorded, samples: samples, deviceID: deviceID)
+            let merged = PlayStatsDerivation.merge(recorded: recorded, samples: samples, deviceID: deviceID)
 
             var known: [Int: RomDTO] = [:]
             for record in try await services.downloadQueue.records(profileID: profile.id) where known[record.romID] == nil {
                 known[record.romID] = RomDTO(id: record.romID, name: record.romName, platformSlug: record.platformSlug)
             }
             for rom in try await services.libraryRepository.cachedLibraryRoms() { known[rom.id] = rom }
-            games = known
-            errorMessage = nil
+            // One batch: the stats and the games they name change together.
+            update(\.stats, merged)
+            update(\.games, known)
+            update(\.errorMessage, nil)
         } catch {
-            errorMessage = error.localizedDescription
+            update(\.errorMessage, error.localizedDescription)
         }
     }
 }
@@ -100,15 +102,16 @@ final class SearchFeatureModel {
         if isLoading { return }
         isLoading = true
         defer { isLoading = false }
-        roms = (try? await services.libraryRepository.cachedLibraryRoms()) ?? roms
+        let library = (try? await services.libraryRepository.cachedLibraryRoms()) ?? roms
         // Local play first; RomM's Continue playing order ranks the rest.
         var played: [Int: Date] = [:]
         for (index, rom) in recentlyPlayed.enumerated() {
             played[rom.id] = Date.distantPast.addingTimeInterval(TimeInterval(recentlyPlayed.count - index))
         }
         for game in stats.games { played[game.romID] = game.lastPlayedAt }
-        lastPlayed = played
-        recent = recentlyPlayed
+        update(\.roms, library)
+        update(\.lastPlayed, played)
+        update(\.recent, recentlyPlayed)
     }
 }
 
@@ -119,6 +122,9 @@ final class SearchFeatureModel {
 final class SavedProgressFeatureModel {
     /// Newest first (at most 24 read; the pages show 12).
     var recent: [SaveEntry] = []
+    /// Each game's latest place to continue from (its resume point, else a save state):
+    /// the screens on Play.
+    var latest: [Int64: SaveEntry] = [:]
     var conflicts: [ProgressConflict] = []
     /// Game details by ROM id, from the cached library.
     var games: [Int: RomDTO] = [:]
@@ -140,20 +146,26 @@ final class SavedProgressFeatureModel {
         isLoading = true
         defer { isLoading = false }
         guard let account = await services.activeProgressAccount() else {
-            recent = []; conflicts = []
+            update(\.recent, [])
+            update(\.latest, [:])
+            update(\.conflicts, [])
             return
         }
         do {
             await services.playData.flush()
-            recent = try await services.savedProgress.recent(account)
-            conflicts = try await services.savedProgress.conflicts(account)
+            let saves = try await services.savedProgress.recentAndLatest(account)
+            let conflicts = try await services.savedProgress.conflicts(account)
             var known = games
             for rom in (try? await services.libraryRepository.cachedLibraryRoms()) ?? [] { known[rom.id] = rom }
-            games = known
-            errorMessage = nil
+            // One batch: saves, conflicts and the games they name.
+            update(\.recent, saves.recent)
+            update(\.latest, saves.latest)
+            update(\.conflicts, conflicts)
+            update(\.games, known)
+            update(\.errorMessage, nil)
         } catch {
             // Storage busy (backup or recovery): keep what is shown.
-            errorMessage = error.localizedDescription
+            update(\.errorMessage, error.localizedDescription)
         }
     }
 
@@ -161,6 +173,7 @@ final class SavedProgressFeatureModel {
         do {
             let label = try await services.savedProgress.rename(entry.key, to: name)
             recent = recent.map { $0.key == entry.key ? relabelled($0, label) : $0 }
+            latest = latest.mapValues { $0.key == entry.key ? relabelled($0, label) : $0 }
         } catch { errorMessage = error.localizedDescription }
     }
 

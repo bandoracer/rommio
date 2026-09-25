@@ -59,7 +59,7 @@ fun SavePreview(
         modifier = modifier
             .size(width = width, height = width * 3f / 4f)
             .clip(shape)
-            .background(if (thumbnailPath != null) theme.player.ground else theme.solidSurfaceStrong)
+            .background(if (thumbnailPath != null) theme.player.ground else RommioTheme.light.solidSurfaceStrong)
             .border(theme.strokeWidth, theme.strokeColor, shape),
         contentAlignment = Alignment.Center,
     ) {
@@ -140,7 +140,8 @@ fun RenameSaveDialog(
     onSave: (String) -> Unit,
 ) {
     var text by remember(current) { mutableStateOf(current.orEmpty()) }
-    AlertDialog(
+    // A stock dialog: its container and field outline take the page's lit scheme.
+    io.github.bandoracer.rommio.ui.theme.LitMaterialTheme { AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (current == null) "Name this save state" else "Rename save state") },
         text = {
@@ -162,5 +163,5 @@ fun RenameSaveDialog(
             TextButton(onClick = { onSave(text) }, modifier = Modifier.testTag("$tagPrefix.renameSave")) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+    ) }
 }

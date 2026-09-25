@@ -203,19 +203,97 @@ public struct PlayerControlsPreferences: Codable, Hashable, Sendable {
     public var rumbleToDeviceEnabled: Bool
     public var oledBlackModeEnabled: Bool
     public var consoleColorsEnabled: Bool
+    /// Touch controls tap back (docs/player-controls.md, Haptics). Device-local.
+    public var hapticsEnabled: Bool
 
     public init(
         touchControlsEnabled: Bool = true,
         autoHideTouchOnController: Bool = true,
         rumbleToDeviceEnabled: Bool = true,
         oledBlackModeEnabled: Bool = false,
-        consoleColorsEnabled: Bool = true
+        consoleColorsEnabled: Bool = true,
+        hapticsEnabled: Bool = true
     ) {
         self.touchControlsEnabled = touchControlsEnabled
         self.autoHideTouchOnController = autoHideTouchOnController
         self.rumbleToDeviceEnabled = rumbleToDeviceEnabled
         self.oledBlackModeEnabled = oledBlackModeEnabled
         self.consoleColorsEnabled = consoleColorsEnabled
+        self.hapticsEnabled = hapticsEnabled
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case touchControlsEnabled, autoHideTouchOnController, rumbleToDeviceEnabled, oledBlackModeEnabled, consoleColorsEnabled, hapticsEnabled
+    }
+
+    /// Older encodings (before haptics) decode with haptics on.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        touchControlsEnabled = try container.decode(Bool.self, forKey: .touchControlsEnabled)
+        autoHideTouchOnController = try container.decode(Bool.self, forKey: .autoHideTouchOnController)
+        rumbleToDeviceEnabled = try container.decode(Bool.self, forKey: .rumbleToDeviceEnabled)
+        oledBlackModeEnabled = try container.decode(Bool.self, forKey: .oledBlackModeEnabled)
+        consoleColorsEnabled = try container.decode(Bool.self, forKey: .consoleColorsEnabled)
+        hapticsEnabled = try container.decodeIfPresent(Bool.self, forKey: .hapticsEnabled) ?? true
+    }
+}
+
+/// A game's touch-stick tuning (docs/player-controls.md, "Per-game tuning"): the console
+/// profile's travel and dead zone scaled, and a floating or fixed centre.
+public struct PlayerStickTuning: Codable, Hashable, Sendable {
+    public enum Sensitivity: String, Codable, CaseIterable, Hashable, Sendable {
+        case low, normal, high
+        /// Low needs more thumb travel for full tilt, High less.
+        public var travelFactor: Double {
+            switch self {
+            case .low: 1.2
+            case .normal: 1
+            case .high: 0.8
+            }
+        }
+    }
+
+    public enum DeadZone: String, Codable, CaseIterable, Hashable, Sendable {
+        case small, normal, large
+        public var factor: Double {
+            switch self {
+            case .small: 0.6
+            case .normal: 1
+            case .large: 1.6
+            }
+        }
+    }
+
+    public enum Centre: String, Codable, CaseIterable, Hashable, Sendable {
+        /// Touch-down sets the centre, and it follows the thumb past full travel.
+        case floating
+        /// The centre stays at the zone's centre.
+        case fixed
+    }
+
+    public var sensitivity: Sensitivity
+    public var deadZone: DeadZone
+    public var centre: Centre
+
+    public init(sensitivity: Sensitivity = .normal, deadZone: DeadZone = .normal, centre: Centre = .floating) {
+        self.sensitivity = sensitivity
+        self.deadZone = deadZone
+        self.centre = centre
+    }
+
+    /// The console profile as it is.
+    public static let standard = PlayerStickTuning()
+}
+
+/// Per-game touch-control settings, device-local (never synced).
+public struct PlayerGameControls: Codable, Hashable, Sendable {
+    /// PlayStation's Analog controls: both sticks and L3/R3 on screen.
+    public var analogControls: Bool
+    public var stick: PlayerStickTuning
+
+    public init(analogControls: Bool = false, stick: PlayerStickTuning = .standard) {
+        self.analogControls = analogControls
+        self.stick = stick
     }
 }
 

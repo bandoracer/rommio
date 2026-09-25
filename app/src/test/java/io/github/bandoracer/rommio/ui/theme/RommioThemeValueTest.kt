@@ -89,7 +89,8 @@ class RommioThemeValueTest {
         val palette = listOf(0x0b0620, 0x3a1450, 0x5d2a6e, 0x1c0c2b, 0xff7a3d)
         val lights = io.github.bandoracer.rommio.ui.art.AuroraLight.lights(palette, dark = false)
         val base = RommioThemeValue.of(AppearanceTheme.AURORA, dark = false)
-        val lit = base.lit(lights)
+        val lit = PageLight.of(base, lights)
+        assertTrue(lit.isLit)
         assertEquals(argb(lights.ground), lit.colors.ground)
         assertEquals(argb(0xd64300), lit.colors.tint)
         assertEquals(argb(lights.l1), lit.colors.accent1)
@@ -99,23 +100,40 @@ class RommioThemeValueTest {
         // Everything else stays the theme's.
         assertEquals(base.colors.ink, lit.colors.ink)
         assertEquals(base.colors.buttonFill, lit.colors.buttonFill)
-        // Unlighting returns the cached base value.
-        assertTrue(lit.lit(null) === base)
+        // The base theme is untouched by the light (the light is a separate value).
+        assertEquals(base.colors.ground, RommioThemeValue.of(AppearanceTheme.AURORA, dark = false).colors.ground)
+        // Lights are cached: the same light gives the same value; none is the theme's own light.
+        assertTrue(PageLight.of(base, lights) === lit)
+        assertTrue(PageLight.of(base, null) === base.unlit)
+        assertEquals(lit, PageLight.of(RommioThemeValue.of(AppearanceTheme.AURORA, dark = false), lights))
+    }
+
+    @Test
+    fun aLitPageHasItsOwnMaterialScheme() {
+        val palette = listOf(0x0b0620, 0x3a1450, 0x5d2a6e, 0x1c0c2b, 0xff7a3d)
+        val base = RommioThemeValue.of(AppearanceTheme.AURORA, dark = true)
+        val lit = PageLight.of(base, io.github.bandoracer.rommio.ui.art.AuroraLight.lights(palette, dark = true))
+        assertEquals(lit.colors.ground, lit.materialColorScheme.background)
+        assertTrue(base.unlit.materialColorScheme === base.materialColorScheme)
     }
 
     @Test
     fun risoNeverLightsAPage() {
         val palette = listOf(0x0b0620, 0x3a1450, 0x5d2a6e, 0x1c0c2b, 0xff7a3d)
         val riso = RommioThemeValue.of(AppearanceTheme.RISO, dark = false)
-        assertTrue(riso.lit(io.github.bandoracer.rommio.ui.art.AuroraLight.lights(palette, dark = false)) === riso)
+        val light = PageLight.of(riso, io.github.bandoracer.rommio.ui.art.AuroraLight.lights(palette, dark = false))
+        assertTrue(light === riso.unlit)
+        assertFalse(light.isLit)
     }
 
     @Test
     fun unlitMarksComeFromTintAndTheAccents() {
         val base = RommioThemeValue.of(AppearanceTheme.AURORA, dark = true)
+        val unlit = base.unlit
         val rgb = { c: androidx.compose.ui.graphics.Color -> io.github.bandoracer.rommio.ui.art.AuroraLight.toHsl(0xFFFFFF and c.toArgb()) }
-        assertEquals(argb(io.github.bandoracer.rommio.ui.art.AuroraLight.mark(rgb(base.colors.tint), dark = true)), base.mark1)
-        assertEquals(argb(io.github.bandoracer.rommio.ui.art.AuroraLight.mark(rgb(base.colors.accent2), dark = true)), base.mark2)
-        assertEquals(base.colors.accent1, argb(base.lights.l1))
+        assertEquals(argb(io.github.bandoracer.rommio.ui.art.AuroraLight.mark(rgb(base.colors.tint), dark = true)), unlit.mark1)
+        assertEquals(argb(io.github.bandoracer.rommio.ui.art.AuroraLight.mark(rgb(base.colors.accent2), dark = true)), unlit.mark2)
+        assertEquals(base.colors.accent1, argb(unlit.lights.l1))
+        assertEquals(base.colors, unlit.colors)
     }
 }

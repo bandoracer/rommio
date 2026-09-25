@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,6 +14,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -40,14 +41,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import io.github.bandoracer.rommio.domain.playdata.SaveDay
-import io.github.bandoracer.rommio.domain.playdata.SaveEntry
-import io.github.bandoracer.rommio.domain.playdata.SaveKind
 import io.github.bandoracer.rommio.domain.playdata.SaveSyncStatus
-import io.github.bandoracer.rommio.domain.playdata.SavedProgressRules
 import io.github.bandoracer.rommio.ui.component.CoverPlaceholder
 import io.github.bandoracer.rommio.ui.component.LightStrip
-import io.github.bandoracer.rommio.ui.component.PlayFormat
 import io.github.bandoracer.rommio.ui.component.PrintRule
 import io.github.bandoracer.rommio.ui.component.RoleText
 import io.github.bandoracer.rommio.ui.component.RuleWeight
@@ -56,103 +52,75 @@ import io.github.bandoracer.rommio.ui.component.SectionHeader
 import io.github.bandoracer.rommio.ui.component.StatusChip
 import io.github.bandoracer.rommio.ui.component.chipTone
 import io.github.bandoracer.rommio.ui.component.dropShadow
-import io.github.bandoracer.rommio.ui.component.formatClockTime
 import io.github.bandoracer.rommio.ui.component.rememberCoverMark
 import io.github.bandoracer.rommio.ui.theme.RommioTheme
 import io.github.bandoracer.rommio.ui.component.OverArt
 import java.io.File
-import java.time.ZoneId
 
-/**
+/*
  * Recent saves on Play (docs/theme-layouts.md "Play — two layouts", docs/play-data-local.md §3):
- * resume points and save states across games, newest first, grouped by local day. Recent
- * sessions live on Stats only. Previews are shown as captured (never art-treated); the game's
- * cover stands in when a save has none.
+ * resume points and save states across games, newest first, grouped by local day ([PlaySaveDay],
+ * built by the model). Recent sessions live on Stats only. Previews are shown as captured (never
+ * art-treated); the game's cover stands in when a save has none. Each day is a lazy item.
  */
-internal fun PlayUiState.saveDays(zone: ZoneId = ZoneId.systemDefault()): List<SaveDay> =
-    SavedProgressRules.groupByDay(recentSaves.map { it.entry }, zone)
-
-/** Chip copy for a save's kind: "Automatic resume", "Save state · Slot 2", "Save state". */
-internal fun SaveEntry.kindChip(): String = when (kind) {
-    SaveKind.RESUME_POINT -> if (isCurrentResume) "Automatic resume" else "Earlier resume point"
-    SaveKind.SAVE_STATE -> slotNumber?.let { "Save state · Slot $it" } ?: "Save state"
-    SaveKind.GAME_SAVE -> "Game-save data"
-}
-
-/** "“Before the boss” · 7:07 PM · This phone": the name (when given), when and where. */
-internal fun SaveEntry.whenWhere(): String = listOfNotNull(
-    label?.let { "“$it”" },
-    formatClockTime(capturedAtEpochMs),
-    deviceLabel,
-).joinToString(" · ")
-
-private fun saveCount(n: Int) = "$n save${if (n == 1) "" else "s"}"
 
 // ---- Aurora: a lit gallery by day ------------------------------------------------------------
 
 /**
  * Aurora: per day a `headline` 27 day, the long date and "N saves", a 3 dp light strip of the
- * day's games' `k1`, then a two-column mosaic of captured frames (first tile 16:9.4 across both
- * columns when the day has more than two; the rest 4:3.3), each on #0b0a12 with a dark scrim, the
- * kind as a dark glass chip, game name, "time · device" and the sync state, glowing in the game's
- * `k1`. Regular width (the studio's open canvas): each day is one row — a 150 dp margin with the
- * day, date, count and a vertical light strip, then a mosaic of four columns (tiles ≥ 180 wide;
- * fewer on a narrower canvas) whose first day's first tile spans two columns and two rows.
+ * day's games' `k1`, then the mosaic v2 of captured frames ([SaveMosaic]: never a hole or a lone
+ * half tile — a full-width 16:9 tile, pairs of 4:3.3 tiles, an odd last save full width), each on
+ * #0b0a12 with a dark scrim, the kind as a dark glass chip, game name, "time · device" and the sync
+ * state, glowing in the game's `k1`. Regular width (the studio's open canvas): each day is one row
+ * — a 150 dp margin with the day, date, count and a vertical light strip, then rows of four tiles
+ * (≥ 180 wide; fewer on a narrower canvas), a short last row stretching its tiles.
  */
-@Composable
-internal fun AuroraRecentSaves(state: PlayUiState, actions: PlayActions, regular: Boolean, gutter: Dp) {
-    val days = state.saveDays()
-    if (days.isEmpty()) return
-    val byKey = state.recentSaves.associateBy { it.entry.key }
-    Column(Modifier.padding(horizontal = gutter), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        SectionHeader(title = "Recent saves", meta = state.recentSaves.size.toString())
-        if (regular) {
-            Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
-                days.forEachIndexed { index, day -> AuroraSaveDayRow(day, byKey, actions, hero = index == 0) }
-            }
-        } else {
-            Column(verticalArrangement = Arrangement.spacedBy(26.dp)) {
-                days.forEach { day -> AuroraSaveDay(day, byKey, actions) }
-            }
-        }
+internal fun LazyListScope.auroraRecentSaves(page: PlayPage, actions: PlayActions, regular: Boolean, gutter: Dp, section: Dp) {
+    if (page.saveDays.isEmpty()) return
+    item(key = "savesHeader", contentType = "sectionHeader") {
+        SectionHeader(title = "Recent saves", meta = page.saveCount.toString(), modifier = Modifier.padding(top = section).padding(horizontal = gutter))
+    }
+    itemsIndexed(page.saveDays, key = { _, day -> "saveDay/${day.key}" }, contentType = { _, _ -> if (regular) "saveDayRow" else "saveDay" }) { index, day ->
+        val top = if (index == 0) 14.dp else if (regular) 24.dp else 26.dp
+        val modifier = Modifier.padding(top = top).padding(horizontal = gutter)
+        if (regular) AuroraSaveDayRow(day, actions, modifier) else AuroraSaveDay(day, actions, modifier)
     }
 }
 
 @Composable
-private fun AuroraSaveDay(day: SaveDay, byKey: Map<io.github.bandoracer.rommio.domain.playdata.SaveKey, RecentSaveItem>, actions: PlayActions, modifier: Modifier = Modifier) {
+private fun AuroraSaveDay(day: PlaySaveDay, actions: PlayActions, modifier: Modifier = Modifier) {
     val theme = RommioTheme.current
-    val items = day.entries.mapNotNull { byKey[it.key] }
-    if (items.isEmpty()) return
-    val group = PlayFormat.dayGroup(day.day)
-    val lights = items.distinctBy { it.rom.id }.map { rememberCoverMark(actions.cover(it.rom)) }
+    val items = day.saves
+    val lights = day.gameCovers.map { rememberCoverMark(it) }
     Column(modifier.testTag("play.recentSaves"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            RoleText(group.title, theme.type.headline, size = 27f, color = theme.colors.ink)
+            RoleText(day.title, theme.type.headline, size = 27f, color = theme.colors.ink)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 // The full date only when the title isn't already the date (§4 day groups).
-                RoleText(group.caption.orEmpty(), theme.type.caption, size = 13f, color = theme.colors.inkSecondary, modifier = Modifier.weight(1f))
-                RoleText(saveCount(items.size), theme.type.numeral, size = 12.5f, color = theme.colors.inkSecondary)
+                RoleText(day.caption.orEmpty(), theme.type.caption, size = 13f, color = theme.colors.inkSecondary, modifier = Modifier.weight(1f))
+                RoleText(day.countText, theme.type.numeral, size = 12.5f, color = theme.colors.inkSecondary)
             }
             LightStrip(lights, Modifier.padding(top = 5.dp))
         }
-        val hero = items.size > 2
-        if (hero) SaveTile(items.first(), actions, large = true, modifier = Modifier.fillMaxWidth())
-        (if (hero) items.drop(1) else items).chunked(2).forEach { pair ->
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                pair.forEach { item -> SaveTile(item, actions, large = false, modifier = Modifier.weight(1f)) }
-                if (pair.size == 1) Spacer(Modifier.weight(1f))
+        // Mosaic v2: a lone save in a row is the large full-width tile; the rest are pairs.
+        day.rows.forEach { row ->
+            if (row.size == 1) {
+                SaveTile(items[row[0]], actions, large = true, modifier = Modifier.fillMaxWidth())
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    row.forEach { index -> SaveTile(items[index], actions, large = false, modifier = Modifier.weight(1f)) }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun AuroraSaveDayRow(day: SaveDay, byKey: Map<io.github.bandoracer.rommio.domain.playdata.SaveKey, RecentSaveItem>, actions: PlayActions, hero: Boolean) {
+private fun AuroraSaveDayRow(day: PlaySaveDay, actions: PlayActions, modifier: Modifier) {
     val theme = RommioTheme.current
-    val items = day.entries.mapNotNull { byKey[it.key] }
-    if (items.isEmpty()) return
-    val lights = items.distinctBy { it.rom.id }.map { rememberCoverMark(actions.cover(it.rom)) }
-    Row(Modifier.fillMaxWidth().testTag("play.recentSaves"), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+    val items = day.saves
+    val lights = day.gameCovers.map { rememberCoverMark(it) }
+    Row(modifier.fillMaxWidth().testTag("play.recentSaves"), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
         Column(
             Modifier
                 .width(150.dp)
@@ -169,50 +137,28 @@ private fun AuroraSaveDayRow(day: SaveDay, byKey: Map<io.github.bandoracer.rommi
                 .padding(start = 16.dp, top = 2.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
-            val group = PlayFormat.dayGroup(day.day)
-            RoleText(group.title, theme.type.headline, size = 26f, color = theme.colors.ink,
+            RoleText(day.title, theme.type.headline, size = 26f, color = theme.colors.ink,
                 modifier = Modifier.padding(bottom = 5.dp))
-            group.caption?.let { RoleText(it, theme.type.caption, size = 13f, color = theme.colors.inkSecondary) }
-            RoleText("${saveCount(items.size)} · ${PlayFormat.games(items.distinctBy { it.rom.id }.size)}",
-                theme.type.numeral, size = 13f, color = theme.colors.inkSecondary)
+            day.caption?.let { RoleText(it, theme.type.caption, size = 13f, color = theme.colors.inkSecondary) }
+            RoleText(day.countAndGames, theme.type.numeral, size = 13f, color = theme.colors.inkSecondary)
         }
         androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f)) {
             val gap = 10.dp
-            // Four columns where tiles keep at least 180 wide (the studio's open canvas); on a
-            // narrower canvas two or three, with the first tile across the row as on a phone.
-            val cols = ((maxWidth + gap) / (180.dp + gap)).toInt().coerceIn(2, 4)
+            // Four columns while tiles keep 180 wide; fewer on a narrower canvas, where two columns
+            // take the compact rule (a lone save is the large tile).
+            val cols = SaveMosaic.columns(maxWidth.value, gap.value)
+            val rows = androidx.compose.runtime.remember(items.size, cols) { SaveMosaic.rows(items.size, cols) }
             val cell = (maxWidth - gap * (cols - 1)) / cols
             val cellH = cell * 3.3f / 4f
             Column(verticalArrangement = Arrangement.spacedBy(gap)) {
-                var rest = items
-                if (cols < 4) {
-                    if (items.size > 2) {
-                        SaveTile(items.first(), actions, large = true, modifier = Modifier.fillMaxWidth())
-                        rest = items.drop(1)
-                    }
-                    rest.chunked(cols).forEach { row ->
+                rows.forEach { row ->
+                    if (cols <= 2 && row.size == 1) {
+                        SaveTile(items[row[0]], actions, large = true, modifier = Modifier.fillMaxWidth())
+                    } else {
+                        // A short last row stretches its tiles to fill it.
                         Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                            row.forEach { SaveTile(it, actions, large = false, modifier = Modifier.size(cell, cellH), aspect = null) }
+                            row.forEach { index -> SaveTile(items[index], actions, large = false, modifier = Modifier.weight(1f).height(cellH), aspect = null) }
                         }
-                    }
-                    return@Column
-                }
-                if (hero && items.size > 2) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                        SaveTile(items.first(), actions, large = true, modifier = Modifier.size(cell * 2 + gap, cellH * 2 + gap), aspect = null)
-                        Column(verticalArrangement = Arrangement.spacedBy(gap)) {
-                            items.drop(1).take(4).chunked(2).forEach { pair ->
-                                Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                                    pair.forEach { SaveTile(it, actions, large = false, modifier = Modifier.size(cell, cellH), aspect = null) }
-                                }
-                            }
-                        }
-                    }
-                    rest = items.drop(5)
-                }
-                rest.chunked(4).forEach { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                        row.forEach { SaveTile(it, actions, large = false, modifier = Modifier.size(cell, cellH), aspect = null) }
                     }
                 }
             }
@@ -230,11 +176,10 @@ private fun SaveSyncStatus.frameColor(): Color = when (this) {
 }
 
 @Composable
-private fun SaveTile(item: RecentSaveItem, actions: PlayActions, large: Boolean, modifier: Modifier = Modifier,
+private fun SaveTile(save: PlaySave, actions: PlayActions, large: Boolean, modifier: Modifier = Modifier,
     aspect: Float? = if (large) 16f / 9.4f else 4f / 3.3f) {
     val theme = RommioTheme.current
-    val entry = item.entry
-    val cover = actions.cover(item.rom)
+    val cover = save.coverUrl
     val radius = if (large) 22.dp else 16.dp
     val shape = RoundedCornerShape(radius)
     val glow = rememberCoverMark(cover)
@@ -245,11 +190,11 @@ private fun SaveTile(item: RecentSaveItem, actions: PlayActions, large: Boolean,
             .clip(shape)
             .background(OverArt.frameGround)
             .border(0.5.dp, OverArt.keyline, shape)
-            .clickable { actions.openSave(item) }
+            .clickable { actions.openSave(save.item) }
             .semantics(mergeDescendants = true) {}
             .testTag("play.recentSave"),
     ) {
-        val thumb = entry.thumbnailPath
+        val thumb = save.thumbnailPath
         when {
             thumb != null -> AsyncImage(
                 model = File(thumb),
@@ -259,7 +204,7 @@ private fun SaveTile(item: RecentSaveItem, actions: PlayActions, large: Boolean,
                 modifier = Modifier.fillMaxSize(),
             )
             cover != null -> AsyncImage(model = cover, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            else -> CoverPlaceholder(item.rom.displayName, Modifier.fillMaxSize())
+            else -> CoverPlaceholder(save.title, Modifier.fillMaxSize())
         }
         Box(
             Modifier
@@ -275,11 +220,11 @@ private fun SaveTile(item: RecentSaveItem, actions: PlayActions, large: Boolean,
                 ),
         )
         FrameChip(
-            text = entry.kindChip(),
-            icon = if (entry.kind == SaveKind.SAVE_STATE) Icons.Outlined.Layers else Icons.Outlined.History,
+            text = save.kindChip,
+            icon = if (save.isState) Icons.Outlined.Layers else Icons.Outlined.History,
             modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
         )
-        val sync = entry.sync.takeIf { it != SaveSyncStatus.UNKNOWN }
+        val sync = save.sync
         if (large && sync != null) {
             FrameChip(sync.label, icon = null, dot = sync.frameColor(), modifier = Modifier.align(Alignment.TopEnd).padding(8.dp))
         }
@@ -289,9 +234,9 @@ private fun SaveTile(item: RecentSaveItem, actions: PlayActions, large: Boolean,
                 .padding(start = if (large) 16.dp else 11.dp, end = 11.dp, bottom = if (large) 14.dp else 10.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
-            RoleText(item.rom.displayName, theme.type.headline, size = if (large) 28f else 18f, color = OverArt.ink, maxLines = if (large) 2 else 1)
+            RoleText(save.title, theme.type.headline, size = if (large) 28f else 18f, color = OverArt.ink, maxLines = if (large) 2 else 1)
             Text(
-                entry.whenWhere(),
+                save.whenWhere,
                 color = OverArt.quiet(0.76f),
                 fontSize = if (large) 13.sp else 11.5.sp,
                 fontWeight = FontWeight.Medium,
@@ -342,58 +287,54 @@ private fun FrameChip(text: String, icon: androidx.compose.ui.graphics.vector.Im
  * sync state as a stamp; hairlines between.
  */
 @Composable
-internal fun RisoRecentSaves(state: PlayUiState, actions: PlayActions, modifier: Modifier = Modifier) {
-    val days = state.saveDays()
-    if (days.isEmpty()) return
+internal fun RisoSaveDay(day: PlaySaveDay, actions: PlayActions, modifier: Modifier = Modifier) {
     val theme = RommioTheme.current
-    val byKey = state.recentSaves.associateBy { it.entry.key }
-    Column(modifier.fillMaxWidth()) {
-        SectionHeader(title = "Recent saves")
-        days.forEach { day ->
-            val items = day.entries.mapNotNull { byKey[it.key] }
-            if (items.isEmpty()) return@forEach
-            Column(Modifier.testTag("play.recentSaves").padding(top = 6.dp)) {
-                Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    val group = PlayFormat.dayGroup(day.day)
-                    RoleText(group.title, theme.type.headline, size = 22f, color = theme.colors.ink)
-                    RoleText(
-                        io.github.bandoracer.rommio.ui.component.Fmt.join(group.caption, saveCount(items.size)),
-                        theme.type.body, size = 14f, italic = true, color = theme.colors.inkSecondary,
-                        modifier = Modifier.weight(1f).padding(bottom = 2.dp), maxLines = 1,
-                    )
-                }
-                PrintRule(weight = RuleWeight.FINE, modifier = Modifier.padding(top = 6.dp))
-                items.forEachIndexed { index, item ->
-                    if (index > 0) PrintRule(weight = RuleWeight.HAIRLINE)
-                    RisoSaveRow(item, actions)
-                }
-            }
+    Column(modifier.testTag("play.recentSaves").padding(top = 6.dp)) {
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            RoleText(day.title, theme.type.headline, size = 22f, color = theme.colors.ink)
+            RoleText(
+                day.risoLine,
+                theme.type.body, size = 14f, italic = true, color = theme.colors.inkSecondary,
+                modifier = Modifier.weight(1f).padding(bottom = 2.dp), maxLines = 1,
+            )
+        }
+        PrintRule(weight = RuleWeight.FINE, modifier = Modifier.padding(top = 6.dp))
+        day.saves.forEachIndexed { index, save ->
+            if (index > 0) PrintRule(weight = RuleWeight.HAIRLINE)
+            RisoSaveRow(save, actions)
         }
     }
 }
 
+/** Riso's Recent saves (the broadsheet's rail): the header and every day, in one column. */
 @Composable
-private fun RisoSaveRow(item: RecentSaveItem, actions: PlayActions) {
+internal fun RisoRecentSaves(page: PlayPage, actions: PlayActions, modifier: Modifier = Modifier) {
+    if (page.saveDays.isEmpty()) return
+    Column(modifier.fillMaxWidth()) {
+        SectionHeader(title = "Recent saves")
+        page.saveDays.forEach { day -> RisoSaveDay(day, actions) }
+    }
+}
+
+@Composable
+private fun RisoSaveRow(save: PlaySave, actions: PlayActions) {
     val theme = RommioTheme.current
-    val entry = item.entry
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable { actions.openSave(item) }
+            .clickable { actions.openSave(save.item) }
             .semantics(mergeDescendants = true) {}
             .padding(vertical = 11.dp)
             .testTag("play.recentSave"),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        SavePreview(entry.thumbnailPath, actions.cover(item.rom), item.rom.displayName, width = 64.dp)
+        SavePreview(save.thumbnailPath, save.coverUrl, save.title, width = 64.dp)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            RoleText(entry.kindChip(), theme.type.label, size = 10f, color = theme.colors.inkSecondary, maxLines = 1)
-            RoleText(item.rom.displayName, theme.type.headline, size = 18f, color = theme.colors.ink, maxLines = 2)
-            RoleText(entry.whenWhere(), theme.type.body, size = 14f, italic = true, color = theme.colors.inkSecondary, maxLines = 2)
+            RoleText(save.kindChip, theme.type.label, size = 10f, color = theme.colors.inkSecondary, maxLines = 1)
+            RoleText(save.title, theme.type.headline, size = 18f, color = theme.colors.ink, maxLines = 2)
+            RoleText(save.whenWhere, theme.type.body, size = 14f, italic = true, color = theme.colors.inkSecondary, maxLines = 2)
         }
-        entry.sync.takeIf { it != SaveSyncStatus.UNKNOWN }?.let { sync ->
-            StatusChip(sync.label, tone = sync.chipTone())
-        }
+        save.sync?.let { sync -> StatusChip(sync.label, tone = sync.chipTone()) }
     }
 }

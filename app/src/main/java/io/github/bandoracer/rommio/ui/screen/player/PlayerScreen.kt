@@ -8,11 +8,8 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
-import android.view.MotionEvent
 import android.view.View
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -43,6 +40,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.mandatorySystemGestures
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -79,18 +77,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.input.pointer.pointerInteropFilter
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -108,9 +104,9 @@ import io.github.bandoracer.rommio.AppContainer
 import io.github.bandoracer.rommio.domain.input.ActiveInputMode
 import io.github.bandoracer.rommio.domain.input.HotkeyAction
 import io.github.bandoracer.rommio.domain.input.PlayerOrientationPolicy
+import io.github.bandoracer.rommio.domain.input.PlayerStickTuning
 import io.github.bandoracer.rommio.domain.input.PlayerControlsState
 import io.github.bandoracer.rommio.domain.input.TouchLayoutProfile
-import io.github.bandoracer.rommio.domain.input.TouchSupportMode
 import io.github.bandoracer.rommio.domain.player.PlayerControllerDescriptor
 import io.github.bandoracer.rommio.domain.progress.*
 import io.github.bandoracer.rommio.domain.player.PlayerEngine
@@ -185,24 +181,17 @@ fun PlayerScreen(
     }
     val latestUiState = rememberUpdatedState(state)
     val latestPlayerAttached = rememberUpdatedState(playerAttached)
-    val primaryOverlayAlpha by animateFloatAsState(
-        targetValue = when {
-            state.overlay.fadeSuspended -> 1f
-            state.overlay.primaryPhase == PlayerOverlayPhase.IDLE -> 0.22f
-            else -> 1f
-        },
-        animationSpec = tween(durationMillis = 440),
-        label = "playerPrimaryOverlayAlpha",
-    )
-    val tertiaryOverlayAlpha by animateFloatAsState(
-        targetValue = when {
-            state.overlay.fadeSuspended -> 1f
-            state.overlay.tertiaryPhase == PlayerOverlayPhase.IDLE -> 0.22f
-            else -> 1f
-        },
-        animationSpec = tween(durationMillis = 440),
-        label = "playerTertiaryOverlayAlpha",
-    )
+    // The title strip's play line: "Super Nintendo · 25 min played" (docs/player-controls.md).
+    val playStats by container.playActivity.stats.collectAsStateWithLifecycleCompat()
+    val titleDetail = remember(state.rom, playStats) {
+        state.rom?.let { rom ->
+            val played = playStats.games.firstOrNull { it.romId == rom.id.toLong() }?.playedMs ?: 0L
+            io.github.bandoracer.rommio.ui.component.Fmt.join(
+                rom.platformName.takeIf { it.isNotBlank() },
+                if (played >= 60_000L) "${io.github.bandoracer.rommio.ui.component.Fmt.duration(played)} played" else null,
+            ).ifBlank { null }
+        }
+    }
 
     ImmersivePlayerMode(enabled = true)
     PlayerOrientationMode(policy = state.controls?.platformProfile?.playerOrientationPolicy)
@@ -338,18 +327,6 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(playerAttached, state.overlay.primaryLastInteractionEpochMs, state.overlay.fadeSuspended) {
-        if (!playerAttached || state.overlay.fadeSuspended) return@LaunchedEffect
-        delay(10_000)
-        viewModel.setPrimaryOverlayIdle()
-    }
-
-    LaunchedEffect(playerAttached, state.overlay.tertiaryLastInteractionEpochMs, state.overlay.fadeSuspended) {
-        if (!playerAttached || state.overlay.fadeSuspended) return@LaunchedEffect
-        delay(10_000)
-        viewModel.setTertiaryOverlayIdle()
-    }
-
     BackHandler(enabled = !state.isLoading) {
         when {
             nativeFailure != null || state.errorMessage != null -> scope.launch { playerAction {
@@ -396,39 +373,53 @@ fun PlayerScreen(
                     val controls = state.controls
                     val isLandscape = availableWidth > availableHeight
                     val systemBars = WindowInsets.systemBars.only(WindowInsetsSides.Vertical).asPaddingValues()
-                    val portraitCutoutTopInset = with(density) {
-                        (ViewCompat.getRootWindowInsets(rootView)?.displayCutout?.safeInsetTop ?: 0).toDp()
-                    }
-                    val portraitTopInset = if (isLandscape) {
-                        0.dp
-                    } else {
-                        maxOf(
-                            systemBars.calculateTopPadding(),
-                            portraitCutoutTopInset,
+                    // Keep Select · Menu · Start out of the system's home-gesture area.
+                    val gestures = WindowInsets.mandatorySystemGestures.only(WindowInsetsSides.Bottom).asPaddingValues()
+                    val cutout = ViewCompat.getRootWindowInsets(rootView)?.displayCutout
+                    val stageInsets = with(density) {
+                        // Side cutouts apply to both sides so the game stays centred.
+                        val side = maxOf(cutout?.safeInsetLeft ?: 0, cutout?.safeInsetRight ?: 0).toDp().value
+                        PlayerStageInsets(
+                            top = if (isLandscape) 0f else maxOf(systemBars.calculateTopPadding(), (cutout?.safeInsetTop ?: 0).toDp()).value,
+                            bottom = maxOf(systemBars.calculateBottomPadding(), gestures.calculateBottomPadding()).value,
+                            left = side,
+                            right = side,
                         )
                     }
-                    val bottomInset = systemBars.calculateBottomPadding()
-                    val consoleDeckControls = controls?.let { io.github.bandoracer.rommio.domain.input.ExpansionControls.controls(it.platformProfile.familyId) }.orEmpty()
-                    val sideInset = with(density) {
-                        val cutout = ViewCompat.getRootWindowInsets(rootView)?.displayCutout
-                        maxOf(cutout?.safeInsetLeft ?: 0, cutout?.safeInsetRight ?: 0).toDp()
+                    val familyId = controls?.platformProfile?.familyId
+                    // PlayStation's per-game Analog controls show both sticks and L3/R3; the game's
+                    // stick tuning sets its sticks' travel, dead zone and centre.
+                    val analogControls = state.analogControls
+                    val stickTuning = state.stickTuning
+                    val plan = remember(familyId, analogControls, stickTuning) { familyId?.let { PlayerControlPlan.of(it, analogControls, stickTuning) } }
+                    val touchLayout = controls?.touchLayout
+                    // Touch controls v2 (docs/player-controls.md): the stage places the game and every
+                    // control; without touch controls the game takes the room and only Menu remains.
+                    val reserveTouchSpace = plan != null && controls?.showTouchControls == true
+                    val aspect = controls?.platformProfile?.preferredViewportAspectRatio
+                    val prefersPortrait = when (controls?.platformProfile?.playerOrientationPolicy) {
+                        PlayerOrientationPolicy.PORTRAIT_ONLY -> true
+                        PlayerOrientationPolicy.LANDSCAPE_ONLY -> false
+                        else -> null
                     }
-                    val deck = PlayerControlDeckLayout(availableWidth.value, availableHeight.value,
-                        portraitTopInset.value, bottomInset.value, sideInset.value,
-                        io.github.bandoracer.rommio.domain.input.ExpansionControls.deckHeight(consoleDeckControls),
-                        controls?.touchLayout?.globalScale ?: 1f,
-                        controls?.showTouchControls == true && consoleDeckControls.isNotEmpty(),
-                        controls?.platformProfile?.preferredViewportAspectRatio, consoleDeckControls.count { it.center } + 1)
-                    val viewportFrame = calculateViewportFrame(
-                        containerWidth = availableWidth,
-                        containerHeight = availableHeight,
-                        aspectRatio = controls?.platformProfile?.preferredViewportAspectRatio,
-                        isLandscape = isLandscape,
-                        portraitTopInset = portraitTopInset,
-                        deck = deck,
-                    )
+                    val controlScale = touchLayout?.globalScale ?: 1f
+                    val mirrored = touchLayout?.leftHanded == true
+                    val stage = remember(availableWidth, availableHeight, stageInsets, aspect, plan, controlScale, mirrored, reserveTouchSpace, prefersPortrait) {
+                        resolvePlayerStage(availableWidth.value, availableHeight.value, stageInsets, aspect, plan, controlScale, mirrored, reserveTouchSpace, prefersPortrait)
+                    }
+                    val viewport = stage.viewport
+                    // The game view appears once the platform's controls (its aspect ratio and
+                    // touch layout) are known, so its first size is its real one. A SurfaceView
+                    // resized in the frames right after it is created kept its first frame on
+                    // screen: a full-screen-shaped placeholder cropped the picture, with a black
+                    // strip beside it. The controls normally arrive within a frame or two; after
+                    // 1.5 s the view appears anyway.
+                    val controlsWaitOver by produceState(initialValue = false) {
+                        delay(1_500)
+                        value = true
+                    }
 
-                    if (state.resumeConflict == null) {
+                    if (state.resumeConflict == null && (controls != null || controlsWaitOver)) {
                         PlayerViewport(
                             owner = owner,
                             session = requireNotNull(state.preparedSession),
@@ -436,8 +427,8 @@ fun PlayerScreen(
                             start = start,
                             engine = engine,
                             modifier = Modifier
-                                .offset(x = viewportFrame.left, y = viewportFrame.top)
-                                .size(width = viewportFrame.width, height = viewportFrame.height),
+                                .offset(x = viewport.left.dp, y = viewport.top.dp)
+                                .size(width = viewport.width.dp, height = viewport.height.dp),
                             onAttached = {
                                 viewModel.consumePendingLaunchTarget()
                                 playerAttached = true
@@ -462,64 +453,31 @@ fun PlayerScreen(
                         )
                     }
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .pointerInteropFilter { motionEvent ->
-                                if (motionEvent.actionMasked == MotionEvent.ACTION_DOWN) {
-                                    viewModel.markPrimaryOverlayInteraction()
+                    if (playerAttached && controls != null) {
+                        val paused = showPauseSheet || showControlsSheet || showStateBrowserSheet
+                        PlayerControlsOverlay(
+                            layout = stage.controls,
+                            visual = visualTheme,
+                            opacity = touchLayout?.opacity ?: PlayerStyle.DEFAULT_OPACITY,
+                            showControls = reserveTouchSpace && !paused,
+                            haptics = controls.preferences.hapticsEnabled,
+                            // Presses and releases go to the core at once, in touch order.
+                            onInput = { output ->
+                                when (output) {
+                                    is PlayerTouchOutput.Digital -> engine.sendDigital(output.key, output.pressed)
+                                    is PlayerTouchOutput.Motion -> engine.sendMotion(
+                                        if (output.stick == 0) io.github.bandoracer.rommio.domain.player.PlayerMotionSource.ANALOG_LEFT
+                                        else io.github.bandoracer.rommio.domain.player.PlayerMotionSource.ANALOG_RIGHT,
+                                        output.x,
+                                        output.y,
+                                    )
+                                    else -> Unit
                                 }
-                                false
                             },
-                    )
-
-                    val overlayLayout = controls?.touchLayout
-                        ?: controls?.platformProfile?.let { platformProfile ->
-                            if (platformProfile.touchSupportMode == TouchSupportMode.CONTROLLER_FIRST) {
-                                TouchLayoutProfile(
-                                    platformFamilyId = platformProfile.familyId,
-                                    presetId = "controller-overlay",
-                                    elementStates = emptyList(),
-                                    updatedAtEpochMs = 0L,
-                                )
-                            } else {
-                                null
-                            }
-                        }
-
-                    if (playerAttached && controls != null && overlayLayout != null && (controls.showTouchControls || controls.platformProfile.touchSupportMode == TouchSupportMode.CONTROLLER_FIRST || io.github.bandoracer.rommio.domain.input.ExpansionControls.controls(controls.platformProfile.familyId) != null)) {
-                        val consoleControls = io.github.bandoracer.rommio.domain.input.ExpansionControls.controls(controls.platformProfile.familyId)
-                        if (consoleControls != null || controls.platformProfile.touchSupportMode == TouchSupportMode.CONTROLLER_FIRST) {
-                            ExpansionControlsOverlay(controls = consoleControls.orEmpty(), leftHanded = overlayLayout.leftHanded,
-                                scale = overlayLayout.globalScale, opacity = overlayLayout.opacity,
-                                showControls = controls.showTouchControls && !showPauseSheet && !showControlsSheet,
-                                bottomInset = bottomInset, sideInset = sideInset, topInset = portraitTopInset,
-                                onDigital = { key, pressed -> scope.launch { engine.dispatchDigital(keyCode = key, pressed = pressed) } },
-                                onMotion = { source, x, y -> scope.launch { engine.dispatchMotion(source, x, y) } },
-                                onMenu = { showPauseSheet = true }, theme = visualTheme, aspectRatio = controls.platformProfile.preferredViewportAspectRatio)
-                        } else {
-                        TouchControlsOverlay(
-                            controlsState = controls,
-                            layout = overlayLayout,
-                            visualTheme = visualTheme,
-                            viewportFrame = viewportFrame,
-                            isLandscape = isLandscape,
-                            bottomInset = bottomInset,
-                            showPrimaryControls = controls.showTouchControls,
-                            primaryControlsAlpha = primaryOverlayAlpha,
-                            tertiaryControlsAlpha = tertiaryOverlayAlpha,
-                            modifier = Modifier.fillMaxSize(),
-                            onDigitalInput = { keyCode, pressed ->
-                                scope.launch { engine.dispatchDigital(keyCode = keyCode, pressed = pressed) }
-                            },
-                            onMenuClick = {
-                                viewModel.markTertiaryOverlayInteraction()
-                                showPauseSheet = true
-                            },
-                            onPrimaryInteraction = viewModel::markPrimaryOverlayInteraction,
-                            onTertiaryInteraction = viewModel::markTertiaryOverlayInteraction,
+                            onMenu = { showPauseSheet = true },
+                            title = state.rom?.displayName,
+                            detail = titleDetail,
                         )
-                        }
                     }
                 }
             }
@@ -690,6 +648,14 @@ fun PlayerScreen(
                     onRumbleToDeviceEnabled = viewModel::setRumbleToDeviceEnabled,
                     onOledBlackModeEnabled = viewModel::setOledBlackModeEnabled,
                     onConsoleColorsEnabled = viewModel::setConsoleColorsEnabled,
+                    onHapticsEnabled = viewModel::setHapticsEnabled,
+                    analogControls = state.analogControls,
+                    onAnalogControls = viewModel::setAnalogControls,
+                    // The Stick group, for consoles with sticks (PlayStation: with Analog controls on).
+                    stickTuning = state.stickTuning.takeIf {
+                        PlayerControlPlan.of(controls.platformProfile.familyId, state.analogControls)?.hasSticks == true
+                    },
+                    onStickTuning = viewModel::setStickTuning,
                     onLayoutUpdated = { updated ->
                         viewModel.saveTouchLayout(updated)
                     },
@@ -731,6 +697,11 @@ private fun ControlsSheet(
     onRumbleToDeviceEnabled: (Boolean) -> Unit,
     onOledBlackModeEnabled: (Boolean) -> Unit,
     onConsoleColorsEnabled: (Boolean) -> Unit,
+    onHapticsEnabled: (Boolean) -> Unit,
+    analogControls: Boolean,
+    onAnalogControls: (Boolean) -> Unit,
+    stickTuning: PlayerStickTuning?,
+    onStickTuning: (PlayerStickTuning) -> Unit,
     onLayoutUpdated: (TouchLayoutProfile) -> Unit,
     onResetLayout: () -> Unit,
     onDeadzoneChanged: (Float) -> Unit,
@@ -777,14 +748,68 @@ private fun ControlsSheet(
                     checked = currentLayout.leftHanded,
                     onCheckedChange = { value -> onLayoutUpdated(currentLayout.copy(leftHanded = value, updatedAtEpochMs = System.currentTimeMillis())) },
                 )
+            }
+            io.github.bandoracer.rommio.ui.component.ListDivider()
+            ControlToggleRow(
+                label = "Haptics",
+                checked = controls.preferences.hapticsEnabled,
+                onCheckedChange = onHapticsEnabled,
+                modifier = Modifier.testTag("player.controls.haptics"),
+            )
+            if (currentLayout != null) {
                 io.github.bandoracer.rommio.ui.component.ListDivider()
                 LabeledSlider("Opacity", currentLayout.opacity, 0.25f..1f) { opacity ->
                     onLayoutUpdated(currentLayout.copy(opacity = opacity, updatedAtEpochMs = System.currentTimeMillis()))
                 }
                 io.github.bandoracer.rommio.ui.component.ListDivider()
-                LabeledSlider("Global size", currentLayout.globalScale, 0.92f..1.3f) { scale ->
+                // The control size (docs/player-controls.md: 0.8–1.3).
+                LabeledSlider("Global size", currentLayout.globalScale, PlayerControlMetrics.MIN_SCALE..PlayerControlMetrics.MAX_SCALE) { scale ->
                     onLayoutUpdated(currentLayout.copy(globalScale = scale, updatedAtEpochMs = System.currentTimeMillis()))
                 }
+            }
+        }
+
+        // PlayStation: sticks only in analog mode, per game (docs/player-controls.md, per console).
+        if (controls.platformProfile.familyId == "psx") {
+            io.github.bandoracer.rommio.ui.component.ListGroup(
+                title = "This game",
+                footer = "Shows both sticks, L3 and R3 for this game. The Analog button stays either way.",
+                modifier = Modifier.padding(top = 8.dp),
+            ) {
+                ControlToggleRow(
+                    label = "Analog controls",
+                    checked = analogControls,
+                    onCheckedChange = onAnalogControls,
+                    modifier = Modifier.testTag("player.controls.analogControls"),
+                )
+            }
+        }
+
+        // Touch sticks, per game (docs/player-controls.md, "Per-game tuning").
+        if (stickTuning != null) {
+            io.github.bandoracer.rommio.ui.component.ListGroup(
+                title = "Stick",
+                footer = "For this game. Low sensitivity needs more thumb travel for full tilt. Floating sets the centre where your thumb lands.",
+                modifier = Modifier.padding(top = 8.dp).testTag("player.controls.stick"),
+            ) {
+                StickChoiceRow("Sensitivity", PlayerStickTuning.Sensitivity.entries, stickTuning.sensitivity, { it.label }, "player.controls.stick.sensitivity") {
+                    onStickTuning(stickTuning.copy(sensitivity = it))
+                }
+                io.github.bandoracer.rommio.ui.component.ListDivider()
+                StickChoiceRow("Dead zone", PlayerStickTuning.DeadZone.entries, stickTuning.deadZone, { it.label }, "player.controls.stick.deadZone") {
+                    onStickTuning(stickTuning.copy(deadZone = it))
+                }
+                io.github.bandoracer.rommio.ui.component.ListDivider()
+                StickChoiceRow("Centre", PlayerStickTuning.Centre.entries, stickTuning.centre, { it.label }, "player.controls.stick.centre") {
+                    onStickTuning(stickTuning.copy(centre = it))
+                }
+            }
+            if (!stickTuning.isDefault) {
+                io.github.bandoracer.rommio.ui.component.SecondaryButton(
+                    text = "Reset stick",
+                    onClick = { onStickTuning(PlayerStickTuning()) },
+                    modifier = Modifier.fillMaxWidth().testTag("player.controls.stick.reset"),
+                )
             }
         }
 
@@ -865,12 +890,49 @@ private fun LabeledSlider(title: String, value: Float, range: ClosedFloatingPoin
             onValueChange = onValueChange,
             valueRange = range,
             colors = SliderDefaults.colors(
-                thumbColor = if (theme.isRiso) c.ink else theme.tintText,
-                activeTrackColor = if (theme.isRiso) c.ink else theme.tintText,
+                thumbColor = if (theme.isRiso) c.ink else io.github.bandoracer.rommio.ui.theme.RommioTheme.light.tintText,
+                activeTrackColor = if (theme.isRiso) c.ink else io.github.bandoracer.rommio.ui.theme.RommioTheme.light.tintText,
                 inactiveTrackColor = c.hairline,
             ),
             modifier = Modifier.semantics { contentDescription = title },
         )
+    }
+}
+
+/** A Stick setting: its name and one pill per choice. */
+@Composable
+private fun <T> StickChoiceRow(
+    label: String,
+    choices: List<T>,
+    selected: T,
+    name: (T) -> String,
+    tag: String,
+    onSelect: (T) -> Unit,
+) {
+    val theme = io.github.bandoracer.rommio.ui.theme.RommioTheme.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .testTag(tag),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        io.github.bandoracer.rommio.ui.component.RoleText(
+            text = label,
+            role = theme.type.bodyEmphasis,
+            size = 16f,
+            color = theme.colors.ink,
+            modifier = Modifier.weight(1f),
+        )
+        choices.forEach { choice ->
+            io.github.bandoracer.rommio.ui.component.FilterPill(
+                text = name(choice),
+                selected = choice == selected,
+                onClick = { onSelect(choice) },
+                modifier = Modifier.testTag("$tag.${name(choice)}"),
+            )
+        }
     }
 }
 
@@ -910,25 +972,6 @@ private fun PlayerOrientationMode(
             }
         }
     }
-}
-
-private fun calculateViewportFrame(
-    containerWidth: Dp,
-    containerHeight: Dp,
-    aspectRatio: Float?,
-    isLandscape: Boolean,
-    portraitTopInset: Dp,
-    deck: PlayerControlDeckLayout,
-): PlayerViewportFrame {
-    val aspect = (aspectRatio ?: (containerWidth / containerHeight)).coerceAtLeast(.1f)
-    val areaWidth = (deck.gameRight - deck.gameLeft).coerceAtLeast(1f)
-    val areaHeight = (deck.gameBottom - deck.gameTop).coerceAtLeast(1f)
-    val width = minOf(areaWidth, areaHeight * aspect)
-    val height = width / aspect
-    return PlayerViewportFrame(
-        left = (deck.gameLeft + (areaWidth - width) / 2).dp,
-        top = (deck.gameTop + if (isLandscape) (areaHeight - height) / 2 else 0f).dp,
-        width = width.dp, height = height.dp)
 }
 
 @Composable
@@ -1106,7 +1149,7 @@ private fun PauseActionTile(tile: PauseTile, number: Int, visualTheme: PlayerVis
             tint = when {
                 !enabled -> c.inkTertiary
                 tile.destructive -> c.badText
-                else -> theme.tintText
+                else -> io.github.bandoracer.rommio.ui.theme.RommioTheme.light.tintText
             },
             modifier = Modifier.size(22.dp),
         )
@@ -1246,3 +1289,4 @@ private fun triggerDeviceRumble(
         vibrator?.vibrate(VibrationEffect.createOneShot(durationMs, amplitude))
     }
 }
+

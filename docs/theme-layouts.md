@@ -207,19 +207,40 @@ pinned collection (first user-made collection with known games; its games
 played-first), the running download and queue counts, connection, installed
 count, last library sync, server name.
 
-**Aurora (compact)** — lit by the game in focus, field `room`. Inline nav title
-hidden; Downloads in the toolbar.
+**Aurora (compact), v2** (2026-09-24; the owner found v1 plain and its layout
+off) — lit by the game in focus, field `room`, gutter 20. Inline nav title
+hidden; Downloads in the toolbar. The studio's "room": the game's own screen is the
+hero, not its box art.
 1. Sync status line: 7 pt dot (`ok`/`wait`) + `caption` 12.5 "Online · synced 2 min ago · N games on this device".
-2. Paged rooms (one page per game, horizontal paging; the focused page lights
-   the page and the tab tint): glowing cover 270 high centred; caption
-   (`section` "Continue playing" + platform in `inkSecondary`; `title` 36 game
-   title; `secondary` "Played 2 hours ago · 1 h 05 min on this device" or
-   "Resume where you left off"); Resume (primary, full width) + info (icon 54).
-3. Pager dots, centred: 6 pt dots in each game's `k1`, current 18 wide.
-4. Recent saves — a lit gallery by day (see **Play rules** below). (Earlier
-   drafts put Recent sessions here; Recent sessions live on Stats only.)
+2. Continue playing — a paged carousel of screens, one per game in progress (up to
+   6), full width minus the gutters, the next page peeking 16 pt at the trailing
+   edge; the focused page lights the page and the tab tint.
+   - **Screen**: the game's latest resume point preview (or latest save-state
+     preview) at its own aspect, radius 22, 0.5 white keyline, on a black screen,
+     with the frame blurred and glowing in the game's `k1` behind it. No preview:
+     the cover centred on its blurred backdrop inside the same 4:3 screen. Never
+     art-treated. A sync status chip (dark glass, §11 wording) sits bottom-left
+     inside the screen; a conflicted game shows "Two resume points" in `bad`.
+   - **Caption** under the screen, 14 below: `section` platform · year in
+     `inkSecondary`; `title` 32 game name (2 lines max); `secondary` for the resume
+     point: "Automatic resume · 1 min ago · This iPhone" (or the save state's
+     name/kind), else "Played 2 h ago · 1 h 05 min on this device".
+   - **Actions**: Resume (primary, lit glow, fills the row) + Details (54 glass
+     circle, `info.circle` symbol at 20 pt, not a text "i").
+3. "In progress" header (`section`) with the pager dots at its trailing end (6 pt
+   dots in each game's `k1`, current 18 wide), then a horizontal row of the other
+   games in progress beyond the carousel (152 × 114 tiles: preview or cover, 78%
+   scrim, game name `bodyEmphasis` 15 white, relative time); tapping a tile opens
+   its Game page. The row is left out when there are no more games.
+4. Recent saves — a lit gallery by day (see **Play rules**; mosaic v2 below).
 5. Stale notice (glass card), empty state "Nothing to continue yet" (when there
    is nothing in progress and no recent saves).
+
+**Recent saves mosaic v2 (Aurora, all widths)** — never leaves a hole or a lone
+half tile: 1 save → one full-width 16:9 tile; 2 → two half tiles; 3+ → the first
+full-width, then pairs, and an odd last save becomes full width. Regular width uses
+four columns with the same rule applied per row (a short last row stretches its
+tiles to fill the row).
 
 **Aurora (regular / Duo open)** — one canvas, 32 margins: status + dots row;
 hero row (glowing cover 360 | caption with `title` 48 + actions, max 380 wide,
@@ -593,27 +614,28 @@ Field `welcome`.
 
 ### Player — style renderer
 
-Geometry, hit areas, touch handling and `player.*` identifiers are unchanged;
-a pure style resolver (`PlayerControlStyleRenderer`) turns the player theme into
-per-control appearances, painted by the input views.
+Geometry, hit regions and the touch model are [player-controls.md](player-controls.md)'s
+(touch controls v2); `player.*` identifiers are unchanged. A pure style resolver
+(`PlayerControlStyleRenderer`) turns the player theme into per-control appearances,
+painted by the touch surface's control views.
 
 Roles: face (default), direction (Up/Down/Left/Right), shoulder (L, R, L1, L2,
 R1, R2 and the N64 Z trigger), system (Start, Select, Mode, Pause, Coin, Option,
-Analog, L3, R3), stick. Face rect inside a control's bounds: round 78% of the
-width; pills 94% wide × 72% of that high; sticks 100%.
+Analog, L3, R3), stick. Each control is drawn at its placed frame (v2 sizes);
+its hit region is that shape grown by 14 pt.
 
 | Control | Aurora (frosted) | Riso (flat ink on black) |
 | --- | --- | --- |
 | Canvas | `player.ground`; bias light = the blurred cover (§1.3 bake) at 85% with a radial `player.ground` 55% vignette | `player.ground` (black), no art |
-| Face | circle, blur + `controlFill`, `controlStroke` 1 pt, legend `playerLegend` in `controlInk` | circle `faceFill` (yellow), plate `offsetPlate` (pink) offset (misregistration, misregistration) = 2.5, legend `playerLegend` caps in `faceInk` |
-| Console colours | the console colour at 24% (20% light) wash, 55% outline, legend in the colour (darkened 30% on light) | the console colour printed in its nearest ink by hue (pink `dpadFill`, blue `dpadAltFill`, yellow `faceFill`, green); plate pink (blue behind pink faces) |
+| Face | circle, blur + `controlFill`, glass edge (`controlStroke` 0.5 pt keyline, white top rim, soft shadow), legend `playerLegend` in `controlInk`; pressed `controlPressed` and 94% for 60 ms | circle `faceFill` (yellow), plate `offsetPlate` (pink) offset (misregistration, misregistration) = 2.5, legend `playerLegend` caps in `faceInk` |
+| Console colours | the frosted face unchanged; the colour paints the legend (stepped in lightness to 3.5:1 against the face) and a 2 pt ring — never a wash | the console colour printed in its nearest ink by hue (pink `dpadFill`, blue `dpadAltFill`, yellow `faceFill`, green); plate pink (blue behind pink faces) |
 | Shoulder | tab radii 14 top / 20 bottom, frosted | tab 18 top / 6 bottom, `shoulderFill` (blue), pink plate, legend `playerLegend` 18 |
 | Select/Start etc. | frosted capsule, `playerLabel` | capsule, no fill, 1.5 `controlStroke` outline, `playerLabel` (mono caps) in `controlInk` |
-| Menu | 42 pt frosted circle, three lines | 46 × 32 `menuFill` (pink) pill, `menuInk` three lines |
+| Menu | 44 pt frosted circle, three lines | 46 × 32 `menuFill` (pink) pill, `menuInk` three lines |
 | D-pad | frosted disc; cross grooves (arm = 32% of the side, inset 13%, radius 8) in `controlInk` 16%; chevrons; pressed arms `accent` 45% | cross (arm 34%, inset 2%, radius 5%) in `dpadFill` (pink) over a `dpadAltFill` (blue) copy offset 2.5; `pivot` (yellow) circle r = 0.32 × arm, multiply; solid triangles in `faceInk` 80%; pressed arms lightened 35% |
-| Stick | frosted circle, knob `controlInk` 50% | outlined circle, knob `controlInk` 90% |
-| Legend size | token size × face diameter / 56 (pills use the token size) | same |
-| Opacity | user opacity (default 0.72) | always full ink (`playerShape.controlOpacity` = 1: Riso never prints over a game) |
+| Stick | the zone (160 pt primary, 120 pt secondary) isn't drawn; a frosted ring (2 × travel) at the stick's centre and a knob (0.95 × travel, `controlInk` 55%, 80% at full tilt) at the output position; at full tilt the ring gets a 2.5 pt `controlInk` edge; both back at the zone's centre on lift | outlined ring, knob `controlInk` 90%, the same placement and full-tilt edge |
+| Legend size | token size × (diameter + 24) / 88: 22 on a 64 pt two-button face, 20 on a 56 pt diamond face (pills use the token size); PlayStation shapes are symbols | same |
+| Opacity | user opacity (default 0.72); a face fades only its body (never below 0.5) while its legend and ring stay at full ink, so the legend keeps 3:1 | always full ink (`playerShape.controlOpacity` = 1: Riso never prints over a game) |
 | Toast | dark glass pill (`#0c0a14` 62%), white `playerLabel` 13, check | `toastFill` paper ticket, `toastInk` `playerLabel` caps, green check chip, `accent3` plate offset 3 |
 
 OLED black: canvas and panels black, dark player palette, in both themes.
@@ -768,6 +790,6 @@ pause-tile strings noted above.
 | Theme value | `Theme/RommioTheme.swift` (`lit(by:)`, `lights`, `mark1…3`) |
 | Components | `Components/Controls.swift`, `Components/Surfaces.swift` (glass, `ThemedGroup`, `ThemedScrollPage`, `themedList`, rows), `Components/Editorial.swift` (display text, kicker, leaders, rules, ink box, `RatioColumns`), `Components/GameArt.swift`, `Components/Hero.swift`, `Components/Formatting.swift` (§4 `PlayFormat`), `Components/DarkFrame.swift` (tones on dark frames and over the game) |
 | Pages | `Pages/Play/{PlayPage,AuroraPlayLayout,RisoPlayLayout,RecentSaves,ConflictSheet,LaunchChoiceSheet,DownloadsPage}.swift`, `Pages/Library/{LibraryPage,AuroraLibraryLayout,RisoLibraryLayout,PlatformPage,CollectionPage}.swift`, `Pages/Game/{GamePage,AuroraGameLayout,RisoGameLayout,SavedProgressSheet}.swift`, `Pages/Search/SearchPage.swift`, `Pages/Stats/StatsPage.swift`, `Pages/Settings/SettingsPage.swift`, `Onboarding/*` |
-| Player | `PlayerVisualTheme.swift` (shape, fonts, glyphs, ink mapping), `PlayerControlStyleRenderer.swift` (roles, appearances, painters), `ExpansionControlsOverlay.swift` (touch/geometry only), `PlayerExperienceView.swift` (bias light, toast, pause), `PlayerPanelPresentation.swift` (sheet or floating inspector) |
+| Player | `PlayerVisualTheme.swift` (shape, fonts, glyphs, ink mapping), `PlayerControlStyleRenderer.swift` (roles, appearances, painters), `PlayerControlsOverlay.swift` (the one multi-touch surface, control views, haptics, title strip, Menu), `PlayerPausePanel.swift`, `PlayerExperienceView.swift` (bias light, toast, sheets); geometry and the touch model in `RommioPlayerKit/PlayerControlPlan.swift`, `PlayerStandardStage.swift`, `PlayerTouchTracker.swift` (docs/player-controls.md), `PlayerPanelPresentation.swift` (sheet or floating inspector) |
 | Saves (Phase 4) | `Components/SaveViews.swift` (`SavePreviewImage`, `SaveRow`, `SaveFormat`, rename alert), `ProgressPlayerPanel.swift` (Save states sheet); data in [play-data-local.md](play-data-local.md) |
-| Tests | `Tests/RommioUITests/ArtTreatmentTests.swift`, `PlayerControlStyleRendererTests.swift`, `ThemeTests.swift`, `PlayerVisualThemeTests.swift`, `PlayDataPresentationTests.swift`, `CopyAndFormattingTests.swift` (§4, readable tint), `LaunchChoiceTests.swift` (Launch choice, panel presentation) |
+| Tests | `Tests/RommioUITests/ArtTreatmentTests.swift`, `PlayerControlStyleRendererTests.swift`, `ThemeTests.swift`, `PlayerVisualThemeTests.swift`, `PlayDataPresentationTests.swift`, `CopyAndFormattingTests.swift` (§4, readable tint), `LaunchChoiceTests.swift` (Launch choice, panel presentation), `PlayV2Tests.swift` (Play screens' data, mosaic v2), `PlayerLayoutParityTests.swift`, `StackBudgetTests.swift`; `Tests/RommioPlayerKitTests/PlayerTouchModelTests.swift` (controls v2 geometry and touch model), `PlayerTouchStickTests.swift` (the touch-stick maths, pinned to `scripts/touch_stick_reference.py`); `Tests/RommioFoundationTests/PlayerHapticsPreferenceTests.swift`, `PlayerGameControlsTests.swift` (per-game Analog controls); UI: `AppUITests/PlayerTouchControlsTests.swift` (touch model on a running game), `PlayerStickControlsTests.swift` (sticks, Analog controls, DS/3DS touch screens in the QA harness) |

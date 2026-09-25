@@ -34,13 +34,23 @@ struct CollectionTypeSection: Identifiable, Hashable {
     var id: String { kind.rawValue }
 }
 
+
 func groupedPlatformSections(
     platforms: [PlatformDTO],
     resolveProfile: (String) -> PlatformControlProfile
 ) -> [PlatformSupportSection] {
-    let touch = platforms.filter { supportTier(for: $0, resolveProfile: resolveProfile) == .touchSupported }
-    let controller = platforms.filter { supportTier(for: $0, resolveProfile: resolveProfile) == .controllerSupported }
-    let unsupported = platforms.filter { supportTier(for: $0, resolveProfile: resolveProfile) == .unsupported }
+    // Resolving a profile inspects the platform's cores on disk: once per platform, not per filter.
+    var profiles: [String: PlatformControlProfile] = [:]
+    func resolve(_ slug: String) -> PlatformControlProfile {
+        if let hit = profiles[slug] { return hit }
+        let profile = resolveProfile(slug)
+        profiles[slug] = profile
+        return profile
+    }
+    let tiers = platforms.map { supportTier(for: $0, resolveProfile: resolve) }
+    let touch = zip(platforms, tiers).filter { $0.1 == .touchSupported }.map(\.0)
+    let controller = zip(platforms, tiers).filter { $0.1 == .controllerSupported }.map(\.0)
+    let unsupported = zip(platforms, tiers).filter { $0.1 == .unsupported }.map(\.0)
 
     return [
         PlatformSupportSection(
@@ -69,9 +79,18 @@ func groupedRomSections(
     context: RomSupportSection.Context,
     resolveProfile: (String) -> PlatformControlProfile
 ) -> [RomSupportSection] {
-    let touch = roms.filter { resolveProfile($0.platformSlug).supportTier == .touchSupported }
-    let controller = roms.filter { resolveProfile($0.platformSlug).supportTier == .controllerSupported }
-    let unsupported = roms.filter { resolveProfile($0.platformSlug).supportTier == .unsupported }
+    // One profile per platform slug, not three per game: resolving inspects cores on disk.
+    var profiles: [String: PlatformControlProfile] = [:]
+    func resolve(_ slug: String) -> PlatformControlProfile {
+        if let hit = profiles[slug] { return hit }
+        let profile = resolveProfile(slug)
+        profiles[slug] = profile
+        return profile
+    }
+    let tiers = roms.map { resolve($0.platformSlug).supportTier }
+    let touch = zip(roms, tiers).filter { $0.1 == .touchSupported }.map(\.0)
+    let controller = zip(roms, tiers).filter { $0.1 == .controllerSupported }.map(\.0)
+    let unsupported = zip(roms, tiers).filter { $0.1 == .unsupported }.map(\.0)
 
     let touchText: String
     let controllerText: String

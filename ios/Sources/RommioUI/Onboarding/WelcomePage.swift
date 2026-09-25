@@ -130,6 +130,7 @@ private struct WelcomeHero: View {
 /// Riso: halftone prints on white mounts, tilted, over a yellow sun.
 private struct CoverFan: View {
     @Environment(\.rommioTheme) private var theme
+    @Environment(\.pageLight) private var light
 
     var body: some View {
         ZStack {
@@ -143,9 +144,9 @@ private struct CoverFan: View {
                 plate(dots: theme.accent1, ground: theme.accent2).rotationEffect(.degrees(2)).scaleEffect(1.1)
                     .background(Rectangle().fill(theme.ink).offset(x: 5, y: 5).rotationEffect(.degrees(2)).scaleEffect(1.1))
             } else {
-                card(colors: [theme.accent1, theme.accent3]).rotationEffect(.degrees(-9)).offset(x: -92, y: 14)
-                card(colors: [theme.accent2, theme.accent1]).rotationEffect(.degrees(8)).offset(x: 92, y: 14)
-                card(colors: [theme.accent3, theme.accent2]).scaleEffect(1.12)
+                card(colors: [light.accent1, light.accent3]).rotationEffect(.degrees(-9)).offset(x: -92, y: 14)
+                card(colors: [light.accent2, light.accent1]).rotationEffect(.degrees(8)).offset(x: 92, y: 14)
+                card(colors: [light.accent3, light.accent2]).scaleEffect(1.12)
             }
         }
         .frame(height: theme.isRiso ? 236 : 230)
@@ -194,6 +195,7 @@ private struct CoverFan: View {
 /// First sync after signing in, then into Play.
 struct FirstSyncPage: View {
     @Environment(\.rommioTheme) private var theme
+    @Environment(\.pageLight) private var light
     let model: RommioAppModel
 
     var body: some View {
@@ -220,7 +222,7 @@ struct FirstSyncPage: View {
                         .themeText(.secondary)
                         .foregroundStyle(theme.inkSecondary)
                 } icon: {
-                    Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(theme.readableTint)
+                    Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(light.readableTint)
                 }
                 Button {
                     model.isFirstSync = false

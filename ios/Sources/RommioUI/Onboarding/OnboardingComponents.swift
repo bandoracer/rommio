@@ -229,6 +229,7 @@ struct InteractiveAuthOverlay: View {
 /// name as a misregistered masthead (Riso).
 struct AppMark: View {
     @Environment(\.rommioTheme) private var theme
+    @Environment(\.pageLight) private var light
     var size: CGFloat = 30
 
     var body: some View {
@@ -243,7 +244,7 @@ struct AppMark: View {
                         .frame(width: size, height: size)
                         .background(
                             RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
-                                .fill(LinearGradient(colors: [theme.mark1, theme.mark2], startPoint: .topLeading, endPoint: .bottomTrailing))
+                                .fill(LinearGradient(colors: [light.mark1, light.mark2], startPoint: .topLeading, endPoint: .bottomTrailing))
                         )
                     Text("Rommio")
                         .themeText(.headline, size: size * 0.7)

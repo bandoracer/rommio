@@ -51,13 +51,27 @@ Aurora (default) and Riso are presentation only; see
 `Theme/ThemeTokens.swift` is generated from `design/tokens/themes.json` by
 `python3 scripts/generate_theme_tokens.py` (never edit it by hand). Pages read
 the resolved theme from `@Environment(\.rommioTheme)` and style text with
-`.themeText(role)`. Pages take colours only from the theme's roles
-(`theme.ink`, `theme.badText`, `theme.readableTint`, …) and from components under
+`.themeText(role)`. The theme (`RommioTheme`: the token set, a reference, and
+light or dark) changes only with the appearance setting; the light a game gives
+an Aurora page (`litBy`) is a separate `@Environment(\.pageLight)` value, read
+only by views drawn in it (the page field, tinted text, marks, glows), so a light
+arriving never redraws the rest of the page. Pages take colours only from the
+theme's roles (`theme.ink`, `theme.badText`, `light.readableTint`, …) and from components under
 `Components/`, never literal colours; things drawn on a dark game frame or over the
 game use `DarkFrame` (Aurora's dark tokens). The bundled fonts in `Sources/RommioUI/Resources/Fonts` register
 at launch. Settings › Appearance stores the theme and light/dark choice in
 `UserDefaults` (`appearance.theme`, `appearance.scheme`); they stay on the device
-and are not part of backups.
+and are not part of backups. Launch arguments `-appearance.theme <aurora|riso>`
+`-appearance.scheme <light|dark>` choose them for one run without saving them
+(the UI runner uses these).
+
+Pages are built for the phone's 1 MB main-thread stack and for smooth
+navigation: a page is a thin container of small section views that take only
+the values they draw; unbounded lists are lazy; page content (grouping, sorting,
+day and letter groups) is built from the feature models off the render path by
+`DerivedContent` and published only when it changes. `StackBudgetTests` measures
+every page and sheet in both themes, light and dark, at compact and regular
+width, and fails any that needs more than 256 KB of stack (Debug).
 
 ## Local validation
 
@@ -246,9 +260,23 @@ deployed; browser approval, credential delivery, RomM login, and relaunch were
 verified on the iPhone Air simulator on 2026-09-21. Physical-device qualification
 remains outstanding.
 
-### Player UI exploration
+### Simulator enforces the device stack limit
 
-For the iPhone Air gameplay pass, standalone XCTest action runner, simulator-only
+A phone gives the app's main thread about 1 MB of stack; the Simulator gives it
+the Mac's 8 MB, so a view tree too deep for the phone used to run fine in the
+Simulator and crash only on the device ("Thread stack size exceeded"). The app
+target links Simulator builds with the device's limit
+(`OTHER_LDFLAGS[sdk=iphonesimulator*] = $(inherited) -Wl,-stack_size,0x100000`
+in `scripts/ios/generate_xcodeproj.rb`; the Simulator honours `LC_MAIN`'s stack
+size), so such a page crashes in the Simulator too. Device builds keep the system
+default. Check a build with
+`otool -l ios/build/Debug-iphonesimulator/Rommio.app/Rommio | grep -A3 LC_MAIN`
+(`stacksize 1048576`).
+
+### Player UI exploration and the navigation pass
+
+For the iPhone Air gameplay pass, the standalone XCTest action runner (simulator
+or device), the navigation pass with push-transition metrics, simulator-only
 additional cores, and separate game-save/snapshot evidence, see
 [`docs/ios-player-ui-validation.md`](../docs/ios-player-ui-validation.md).
 The QA bundle does not change the production core manifest.

@@ -173,19 +173,21 @@ final class CopyAndFormattingTests: XCTestCase {
             for dark in [false, true] {
                 let theme = RommioTheme(tokens: set, isDark: dark)
                 let token = set.colors(dark: dark).tint
-                XCTAssertEqual(theme.readableTintRGB.hex, ArtRGB(red: token.red, green: token.green, blue: token.blue).hex, "\(set.key) dark \(dark)")
+                XCTAssertEqual(theme.unlitLight.readableTintRGB.hex, ArtRGB(red: token.red, green: token.green, blue: token.blue).hex, "\(set.key) dark \(dark)")
                 let ground = set.colors(dark: dark).ground
-                XCTAssertGreaterThanOrEqual(ReadableTint.contrast(theme.readableTintRGB, ArtRGB(red: ground.red, green: ground.green, blue: ground.blue)), 4.5,
+                XCTAssertGreaterThanOrEqual(ReadableTint.contrast(theme.unlitLight.readableTintRGB, ArtRGB(red: ground.red, green: ground.green, blue: ground.blue)), 4.5,
                                             "\(set.key) dark \(dark): the retuned tint token passes")
             }
         }
         let palette = CoverPalette(hex: ["#0b0620", "#3a1450", "#5d2a6e", "#1c0c2b", "#ff7a3d"])!
-        let lit = RommioTheme(.aurora, dark: false).lit(by: PageLight(lights: AuroraLights.derive(palette: palette, dark: false), artURL: nil))
+        let lit = PageLight.lit(by: palette, theme: RommioTheme(.aurora, dark: false))
+        XCTAssertTrue(lit.isLit)
         XCTAssertEqual(lit.readableTintRGB.hex, "#b23800", "the smetroid page: the studio tint #d64300 made readable")
+        XCTAssertFalse(PageLight.lit(by: palette, theme: RommioTheme(.riso, dark: false)).isLit, "Riso never lights a page")
     }
 
     func testErrorTextUsesBadText() {
         XCTAssertEqual(RommioTheme(.riso, dark: false).colors.badText, ThemeTokens.riso.light.badText)
-        XCTAssertEqual(StatusTone.bad.textColor(RommioTheme(.riso, dark: false)), RommioTheme(.riso, dark: false).badText)
+        XCTAssertEqual(StatusTone.bad.textColor(RommioTheme(.riso, dark: false), light: RommioTheme(.riso, dark: false).unlitLight), RommioTheme(.riso, dark: false).badText)
     }
 }

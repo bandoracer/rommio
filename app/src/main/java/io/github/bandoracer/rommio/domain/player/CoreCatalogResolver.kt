@@ -23,8 +23,7 @@ class CoreCatalogResolver(
                 capability = PlayerCapability.UNSUPPORTED,
                 message = "This platform is not enabled in the embedded player yet.",
             )
-        val profile = family.runtimeOptions.firstOrNull { it.runtimeId == family.defaultRuntimeId }
-            ?: family.runtimeOptions.firstOrNull()
+        val profile = family.defaultProfile
             ?: return CoreResolution(
                 capability = PlayerCapability.UNSUPPORTED,
                 platformFamily = family,
@@ -32,7 +31,7 @@ class CoreCatalogResolver(
                 message = "No embedded core has been configured for ${family.displayName}.",
             )
 
-        if (profile.supportedExtensions.isNotEmpty() && fileExtension != null && fileExtension !in profile.supportedExtensions) {
+        if (!family.opens(profile, fileExtension)) {
             return CoreResolution(
                 capability = PlayerCapability.UNSUPPORTED,
                 platformFamily = family,

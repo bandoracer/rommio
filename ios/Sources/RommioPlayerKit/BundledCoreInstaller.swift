@@ -1,5 +1,39 @@
 import Foundation
 import RommioFoundation
+import Synchronization
+
+/// Verifying a bundled core hashes the whole core binary (tens of MB for some cores) and
+/// decodes the licence manifest. Bundled cores don't change while the app runs, so each
+/// core is verified once per file identity (path, size, modification time) and every
+/// later inspection — Settings, the Downloads poll, per-game support tiers — reads the
+/// cached outcome instead of hashing again.
+enum BundledCoreVerificationCache {
+    struct Failure: LocalizedError, Sendable {
+        let message: String
+        var errorDescription: String? { message }
+    }
+
+    /// Key → nil when the core verified, or the failure message.
+    private static let outcomes = Mutex<[String: String?]>([:])
+
+    static func verify(key: String, _ work: () throws -> Void) throws {
+        if let cached = outcomes.withLock({ $0[key] }) {
+            if let message = cached { throw Failure(message: message) }
+            return
+        }
+        do {
+            try work()
+            outcomes.withLock { $0[key] = .some(nil) }
+        } catch {
+            outcomes.withLock { $0[key] = .some(error.localizedDescription) }
+            throw error
+        }
+    }
+
+    /// Test support: forget every cached outcome.
+    static func reset() { outcomes.withLock { $0.removeAll() } }
+    static var count: Int { outcomes.withLock { $0.count } }
+}
 
 private enum ProvisioningReceiptStatus: String, Codable, Sendable {
     case ready = "READY"
@@ -218,15 +252,19 @@ public struct BundledCoreInstaller: CoreInstalling, Sendable {
             )
         }
 
+        let bundleFingerprint = try? bundleFingerprint(for: bundledCoreURL)
         do {
-            _ = try licenseEntry(for: runtime, bundle: bundle)
-            if runtime.runtimeID == "fceumm" || PinnedAppleCore.cartridgeRuntimes.contains(runtime.runtimeID) || PinnedAppleCore.candidateRuntimes.contains(runtime.runtimeID) {
-                let manifestName = runtime.runtimeID == "fceumm" ? "FceummProvenance.json" : "\(runtime.runtimeID)Provenance.json"
-                _ = try PinnedAppleCore.verify(
-                    core: bundledCoreURL,
-                    manifest: bundle.bundleURL.appending(path: manifestName),
-                    runtimeID: runtime.runtimeID
-                )
+            let key = [runtime.runtimeID, bundledCoreURL.path, bundleFingerprint ?? "?", bundle.bundleURL.path].joined(separator: "|")
+            try BundledCoreVerificationCache.verify(key: key) {
+                _ = try licenseEntry(for: runtime, bundle: bundle)
+                if runtime.runtimeID == "fceumm" || PinnedAppleCore.cartridgeRuntimes.contains(runtime.runtimeID) || PinnedAppleCore.candidateRuntimes.contains(runtime.runtimeID) {
+                    let manifestName = runtime.runtimeID == "fceumm" ? "FceummProvenance.json" : "\(runtime.runtimeID)Provenance.json"
+                    _ = try PinnedAppleCore.verify(
+                        core: bundledCoreURL,
+                        manifest: bundle.bundleURL.appending(path: manifestName),
+                        runtimeID: runtime.runtimeID
+                    )
+                }
             }
         } catch {
             return CoreProvisioningInspection(
@@ -238,7 +276,6 @@ public struct BundledCoreInstaller: CoreInstalling, Sendable {
             )
         }
 
-        let bundleFingerprint = try? bundleFingerprint(for: bundledCoreURL)
         let receipt = validatedReceipt(
             runtime: runtime,
             bundleFingerprint: bundleFingerprint,

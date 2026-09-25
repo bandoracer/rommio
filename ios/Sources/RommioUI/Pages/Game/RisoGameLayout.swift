@@ -15,10 +15,14 @@ struct RisoGameLayout: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                AnyView(GameArtHero(url: content.artworkURL, title: content.rom.displayName)
-                    .accessibilityIdentifier("gameDetail.hero"))
+                GameArtHero(url: content.artworkURL, title: content.rom.displayName)
+                    .accessibilityIdentifier("gameDetail.hero")
                 Group {
-                    if horizontalSizeClass == .regular { AnyView(broadsheet) } else { AnyView(column) }
+                    if horizontalSizeClass == .regular {
+                        RisoGameBroadsheet(content: content, actions: actions)
+                    } else {
+                        RisoGameColumn(content: content, actions: actions)
+                    }
                 }
                 .padding(.horizontal, horizontalSizeClass == .regular ? 28 : theme.spacing.gutter)
                 .padding(.top, 16)
@@ -30,65 +34,86 @@ struct RisoGameLayout: View {
         .ignoresSafeArea(edges: .top)
         .themedPage(artUnderBar: true)
     }
+}
 
-    private var column: some View {
+private struct RisoGameColumn: View {
+    @Environment(\.rommioTheme) private var theme
+    let content: GameContent
+    let actions: GameActions
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            AnyView(headline)
-            AnyView(byline.padding(.top, 12))
-            AnyView(whereYouLeftOff.padding(.top, 22))
-            AnyView(VStack(alignment: .leading, spacing: 12) {
-                GameFilePicker(content: content, actions: actions)
-                GameActionDeck(content: content, actions: actions, showsNotes: false)
+            RisoGameHeadline(rom: content.rom, platformLine: content.platformLine, standfirst: content.standfirst, large: false)
+            RisoGameByline(content: content).padding(.top, 12)
+            RisoWhereYouLeftOff(content: content, actions: actions).padding(.top, 22)
+            VStack(alignment: .leading, spacing: 12) {
+                GameFilePicker(shows: content.showsFilePicker, options: content.fileOptions, selectedFileID: content.selectedFileID, select: actions.selectFile)
+                GameActionDeck(deck: content.deck, fileID: content.fileID, showsStartOptions: content.showsStartOptions, actions: actions, showsNotes: false)
             }
-            .padding(.top, 22))
-            AnyView(story.padding(.top, 26))
-            AnyView(GameScreenshotsRow(urls: content.screenshots, gutter: theme.spacing.gutter)
+            .padding(.top, 22)
+            RisoGameStory(summary: content.hero.summaryText).padding(.top, 26)
+            GameScreenshotsRow(urls: content.screenshots, gutter: theme.spacing.gutter)
                 .padding(.horizontal, -theme.spacing.gutter)
-                .padding(.top, 26))
-            AnyView(details.padding(.top, 26))
-            AnyView(preserved)
+                .padding(.top, 26)
+            RisoGameDetails(content: content).padding(.top, 26)
+            RisoGamePreserved(preserved: content.preserved)
         }
     }
+}
 
-    private var broadsheet: some View {
+private struct RisoGameBroadsheet: View {
+    @Environment(\.rommioTheme) private var theme
+    let content: GameContent
+    let actions: GameActions
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            headline
-            byline.padding(.top, 12)
+            RisoGameHeadline(rom: content.rom, platformLine: content.platformLine, standfirst: nil, large: true)
+            RisoGameByline(content: content).padding(.top, 12)
             HStack(alignment: .top, spacing: 0) {
                 VStack(alignment: .leading, spacing: 18) {
                     if let standfirst = content.standfirst {
                         Text(standfirst).themeText(.body, size: 17).italic().foregroundStyle(theme.ink)
                     }
-                    GameFilePicker(content: content, actions: actions)
-                    GameActionDeck(content: content, actions: actions, showsNotes: false)
+                    GameFilePicker(shows: content.showsFilePicker, options: content.fileOptions, selectedFileID: content.selectedFileID, select: actions.selectFile)
+                    GameActionDeck(deck: content.deck, fileID: content.fileID, showsStartOptions: content.showsStartOptions, actions: actions, showsNotes: false)
                 }
                 .frame(width: 230, alignment: .leading)
                 .padding(.trailing, 18)
                 Rectangle().fill(theme.ink).frame(width: 1)
-                whereYouLeftOff
+                RisoWhereYouLeftOff(content: content, actions: actions)
                     .padding(.horizontal, 18)
                     .frame(maxWidth: .infinity)
                 Rectangle().fill(theme.ink).frame(width: 1)
                 VStack(alignment: .leading, spacing: 18) {
-                    details
+                    RisoGameDetails(content: content)
                 }
                 .frame(width: 280, alignment: .leading)
                 .padding(.leading, 18)
             }
             .padding(.top, 20)
-            story.padding(.top, 26)
+            RisoGameStory(summary: content.hero.summaryText).padding(.top, 26)
             GameScreenshotsRow(urls: content.screenshots, gutter: 0).padding(.top, 26)
-            preserved
+            RisoGamePreserved(preserved: content.preserved)
         }
     }
+}
 
-    // MARK: Headline
+// MARK: Headline
 
-    private var headline: some View {
+private struct RisoGameHeadline: View {
+    @Environment(\.rommioTheme) private var theme
+    let rom: RomDTO
+    let platformLine: String
+    /// Compact: the standfirst runs under the headline (wide: in the first column).
+    let standfirst: String?
+    let large: Bool
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Kicker(label: content.rom.platformSlug.uppercased(), detail: content.platformLine, fill: .pink)
-            DisplayText(text: content.rom.displayName, role: .display, size: horizontalSizeClass == .regular ? 84 : 62, lineLimit: 3)
-            if horizontalSizeClass != .regular, let standfirst = content.standfirst {
+            Kicker(label: rom.platformSlug.uppercased(), detail: platformLine, fill: .pink)
+            DisplayText(text: rom.displayName, role: .display, size: large ? 84 : 62, lineLimit: 3)
+            if let standfirst {
                 Text(standfirst)
                     .themeText(.body, size: 19)
                     .italic()
@@ -97,8 +122,13 @@ struct RisoGameLayout: View {
             }
         }
     }
+}
 
-    private var byline: some View {
+private struct RisoGameByline: View {
+    @Environment(\.rommioTheme) private var theme
+    let content: GameContent
+
+    var body: some View {
         FlowRow(spacing: 14) {
             if let company = content.rom.metadata.publisherLine.first { Text(company) }
             if !content.rom.metadata.genres.isEmpty { Text(content.rom.metadata.genres.prefix(2).joined(separator: " · ")) }
@@ -113,23 +143,33 @@ struct RisoGameLayout: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(alignment: .top) { Rectangle().fill(theme.ink).frame(height: 1) }
     }
+}
 
-    // MARK: Where you left off
+// MARK: Where you left off
 
-    @ViewBuilder
-    private var whereYouLeftOff: some View {
+private struct RisoWhereYouLeftOff: View {
+    let content: GameContent
+    let actions: GameActions
+
+    var body: some View {
         if content.usesProgressStore {
-            storeLeftOff
+            RisoStoreLeftOff(content: content, actions: actions)
         } else {
-            legacyLeftOff
+            RisoLegacyLeftOff(content: content, actions: actions)
         }
     }
+}
 
-    /// From the saves reader: the resume point with its frame, save states,
-    /// game-save data, play on this device, any conflict, and the full list.
-    private var storeLeftOff: some View {
+/// From the saves reader: the resume point with its frame, save states,
+/// game-save data, play on this device, any conflict, and the full list.
+private struct RisoStoreLeftOff: View {
+    @Environment(\.rommioTheme) private var theme
+    let content: GameContent
+    let actions: GameActions
+
+    var body: some View {
         let saves = content.saves
-        return InkBox(title: "Where you left off", detail: (saves.resume?.capturedAt ?? content.lastPlayedAt).map { PlayFormat.relative($0) }) {
+        InkBox(title: "Where you left off", detail: (saves.resume?.capturedAt ?? content.lastPlayedAt).map { PlayFormat.relative($0) }) {
             VStack(alignment: .leading, spacing: 0) {
                 if let resume = saves.resume {
                     HStack(alignment: .top, spacing: 12) {
@@ -140,25 +180,25 @@ struct RisoGameLayout: View {
                             Text([resume.label, resume.deviceLabel].compactMap { $0 }.joined(separator: " · "))
                                 .themeText(.caption, size: 12.5).italic().foregroundStyle(theme.inkSecondary).lineLimit(2)
                         }
-                        entry(term: resume.kind == .saveState ? resume.kindTitle : "Automatic resume",
-                              value: PlayFormat.line([PlayFormat.relative(resume.capturedAt), PlayFormat.clock(resume.capturedAt)]),
-                              sync: resume.sync.badge)
+                        RisoLeftOffEntry(term: resume.kind == .saveState ? resume.kindTitle : "Automatic resume",
+                                         value: PlayFormat.line([PlayFormat.relative(resume.capturedAt), PlayFormat.clock(resume.capturedAt)]),
+                                         sync: resume.sync.badge)
                     }
                     .padding(.bottom, 4)
                 } else {
-                    entry(term: "Automatic resume", value: content.savedStatus, sync: nil)
+                    RisoLeftOffEntry(term: "Automatic resume", value: content.savedStatus, sync: nil)
                 }
                 if !saves.saveStates.isEmpty {
-                    rule
-                    entry(term: "Save states", value: saves.saveStates.prefix(3).map(\.title).joined(separator: " · "), sync: nil)
+                    RisoBoxRule()
+                    RisoLeftOffEntry(term: "Save states", value: saves.saveStates.prefix(3).map(\.title).joined(separator: " · "), sync: nil)
                 }
                 if let latest = saves.gameSaveData.first {
-                    rule
-                    entry(term: "Game-save data", value: "Latest \(PlayFormat.inline(latest.capturedAt)) · \(PlayFormat.count(saves.gameSaveData.count)) kept on this device", sync: latest.sync.badge)
+                    RisoBoxRule()
+                    RisoLeftOffEntry(term: "Game-save data", value: "Latest \(PlayFormat.inline(latest.capturedAt)) · \(PlayFormat.count(saves.gameSaveData.count)) kept on this device", sync: latest.sync.badge)
                 }
                 if let line = content.playLine {
-                    rule
-                    entry(term: "On this device", value: line, sync: nil)
+                    RisoBoxRule()
+                    RisoLeftOffEntry(term: "On this device", value: line, sync: nil)
                 }
             }
             if let conflict = content.conflict {
@@ -173,30 +213,35 @@ struct RisoGameLayout: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("game.savedProgress")
     }
+}
 
-    /// Runtimes that still keep saves outside the progress store.
-    @ViewBuilder
-    private var legacyLeftOff: some View {
+/// Runtimes that still keep saves outside the progress store.
+private struct RisoLegacyLeftOff: View {
+    @Environment(\.rommioTheme) private var theme
+    let content: GameContent
+    let actions: GameActions
+
+    var body: some View {
         let resume = content.timeline.first { $0.kind == .resume }
         if content.savedSummary != nil || content.sessionCount > 0 {
             InkBox(title: "Where you left off", detail: (resume?.date ?? content.lastPlayedAt).map { PlayFormat.relative($0) }) {
                 VStack(alignment: .leading, spacing: 0) {
                     if let resume {
-                        entry(term: "Automatic resume", value: "\(resume.date.map { PlayFormat.relative($0) } ?? "Ready") · \(resume.device)", sync: resume.sync)
+                        RisoLeftOffEntry(term: "Automatic resume", value: "\(resume.date.map { PlayFormat.relative($0) } ?? "Ready") · \(resume.device)", sync: resume.sync)
                     } else if let summary = content.savedSummary {
-                        entry(term: "Automatic resume", value: summary.statusText, sync: nil)
+                        RisoLeftOffEntry(term: "Automatic resume", value: summary.statusText, sync: nil)
                     }
                     let states = content.timeline.filter { $0.kind != .resume }
                     if !states.isEmpty {
-                        rule
-                        entry(term: "Save states", value: states.prefix(3).map { $0.title }.joined(separator: " · "), sync: nil)
+                        RisoBoxRule()
+                        RisoLeftOffEntry(term: "Save states", value: states.prefix(3).map { $0.title }.joined(separator: " · "), sync: nil)
                     }
                     if let line = content.playLine {
-                        rule
-                        entry(term: "On this device", value: line, sync: nil)
+                        RisoBoxRule()
+                        RisoLeftOffEntry(term: "On this device", value: line, sync: nil)
                     }
                     if let problem = content.savedSummary?.problemText {
-                        rule
+                        RisoBoxRule()
                         Text(problem).themeText(.caption).foregroundStyle(theme.ink).padding(.vertical, 8)
                     }
                 }
@@ -209,10 +254,20 @@ struct RisoGameLayout: View {
             }
         }
     }
+}
 
-    private var rule: some View { Rectangle().fill(theme.hairline).frame(height: 1) }
+private struct RisoBoxRule: View {
+    @Environment(\.rommioTheme) private var theme
+    var body: some View { Rectangle().fill(theme.hairline).frame(height: 1) }
+}
 
-    private func entry(term: String, value: String, sync: SyncBadgeState?) -> some View {
+private struct RisoLeftOffEntry: View {
+    @Environment(\.rommioTheme) private var theme
+    let term: String
+    let value: String
+    let sync: SyncBadgeState?
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(term).themeText(.label, size: 10).foregroundStyle(theme.ink)
             Text(value).themeText(.body, size: 14.5).foregroundStyle(theme.ink).fixedSize(horizontal: false, vertical: true)
@@ -221,12 +276,16 @@ struct RisoGameLayout: View {
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+}
 
-    // MARK: Story and details
+// MARK: Story and details
 
-    @ViewBuilder
-    private var story: some View {
-        if let summary = content.hero.summaryText {
+private struct RisoGameStory: View {
+    @Environment(\.rommioTheme) private var theme
+    let summary: String?
+
+    var body: some View {
+        if let summary {
             VStack(alignment: .leading, spacing: 10) {
                 SectionHeader(title: "About")
                 Text(summary)
@@ -237,38 +296,43 @@ struct RisoGameLayout: View {
             }
         }
     }
+}
 
-    private var details: some View {
+private struct RisoGameDetails: View {
+    @Environment(\.rommioTheme) private var theme
+    let content: GameContent
+
+    var body: some View {
         InkBox(title: "Details") {
             VStack(alignment: .leading, spacing: 0) {
                 // RomM metadata first (plain text, in the shared order), then how it plays here.
                 ForEach(content.details, id: \.self) { item in
                     SpecRow(term: item.label, value: item.value).padding(.vertical, 8)
-                    rule
+                    RisoBoxRule()
                 }
                 SpecRow(term: "Platform", value: content.rom.platformName).padding(.vertical, 8)
-                rule
+                RisoBoxRule()
                 SpecRow(term: "How it plays", value: content.tier.title).padding(.vertical, 8)
                 if let file = content.file {
-                    rule
+                    RisoBoxRule()
                     SpecRow(term: "File", value: "\(file.title)\n\(file.metaLine)").padding(.vertical, 8)
-                    rule
+                    RisoBoxRule()
                     SpecRow(term: "Status", value: file.availabilityLabel).padding(.vertical, 8)
                     if let readiness = file.readinessMessage, !readiness.isEmpty {
-                        rule
+                        RisoBoxRule()
                         SpecRow(term: "Ready", value: readiness).padding(.vertical, 8)
                     }
                     if let error = file.errorMessage, !error.isEmpty {
-                        rule
+                        RisoBoxRule()
                         SpecRow(term: "Problem", value: error).padding(.vertical, 8)
                     }
                 }
                 if let core = content.deck?.recommendedCoreName {
-                    rule
+                    RisoBoxRule()
                     SpecRow(term: "Runs on", value: core).padding(.vertical, 8)
                 }
                 ForEach(content.deck?.notes ?? [], id: \.self) { note in
-                    rule
+                    RisoBoxRule()
                     Text(note).themeText(.caption).foregroundStyle(theme.inkSecondary).padding(.vertical, 8)
                 }
             }
@@ -276,10 +340,14 @@ struct RisoGameLayout: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("game.details")
     }
+}
 
-    @ViewBuilder
-    private var preserved: some View {
-        if let preserved = content.preserved {
+private struct RisoGamePreserved: View {
+    @Environment(\.rommioTheme) private var theme
+    let preserved: GameDetailPreservedContentPresentation?
+
+    var body: some View {
+        if let preserved {
             VStack(alignment: .leading, spacing: 4) {
                 Kicker(label: "Showing saved details", fill: .yellow)
                 Text(preserved.message).themeText(.caption).foregroundStyle(theme.inkSecondary)

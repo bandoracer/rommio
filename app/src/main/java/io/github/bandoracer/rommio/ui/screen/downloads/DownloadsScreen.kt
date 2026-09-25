@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,9 +20,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Download
@@ -40,12 +41,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import coil.compose.AsyncImage
 import io.github.bandoracer.rommio.AppContainer
-import io.github.bandoracer.rommio.model.DownloadRecord
 import io.github.bandoracer.rommio.model.DownloadStatus
 import io.github.bandoracer.rommio.ui.component.CoverPlaceholder
 import io.github.bandoracer.rommio.ui.component.CoverThumb
@@ -54,10 +55,9 @@ import io.github.bandoracer.rommio.ui.component.EmptyState
 import io.github.bandoracer.rommio.ui.component.GameCover
 import io.github.bandoracer.rommio.ui.component.Kicker
 import io.github.bandoracer.rommio.ui.component.KickerFill
-import io.github.bandoracer.rommio.ui.component.ListDivider
 import io.github.bandoracer.rommio.ui.component.ListGroup
 import io.github.bandoracer.rommio.ui.component.ListRow
-import io.github.bandoracer.rommio.ui.component.PageArtSubject
+import io.github.bandoracer.rommio.ui.component.LitPage
 import io.github.bandoracer.rommio.ui.component.PageFieldStyle
 import io.github.bandoracer.rommio.ui.component.RoleText
 import io.github.bandoracer.rommio.ui.component.RommioProgressBar
@@ -65,135 +65,149 @@ import io.github.bandoracer.rommio.ui.component.SecondaryButton
 import io.github.bandoracer.rommio.ui.component.StatusChip
 import io.github.bandoracer.rommio.ui.component.Tone
 import io.github.bandoracer.rommio.ui.component.dropShadow
-import io.github.bandoracer.rommio.ui.component.formatBytes
+import io.github.bandoracer.rommio.ui.component.drawCardGroups
+import io.github.bandoracer.rommio.ui.component.lazyListGroup
 import io.github.bandoracer.rommio.ui.component.pageGutter
-import io.github.bandoracer.rommio.ui.screen.collectAsStateWithLifecycleCompat
+import io.github.bandoracer.rommio.ui.component.rememberLazyCardGroups
 import io.github.bandoracer.rommio.ui.theme.RommioTheme
-import io.github.bandoracer.rommio.util.resolveRemoteAssetUrl
+
+/** What Downloads can do. */
+private class DownloadActions(val viewModel: DownloadsViewModel, val open: (Int) -> Unit)
 
 /**
  * Downloads, pushed from the Play toolbar (docs/theme-layouts.md "Downloads — one layout"):
  * what's downloading, what's next, what needs attention, and what's finished. Lit by the running
- * download's cover; the components carry the theme.
+ * download's cover; the components carry the theme. The page is built by [DownloadsViewModel]
+ * ([DownloadsPage]); every list is lazy (rows in a group share one card, drawn by the list).
  */
 @Composable
 fun DownloadsScreen(
     container: AppContainer,
     onOpenGame: (romId: Int) -> Unit = {},
-    imageBaseUrl: String? = null,
+    @Suppress("UNUSED_PARAMETER") imageBaseUrl: String? = null,
 ) {
     val viewModel: DownloadsViewModel = viewModel(
         factory = viewModelFactory {
             initializer { DownloadsViewModel(container.repository) }
         },
     )
-    val state by viewModel.uiState.collectAsStateWithLifecycleCompat()
-    val theme = RommioTheme.current
-    val records = state.records
-    val running = records.filter { it.status == DownloadStatus.RUNNING }
-    val queued = records.filter { it.status == DownloadStatus.QUEUED }
-    val attention = records.filter { it.status == DownloadStatus.FAILED || it.status == DownloadStatus.CANCELED }
-    val finished = records.filter { it.status == DownloadStatus.COMPLETED }
-    val upNext = running.drop(1) + queued
-    val cover: (DownloadRecord) -> String? = { resolveRemoteAssetUrl(imageBaseUrl, state.covers[it.romId]) }
-    PageArtSubject(running.firstOrNull()?.let(cover), PageFieldStyle.PAGE)
-    val gutter = pageGutter()
+    val page by viewModel.page.collectAsStateWithLifecycle()
+    val actions = remember(viewModel, onOpenGame) { DownloadActions(viewModel, onOpenGame) }
+    LitPage(page.current?.coverUrl, PageFieldStyle.PAGE) { DownloadsLayout(page, actions) }
+}
 
+@Composable
+private fun DownloadsLayout(page: DownloadsPage, actions: DownloadActions) {
+    val theme = RommioTheme.current
+    val riso = theme.isRiso
+    val gutter = pageGutter()
+    val section = theme.spacing.section
+    val listState = rememberLazyListState()
+    val groups = rememberLazyCardGroups()
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .widthIn(max = 760.dp)
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .testTag("shell.downloadsList")
-                .padding(start = gutter, end = gutter, top = 4.dp, bottom = 40.dp),
-            verticalArrangement = Arrangement.spacedBy(theme.spacing.section),
+                .drawCardGroups(listState, groups, gutter)
+                .testTag("shell.downloadsList"),
+            state = listState,
+            contentPadding = PaddingValues(start = gutter, end = gutter, top = 4.dp, bottom = 40.dp),
         ) {
-            running.firstOrNull()?.let { current ->
-                CurrentDownload(current, cover(current), onCancel = { viewModel.cancel(current) })
+            // The page is a column with `section` between its parts; the first part has none above it.
+            var first = true
+            fun gap() = if (first) 0.dp.also { first = false } else section
+            page.current?.let { current ->
+                val top = gap()
+                item(key = "current", contentType = "current") {
+                    CurrentDownload(current, onCancel = { actions.viewModel.cancel(current.record) }, Modifier.padding(top = top))
+                }
             }
-            if (state.isOffline && queued.isNotEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.WifiOff, contentDescription = null, tint = theme.colors.inkSecondary, modifier = Modifier.size(16.dp))
-                    RoleText(
-                        "${io.github.bandoracer.rommio.ui.component.Fmt.count(queued.size, "download")} waiting for a connection.",
-                        theme.type.secondary,
-                        color = theme.colors.inkSecondary,
+            if (page.isOffline && page.queuedCount > 0) {
+                val top = gap()
+                item(key = "offline", contentType = "offline") { OfflineNotice(page.queuedCount, Modifier.padding(top = top)) }
+            }
+            if (page.upNext.isNotEmpty()) {
+                lazyListGroup(groups, riso, "upNext", page.upNext, { it.key }, title = "Up next", meta = page.upNext.size.toString(), top = gap(), dividerInset = 68.dp) { index, item ->
+                    DownloadRow(item, number = index + 1, onOpen = { actions.open(item.record.romId) }) {
+                        if (item.record.status == DownloadStatus.QUEUED) SecondaryButton("Download now", onClick = { actions.viewModel.downloadNow(item.record) })
+                        SecondaryButton("Cancel", onClick = { actions.viewModel.cancel(item.record) }, destructive = true)
+                    }
+                }
+            }
+            if (page.attention.isNotEmpty()) {
+                lazyListGroup(groups, riso, "attention", page.attention, { it.key }, title = "Didn't finish", meta = page.attention.size.toString(), top = gap(), dividerInset = 68.dp) { _, item ->
+                    DownloadRow(item, onOpen = { actions.open(item.record.romId) }) {
+                        SecondaryButton("Retry", onClick = { actions.viewModel.retry(item.record) })
+                        if (item.record.localPath != null) SecondaryButton("Delete download", onClick = { actions.viewModel.deleteLocal(item.record) }, destructive = true)
+                    }
+                }
+            }
+            if (page.finished.isNotEmpty()) {
+                lazyListGroup(groups, riso, "finished", page.finished, { it.key }, title = "Downloaded", meta = page.finished.size.toString(), top = gap(), dividerInset = 68.dp) { _, item ->
+                    DownloadRow(item, onOpen = { actions.open(item.record.romId) }) {
+                        if (item.record.localPath != null) SecondaryButton("Delete download", onClick = { actions.viewModel.deleteLocal(item.record) }, destructive = true)
+                    }
+                }
+            }
+            if (page.isEmpty) {
+                val top = gap()
+                item(key = "empty", contentType = "empty") {
+                    EmptyState(
+                        title = "No downloads",
+                        message = "Download a game from its page to play it on this device, even offline.",
+                        icon = Icons.Outlined.Download,
+                        modifier = Modifier.padding(top = top),
                     )
                 }
             }
-            if (upNext.isNotEmpty()) {
-                ListGroup(title = "Up next", meta = upNext.size.toString()) {
-                    upNext.forEachIndexed { index, record ->
-                        if (index > 0) ListDivider(inset = 68.dp)
-                        DownloadRow(record, cover(record), number = index + 1, onOpen = { onOpenGame(record.romId) }) {
-                            if (record.status == DownloadStatus.QUEUED) SecondaryButton("Download now", onClick = { viewModel.downloadNow(record) })
-                            SecondaryButton("Cancel", onClick = { viewModel.cancel(record) }, destructive = true)
-                        }
+            page.staleMessage?.takeIf { !page.isEmpty }?.let { message ->
+                val top = gap()
+                item(key = "stale", contentType = "stale") {
+                    ListGroup(title = "Showing saved downloads", modifier = Modifier.padding(top = top).testTag("downloads.stale")) {
+                        RoleText(message, theme.type.caption, color = theme.colors.inkSecondary,
+                            modifier = Modifier.padding(horizontal = io.github.bandoracer.rommio.ui.component.LocalRowInset.current, vertical = 12.dp))
                     }
-                }
-            }
-            if (attention.isNotEmpty()) {
-                ListGroup(title = "Didn't finish", meta = attention.size.toString()) {
-                    attention.forEachIndexed { index, record ->
-                        if (index > 0) ListDivider(inset = 68.dp)
-                        DownloadRow(record, cover(record), onOpen = { onOpenGame(record.romId) }) {
-                            SecondaryButton("Retry", onClick = { viewModel.retry(record) })
-                            if (record.localPath != null) SecondaryButton("Delete download", onClick = { viewModel.deleteLocal(record) }, destructive = true)
-                        }
-                    }
-                }
-            }
-            if (finished.isNotEmpty()) {
-                ListGroup(title = "Downloaded", meta = finished.size.toString()) {
-                    finished.forEachIndexed { index, record ->
-                        if (index > 0) ListDivider(inset = 68.dp)
-                        DownloadRow(record, cover(record), onOpen = { onOpenGame(record.romId) }) {
-                            if (record.localPath != null) SecondaryButton("Delete download", onClick = { viewModel.deleteLocal(record) }, destructive = true)
-                        }
-                    }
-                }
-            }
-            if (records.isEmpty()) {
-                EmptyState(
-                    title = "No downloads",
-                    message = "Download a game from its page to play it on this device, even offline.",
-                    icon = Icons.Outlined.Download,
-                )
-            }
-            state.staleMessage?.takeIf { records.isNotEmpty() }?.let { message ->
-                ListGroup(title = "Showing saved downloads", modifier = Modifier.testTag("downloads.stale")) {
-                    RoleText(message, theme.type.caption, color = theme.colors.inkSecondary,
-                        modifier = Modifier.padding(horizontal = io.github.bandoracer.rommio.ui.component.LocalRowInset.current, vertical = 12.dp))
                 }
             }
         }
     }
 }
 
-private fun DownloadRecord.sizes(): String =
-    "${formatBytes(bytesDownloaded)} of ${formatBytes(maxOf(totalBytes, fileSizeBytes))}"
+@Composable
+private fun OfflineNotice(queued: Int, modifier: Modifier) {
+    val theme = RommioTheme.current
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Outlined.WifiOff, contentDescription = null, tint = theme.colors.inkSecondary, modifier = Modifier.size(16.dp))
+        RoleText(
+            "${io.github.bandoracer.rommio.ui.component.Fmt.count(queued, "download")} waiting for a connection.",
+            theme.type.secondary,
+            color = theme.colors.inkSecondary,
+        )
+    }
+}
 
 /**
  * The download in progress, large. Aurora: the cover "develops" from frost to sharp as it
  * arrives, above the figures. Riso: the cover printed beside a headline, a halftone bar below.
  */
 @Composable
-private fun CurrentDownload(record: DownloadRecord, coverUrl: String?, onCancel: () -> Unit) {
+private fun CurrentDownload(item: DownloadItem, onCancel: () -> Unit, modifier: Modifier) {
     val theme = RommioTheme.current
     val c = theme.colors
+    val record = item.record
     val fraction = record.progressPercent / 100f
     Column(
-        Modifier.testTag("downloads.current"),
+        modifier.testTag("downloads.current"),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (theme.isRiso) {
             Kicker("Downloading", detail = "${record.progressPercent}% · ${record.platformSlug.uppercase()}", fill = KickerFill.YELLOW)
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                GameCover(coverUrl, record.romName, Modifier.size(76.dp, 101.dp), aspect = null)
+                GameCover(item.coverUrl, record.romName, Modifier.size(76.dp, 101.dp), aspect = null)
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     DisplayText(record.romName, size = 34f, plateOffset = 1.25f, maxLines = 2)
-                    RoleText(record.sizes(), theme.type.numeral, size = 11.5f, color = c.inkSecondary)
+                    RoleText(item.sizes, theme.type.numeral, size = 11.5f, color = c.inkSecondary)
                     RoleText(record.fileName, theme.type.numeral, size = 11.5f, color = c.inkSecondary, maxLines = 1)
                 }
             }
@@ -201,7 +215,7 @@ private fun CurrentDownload(record: DownloadRecord, coverUrl: String?, onCancel:
             SecondaryButton("Cancel", onClick = onCancel, icon = Icons.Outlined.Close, destructive = true)
             return@Column
         }
-        Developing(record, coverUrl, fraction)
+        Developing(record.romName, item.coverUrl, fraction)
         Row(verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -209,7 +223,7 @@ private fun CurrentDownload(record: DownloadRecord, coverUrl: String?, onCancel:
                     RoleText("Downloading", theme.type.section, color = c.inkSecondary)
                 }
                 RoleText(record.romName, theme.type.headline, color = c.ink, maxLines = 2)
-                RoleText(record.sizes(), theme.type.secondary, color = c.inkSecondary)
+                RoleText(item.sizes, theme.type.secondary, color = c.inkSecondary)
             }
             RoleText("${record.progressPercent}%", theme.type.statValue, size = 34f, color = c.ink)
         }
@@ -220,20 +234,22 @@ private fun CurrentDownload(record: DownloadRecord, coverUrl: String?, onCancel:
 
 /** Aurora: sharp art left of the progress, frosted (blur 18, saturation 0.6, ground 30 %) to the right, a 2 dp `mark1` edge. */
 @Composable
-private fun Developing(record: DownloadRecord, coverUrl: String?, fraction: Float) {
+private fun Developing(title: String, coverUrl: String?, fraction: Float) {
     val theme = RommioTheme.current
+    // The frost settles into the page's lit ground; the edge glows in its mark.
+    val light = RommioTheme.light
     val shape = RoundedCornerShape(theme.radius.card)
     val desaturate = remember { ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0.6f) }) }
     BoxWithConstraints(
         Modifier
             .fillMaxWidth()
             .height(180.dp)
-            .dropShadow(theme.mark1.copy(alpha = 0.35f), theme.radius.card, 22.dp, 12.dp)
+            .dropShadow(light.mark1.copy(alpha = 0.35f), theme.radius.card, 22.dp, 12.dp)
             .clip(shape)
             .semantics { },
     ) {
         val width = maxWidth
-        CoverPlaceholder(record.romName)
+        CoverPlaceholder(title)
         coverUrl?.let { AsyncImage(it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
         // Still arriving: the rest of the art is frosted.
         Box(
@@ -255,7 +271,7 @@ private fun Developing(record: DownloadRecord, coverUrl: String?, fraction: Floa
                             .then(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Modifier.blur(18.dp) else Modifier),
                     )
                 }
-                Box(Modifier.fillMaxSize().background(theme.colors.ground.copy(alpha = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 0.3f else 0.6f)))
+                Box(Modifier.fillMaxSize().background(light.ground.copy(alpha = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 0.3f else 0.6f)))
             }
         }
         Box(
@@ -263,8 +279,8 @@ private fun Developing(record: DownloadRecord, coverUrl: String?, fraction: Floa
                 .offset(x = width * fraction - 1.dp)
                 .width(2.dp)
                 .fillMaxHeight()
-                .dropShadow(theme.mark1, 0.dp, 8.dp, 0.dp)
-                .background(theme.mark1),
+                .dropShadow(light.mark1, 0.dp, 8.dp, 0.dp)
+                .background(light.mark1),
         )
     }
 }
@@ -273,35 +289,28 @@ private fun Developing(record: DownloadRecord, coverUrl: String?, fraction: Floa
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DownloadRow(
-    record: DownloadRecord,
-    coverUrl: String?,
+    item: DownloadItem,
     number: Int? = null,
     onOpen: () -> Unit,
     actions: @Composable () -> Unit,
 ) {
     val theme = RommioTheme.current
     val c = theme.colors
-    val (status, tone) = when (record.status) {
-        DownloadStatus.QUEUED -> "Up next" to Tone.MUTE
-        DownloadStatus.RUNNING -> "${record.progressPercent}%" to Tone.LIVE
-        DownloadStatus.COMPLETED -> "Downloaded" to Tone.OK
-        DownloadStatus.FAILED -> "Failed" to Tone.BAD
-        DownloadStatus.CANCELED -> "Canceled" to Tone.WAIT
-    }
+    val record = item.record
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         ListRow(
             title = record.romName,
-            subtitle = "${record.platformSlug.uppercase()} · ${formatBytes(maxOf(record.totalBytes, record.fileSizeBytes))}",
+            subtitle = item.subtitle,
             leading = {
                 if (theme.isRiso && number != null) {
                     Box(Modifier.size(32.dp).border(1.5.dp, c.ink), contentAlignment = Alignment.Center) {
                         RoleText("$number", theme.type.statValue, size = 22f, color = c.ink)
                     }
                 } else {
-                    CoverThumb(coverUrl, record.romName)
+                    CoverThumb(item.coverUrl, record.romName)
                 }
             },
-            trailing = { StatusChip(status, tone = tone) },
+            trailing = { StatusChip(item.status, tone = item.tone) },
             onClick = onOpen,
         )
         val inset = io.github.bandoracer.rommio.ui.component.LocalRowInset.current

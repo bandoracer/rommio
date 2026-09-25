@@ -1,46 +1,50 @@
 import SwiftUI
 
-/// The light a page takes from the game it is about (Aurora): the cover's
-/// lights and the cover itself, blurred into the page ground.
-struct PageLight: Hashable, Sendable {
-    let lights: AuroraLights
-    let artURL: URL?
-}
-
 // MARK: Lighting a page
 
-/// Lights everything below with one or more games' covers (Aurora only): page
-/// ground, lights, tint and glows. Riso and games without usable colour keep
-/// the theme's own light.
+/// Lights everything below with one or more games' covers (Aurora only): sets
+/// the page light (ground, lights, tint, glows) that lit views read. Riso and
+/// games without usable colour keep the theme's own light.
+///
+/// Palettes already in memory light the page on its first frame (covers decoded in
+/// Aurora prepare their light in the background). Otherwise the light arrives once
+/// and only the views that read it update; the page field crossfades
+/// (`PageBackground`), nothing else animates.
 private struct LitByModifier: ViewModifier {
     @Environment(\.rommioTheme) private var theme
     @Environment(\.artworkPipeline) private var pipeline
     let urls: [URL]
     let artURL: URL?
-    @State private var loaded: (key: [URL], palettes: [CoverPalette])?
+    @State private var loaded: (key: LightKey, light: PageLight)?
+
+    private struct LightKey: Hashable {
+        let urls: [URL]
+        let artURL: URL?
+        let theme: String
+    }
 
     func body(content: Content) -> some View {
-        let light = pageLight
-        let lit = theme.lit(by: light)
+        let key = LightKey(urls: Array(urls.prefix(3)), artURL: artURL, theme: theme.identity)
+        let light = resolved(key)
         content
-            .environment(\.rommioTheme, lit)
+            .environment(\.pageLight, light)
             // The system tint colours text (bar and list buttons): readable on the lit ground.
-            .tint(lit.readableTint)
-            .animation(.easeInOut(duration: 0.45), value: light)
-            .task(id: urls.map(\.absoluteString).joined(separator: "|") + (theme.isGlass ? "#glass" : "#paper")) {
-                guard theme.isGlass, !urls.isEmpty else { return }
+            .tint(light.readableTint)
+            .task(id: key) {
+                guard theme.isGlass, !key.urls.isEmpty, pipeline.cachedPalettes(for: key.urls) == nil else { return }
                 var palettes: [CoverPalette] = []
-                for url in urls.prefix(3) {
-                    if let palette = await pipeline.palette(for: url), !palette.isNeutral { palettes.append(palette) }
+                for url in key.urls {
+                    if let palette = await pipeline.palette(for: url) { palettes.append(palette) }
                 }
-                if !Task.isCancelled { loaded = (urls, palettes) }
+                if !Task.isCancelled { loaded = (key, PageLight.lit(by: palettes, artURL: artURL, theme: theme)) }
             }
     }
 
-    private var pageLight: PageLight? {
-        guard theme.isGlass, let loaded, loaded.key == urls,
-              let lights = AuroraLights.derive(palettes: loaded.palettes, dark: theme.isDark) else { return nil }
-        return PageLight(lights: lights, artURL: artURL)
+    private func resolved(_ key: LightKey) -> PageLight {
+        guard theme.isGlass, !key.urls.isEmpty else { return theme.unlitLight }
+        if let loaded, loaded.key == key { return loaded.light }
+        if let palettes = pipeline.cachedPalettes(for: key.urls) { return PageLight.lit(by: palettes, artURL: artURL, theme: theme) }
+        return theme.unlitLight
     }
 }
 
@@ -55,6 +59,35 @@ extension View {
     /// blurred into the background.
     func litBy(_ urls: [URL], art: URL?) -> some View {
         modifier(LitByModifier(urls: urls, artURL: art))
+    }
+}
+
+/// Palettes of several covers for small marks (pager dots, day light strips, bars),
+/// read from memory at once and loaded in the background otherwise (Aurora only).
+struct CoverPalettes: ViewModifier {
+    @Environment(\.artworkPipeline) private var pipeline
+    @Environment(\.rommioTheme) private var theme
+    let urls: [URL]
+    @Binding var palettes: [URL: CoverPalette]
+
+    func body(content: Content) -> some View {
+        content.task(id: urls.map(\.absoluteString).joined(separator: "|") + (theme.isGlass ? "#glass" : "#paper")) {
+            guard theme.isGlass else { return }
+            var found = palettes
+            for url in urls where found[url] == nil {
+                if let cached = pipeline.cachedPalette(for: url) { found[url] = cached }
+            }
+            if found != palettes { palettes = found }
+            for url in urls where palettes[url] == nil {
+                if let palette = await pipeline.palette(for: url), !Task.isCancelled { palettes[url] = palette }
+            }
+        }
+    }
+}
+
+extension View {
+    func coverPalettes(_ urls: [URL], into palettes: Binding<[URL: CoverPalette]>) -> some View {
+        modifier(CoverPalettes(urls: urls, palettes: palettes))
     }
 }
 
@@ -108,20 +141,27 @@ enum PageLightStyle: Sendable {
 }
 
 /// Aurora's ambient field: the ground, the blurred cover, three radial lights and
-/// a veil (studio `.a-field`). Riso: paper stock with a fine grain.
+/// a veil (studio `.a-field`), in the page's light; when the light changes the
+/// field crossfades (the only thing that animates with the light). Riso: paper
+/// stock with a fine grain.
 struct PageBackground: View {
     @Environment(\.rommioTheme) private var theme
+    @Environment(\.pageLight) private var light
     var style: PageLightStyle = .quiet
 
     var body: some View {
         ZStack {
-            theme.ground
             if theme.isGlass {
-                AuroraField(style: theme.light == nil && style != .welcome ? .quiet : style)
+                theme.ground
+                AuroraField(light: light, style: !light.isLit && style != .welcome ? .quiet : style)
+                    .id(light.id)
+                    .transition(.opacity)
             } else {
+                theme.ground
                 PaperGrain()
             }
         }
+        .animation(.easeInOut(duration: 0.45), value: light.id)
         .ignoresSafeArea()
         .accessibilityHidden(true)
         .allowsHitTesting(false)
@@ -129,41 +169,29 @@ struct PageBackground: View {
 }
 
 private struct AuroraField: View {
-    @Environment(\.rommioTheme) private var theme
+    let light: PageLight
     let style: PageLightStyle
 
     var body: some View {
+        let dark = light.isDark
         GeometryReader { proxy in
             let size = proxy.size
-            let lights = theme.lights
             ZStack(alignment: .topLeading) {
-                if let url = theme.light?.artURL {
-                    BlurredCover(url: url, dark: theme.isDark)
+                light.ground
+                if let url = light.artURL {
+                    BlurredCover(url: url, dark: dark)
                         .frame(width: size.width * 1.5, height: size.height * 0.78)
                         // A CSS blur spills past the image's box; fade the baked
                         // blur out instead of ending on a hard edge.
                         .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.55),
                                                      .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
                         .offset(x: -size.width * 0.25, y: -size.height * 0.12)
-                        .opacity(Double(theme.isDark ? AuroraArtTokens.backdropOpacityDark : AuroraArtTokens.backdropOpacityLight))
+                        .opacity(Double(dark ? AuroraArtTokens.backdropOpacityDark : AuroraArtTokens.backdropOpacityLight))
                 }
-                Canvas { context, canvas in
-                    let colours = [lights.l1, lights.l2, lights.l3].map { $0.themeColor.color }
-                    for (spot, colour) in zip(style.spots, colours) {
-                        let rx = max(1, spot.radii.width * canvas.width)
-                        let ry = max(1, spot.radii.height * canvas.height)
-                        var layer = context
-                        layer.translateBy(x: spot.centre.x * canvas.width, y: spot.centre.y * canvas.height)
-                        layer.scaleBy(x: 1, y: ry / rx)
-                        let rect = CGRect(x: -rx, y: -rx, width: rx * 2, height: rx * 2)
-                        layer.fill(Path(ellipseIn: rect), with: .radialGradient(
-                            Gradient(stops: [.init(color: colour, location: 0), .init(color: colour.opacity(0), location: spot.fade)]),
-                            center: .zero, startRadius: 0, endRadius: rx))
-                    }
-                }
-                .opacity(Double(theme.isDark ? AuroraArtTokens.lightOpacityDark : AuroraArtTokens.lightOpacityLight))
-                .blendMode(theme.isDark ? .screen : .normal)
-                LinearGradient(stops: style.veil.map { .init(color: theme.ground.opacity($0.1), location: $0.0) },
+                FieldLights(lights: light.lights, style: style)
+                    .opacity(Double(dark ? AuroraArtTokens.lightOpacityDark : AuroraArtTokens.lightOpacityLight))
+                    .blendMode(dark ? .screen : .normal)
+                LinearGradient(stops: style.veil.map { .init(color: light.ground.opacity($0.1), location: $0.0) },
                                startPoint: .top, endPoint: .bottom)
             }
             .frame(width: size.width, height: size.height, alignment: .topLeading)
@@ -173,8 +201,32 @@ private struct AuroraField: View {
     }
 }
 
+/// The three radial lights of the field.
+private struct FieldLights: View {
+    let lights: AuroraLights
+    let style: PageLightStyle
+
+    var body: some View {
+        Canvas { context, canvas in
+            let colours = [lights.l1, lights.l2, lights.l3].map { $0.themeColor.color }
+            for (spot, colour) in zip(style.spots, colours) {
+                let rx = max(1, spot.radii.width * canvas.width)
+                let ry = max(1, spot.radii.height * canvas.height)
+                var layer = context
+                layer.translateBy(x: spot.centre.x * canvas.width, y: spot.centre.y * canvas.height)
+                layer.scaleBy(x: 1, y: ry / rx)
+                let rect = CGRect(x: -rx, y: -rx, width: rx * 2, height: rx * 2)
+                layer.fill(Path(ellipseIn: rect), with: .radialGradient(
+                    Gradient(stops: [.init(color: colour, location: 0), .init(color: colour.opacity(0), location: spot.fade)]),
+                    center: .zero, startRadius: 0, endRadius: rx))
+            }
+        }
+    }
+}
+
 /// The cover blurred, saturated and brightened into light (studio
-/// `.a-field-art`, `--art-filter`), baked once by the artwork pipeline.
+/// `.a-field-art`, `--art-filter`), baked once by the artwork pipeline (in the
+/// background as soon as the cover was shown in Aurora, so usually from memory).
 struct BlurredCover: View {
     @Environment(\.artworkPipeline) private var pipeline
     let url: URL
@@ -183,17 +235,19 @@ struct BlurredCover: View {
 
     var body: some View {
         let key = url.absoluteString + (dark ? "#d" : "#l")
+        let art = image.flatMap { $0.key == key ? $0.image : nil } ?? pipeline.cachedBackdrop(for: url, dark: dark)
         ZStack {
-            if let image, image.key == key {
-                Image(decorative: image.image.cgImage, scale: 1)
+            if let art {
+                Image(decorative: art.cgImage, scale: 1)
                     .resizable()
                     .interpolation(.high)
                     .transition(.opacity)
             }
         }
         .task(id: key) {
-            if let art = await pipeline.backdrop(for: url, dark: dark), !Task.isCancelled {
-                withAnimation(.easeOut(duration: 0.35)) { image = (key, art) }
+            guard art == nil else { return }
+            if let baked = await pipeline.backdrop(for: url, dark: dark), !Task.isCancelled {
+                withAnimation(.easeOut(duration: 0.35)) { image = (key, baked) }
             }
         }
     }
@@ -261,7 +315,7 @@ struct TreatedCover<Placeholder: View>: View {
         if theme.isRiso {
             RisoPrintImage(url: url, maxPointSize: maxPointSize, placeholder: placeholder)
         } else {
-            ArtworkImage(url: url, maxPointSize: maxPointSize, placeholder: placeholder)
+            ArtworkImage(url: url, maxPointSize: maxPointSize, preparesLight: theme.isDark, placeholder: placeholder)
         }
     }
 }

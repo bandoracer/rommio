@@ -11,6 +11,7 @@ struct PlatformGame: Identifiable, Hashable {
     let playtime: TimeInterval
     let lastPlayedAt: Date?
     var id: Int { rom.id }
+    var recentKey: String { "recent.\(rom.id)" }
 }
 
 enum PlatformFilter: String, CaseIterable, Identifiable {
@@ -22,39 +23,56 @@ enum PlatformOrder: String, CaseIterable {
     case alphabetical, recentlyPlayed
 }
 
-struct PlatformContent {
+/// One letter of the A–Z index (Riso).
+struct PlatformLetterGroup: Hashable, Identifiable {
+    let letter: String
+    let games: [PlatformGame]
+    var id: String { letter }
+}
+
+/// One filter's games in both orders, and its A–Z index.
+struct PlatformGameList: Hashable {
+    var alphabetical: [PlatformGame] = []
+    var recentlyPlayed: [PlatformGame] = []
+    var letters: [PlatformLetterGroup] = []
+
+    func games(_ order: PlatformOrder) -> [PlatformGame] { order == .alphabetical ? alphabetical : recentlyPlayed }
+}
+
+/// Everything the Platform layouts draw: built once per change of the platform's
+/// games (`PlatformContent.build`), sorted and grouped for every filter, so
+/// switching the filter or the order only picks a list.
+struct PlatformContent: Equatable {
     let platform: PlatformDTO
     var tier: EmbeddedSupportTier = .unsupported
-    var games: [PlatformGame] = []
+    var games: [PlatformGame] = [] {
+        didSet { prepare() }
+    }
     var staleMessage: String?
     /// Nothing could be loaded (Android's copy): shown in place of the empty message.
     var errorMessage: String?
     var isLoading = false
 
-    var installedCount: Int { games.filter(\.installed).count }
-    var playedCount: Int { games.filter { $0.playtime > 0 }.count }
+    private(set) var lists: [PlatformFilter: PlatformGameList] = [:]
+    private(set) var installedCount = 0
+    private(set) var playedCount = 0
+    /// The most played covers, printed (or the first on this device), and whether they are the played ones (Riso).
+    private(set) var plates: [PlatformGame] = []
+    private(set) var platesArePlayed = false
+
+    init(platform: PlatformDTO) {
+        self.platform = platform
+    }
+
     var totalCount: Int { max(platform.romCount, games.count) }
+    /// The most recently played game (Aurora lights the page with it).
+    var lead: PlatformGame? { lists[.all]?.recentlyPlayed.first }
 
     func filtered(_ filter: PlatformFilter, order: PlatformOrder) -> [PlatformGame] {
-        let chosen: [PlatformGame] = switch filter {
-        case .all: games
-        case .onDevice: games.filter(\.installed)
-        case .played: games.filter { $0.playtime > 0 }
-        }
-        switch order {
-        case .alphabetical:
-            return chosen.sorted { $0.rom.displayName.localizedStandardCompare($1.rom.displayName) == .orderedAscending }
-        case .recentlyPlayed:
-            return chosen.sorted { lhs, rhs in
-                switch (lhs.lastPlayedAt, rhs.lastPlayedAt) {
-                case let (l?, r?): return l > r
-                case (.some, nil): return true
-                case (nil, .some): return false
-                default: return lhs.rom.displayName.localizedStandardCompare(rhs.rom.displayName) == .orderedAscending
-                }
-            }
-        }
+        lists[filter]?.games(order) ?? []
     }
+
+    func letters(_ filter: PlatformFilter) -> [PlatformLetterGroup] { lists[filter]?.letters ?? [] }
 
     /// The empty state (both themes): an error when nothing could be loaded.
     func emptyTitle(_ filter: PlatformFilter) -> String { filter == .all ? "No games yet" : "Nothing here yet" }
@@ -74,6 +92,77 @@ struct PlatformContent {
         case .played: playedCount
         }
     }
+
+    private mutating func prepare() {
+        installedCount = games.filter(\.installed).count
+        playedCount = games.filter { $0.playtime > 0 }.count
+        let alphabetical = games.sorted { $0.rom.displayName.localizedStandardCompare($1.rom.displayName) == .orderedAscending }
+        let recent = games.sorted { lhs, rhs in
+            switch (lhs.lastPlayedAt, rhs.lastPlayedAt) {
+            case let (l?, r?): return l > r
+            case (.some, nil): return true
+            case (nil, .some): return false
+            default: return lhs.rom.displayName.localizedStandardCompare(rhs.rom.displayName) == .orderedAscending
+            }
+        }
+        var lists: [PlatformFilter: PlatformGameList] = [:]
+        for filter in PlatformFilter.allCases {
+            let keep: (PlatformGame) -> Bool = switch filter {
+            case .all: { _ in true }
+            case .onDevice: { $0.installed }
+            case .played: { $0.playtime > 0 }
+            }
+            let sorted = alphabetical.filter(keep)
+            lists[filter] = PlatformGameList(alphabetical: sorted, recentlyPlayed: recent.filter(keep), letters: Self.letterGroups(sorted))
+        }
+        self.lists = lists
+        let played = games.filter { $0.playtime > 0 }.sorted { $0.playtime > $1.playtime }
+        platesArePlayed = !played.isEmpty
+        plates = Array((played.isEmpty ? games.filter(\.installed) : played).prefix(4))
+    }
+
+    private static func letterGroups(_ games: [PlatformGame]) -> [PlatformLetterGroup] {
+        var order: [String] = []
+        var groups: [String: [PlatformGame]] = [:]
+        for game in games {
+            let first = game.rom.displayName.first.map { String($0).uppercased() } ?? "#"
+            let letter = first.rangeOfCharacter(from: .letters) == nil ? "#" : first
+            if groups[letter] == nil { order.append(letter) }
+            groups[letter, default: []].append(game)
+        }
+        return order.map { PlatformLetterGroup(letter: $0, games: groups[$0]!) }
+    }
+
+    /// The platform's games from its feature model, with play and downloads on this device.
+    @MainActor
+    static func build(_ feature: PlatformDetailFeatureModel, model: RommioAppModel) -> PlatformContent {
+        var content = PlatformContent(platform: feature.platform)
+        content.tier = feature.sections.first?.supportTier ?? model.controlProfile(for: feature.platform.slug).supportTier
+        let installed = model.installedRomIDs
+        let played = Dictionary(model.statsFeature.stats.games.map { ($0.romID, $0) }, uniquingKeysWith: { first, _ in first })
+        content.games = feature.roms.map { rom in
+            PlatformGame(rom: rom, artworkURL: model.artworkURL(path: rom.urlCover), installed: installed.contains(rom.id),
+                         playtime: played[rom.id]?.playtime ?? 0, lastPlayedAt: played[rom.id]?.lastPlayedAt)
+        }
+        content.staleMessage = feature.roms.isEmpty ? nil : feature.staleMessage
+        content.errorMessage = feature.errorMessage
+        // Loading only shows in an empty list: a refresh of a full page doesn't republish it.
+        content.isLoading = feature.isLoading && (content.games.isEmpty || content.installedCount == 0 || content.playedCount == 0)
+        return content
+    }
+}
+
+/// A platform's feature model and its page content.
+@MainActor
+final class PlatformPageModel {
+    let feature: PlatformDetailFeatureModel
+    let content: DerivedContent<PlatformContent>
+
+    init(model: RommioAppModel, platform: PlatformDTO) {
+        let feature = model.makePlatformDetailFeature(platform: platform)
+        self.feature = feature
+        content = DerivedContent { [unowned model] in PlatformContent.build(feature, model: model) }
+    }
 }
 
 /// Platform: its games. Aurora: a summary card and a grid of covers lit by the
@@ -81,46 +170,37 @@ struct PlatformContent {
 /// an A–Z index. Reached from Library; the detail column when split.
 struct PlatformDetailView: View {
     @Environment(\.rommioTheme) private var theme
-    let model: RommioAppModel
     let platform: PlatformDTO
-
-    @State private var feature: PlatformDetailFeatureModel
+    @State private var page: PlatformPageModel
     @State private var filter: PlatformFilter = .all
     @State private var order: PlatformOrder = .alphabetical
 
     init(model: RommioAppModel, platform: PlatformDTO) {
-        self.model = model
         self.platform = platform
-        _feature = State(initialValue: model.makePlatformDetailFeature(platform: platform))
+        _page = State(initialValue: PlatformPageModel(model: model, platform: platform))
     }
 
     var body: some View {
-        Group {
-            if theme.isRiso {
-                RisoPlatformLayout(content: content, filter: $filter, order: $order)
-            } else {
-                AuroraPlatformLayout(content: content, filter: $filter, order: $order)
-            }
-        }
-        .navigationTitle(platform.name)
-        .accessibilityIdentifier("screen.platform")
-        .task { await feature.refresh(forceRemote: false) }
-        .refreshable { await feature.refresh(forceRemote: true) }
+        PlatformLayout(content: page.content.value, filter: $filter, order: $order, riso: theme.isRiso)
+            .navigationTitle(platform.name)
+            .accessibilityIdentifier("screen.platform")
+            .task { await page.feature.refresh(forceRemote: false) }
+            .refreshable { await page.feature.refresh(forceRemote: true) }
     }
+}
 
-    private var content: PlatformContent {
-        var content = PlatformContent(platform: platform)
-        content.tier = feature.sections.first?.supportTier ?? model.controlProfile(for: platform.slug).supportTier
-        let installed = Set(model.downloadsFeature.records.filter { $0.status == .completed }.map(\.romID))
-        let played = Dictionary(uniqueKeysWithValues: model.statsFeature.stats.games.map { ($0.romID, $0) })
-        content.games = feature.roms.map { rom in
-            PlatformGame(rom: rom, artworkURL: model.artworkURL(path: rom.urlCover), installed: installed.contains(rom.id),
-                         playtime: played[rom.id]?.playtime ?? 0, lastPlayedAt: played[rom.id]?.lastPlayedAt)
+private struct PlatformLayout: View {
+    let content: PlatformContent
+    @Binding var filter: PlatformFilter
+    @Binding var order: PlatformOrder
+    let riso: Bool
+
+    var body: some View {
+        if riso {
+            RisoPlatformLayout(content: content, filter: $filter, order: $order)
+        } else {
+            AuroraPlatformLayout(content: content, filter: $filter, order: $order)
         }
-        content.staleMessage = feature.roms.isEmpty ? nil : feature.staleMessage
-        content.errorMessage = feature.errorMessage
-        content.isLoading = feature.isLoading
-        return content
     }
 }
 
@@ -134,86 +214,124 @@ private func filterTitle(_ filter: PlatformFilter) -> String {
 
 // MARK: Aurora
 
-private struct AuroraPlatformLayout: View {
+struct AuroraPlatformLayout: View {
     @Environment(\.rommioTheme) private var theme
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let content: PlatformContent
     @Binding var filter: PlatformFilter
     @Binding var order: PlatformOrder
 
     var body: some View {
         let games = content.filtered(filter, order: order)
-        let lead = content.filtered(.all, order: .recentlyPlayed).first
         ThemedScrollPage(style: .page) {
-            summary
-            VStack(alignment: .leading, spacing: 12) {
-                Picker("Show", selection: $filter) {
-                    ForEach(PlatformFilter.allCases) { option in
-                        Text(filterTitle(option)).tag(option)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .accessibilityIdentifier("platform.filter")
-                Button {
-                    order = order == .alphabetical ? .recentlyPlayed : .alphabetical
-                } label: {
-                    Label(order == .alphabetical ? "A–Z" : "Recently played", systemImage: "arrow.up.arrow.down")
-                        .themeText(.bodyEmphasis, size: 14)
-                        .foregroundStyle(theme.inkSecondary)
-                }
-                .buttonStyle(.plain)
-                .frame(minHeight: 32)
-                .accessibilityIdentifier("platform.order")
-            }
+            AuroraPlatformSummary(total: content.totalCount, installed: content.installedCount, played: content.playedCount, tier: content.tier)
+            AuroraPlatformControls(filter: $filter, order: $order)
             if games.isEmpty {
                 EmptyStateView(title: content.isLoading ? "Loading games" : content.emptyTitle(filter), systemImage: "gamecontroller",
                                message: content.isLoading ? nil : content.emptyMessage(filter))
             } else {
-                VStack(alignment: .leading, spacing: 14) {
-                    SectionHeader(title: filterTitle(filter) == "All" ? "Games" : filterTitle(filter), detail: "\(games.count)")
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: horizontalSizeClass == .regular ? 128 : 104), spacing: 14, alignment: .top)],
-                              alignment: .leading, spacing: 20) {
-                        ForEach(games) { game in
-                            NavigationLink(value: AppDestination.game(game.rom)) {
-                                GridTile(game: game)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("platform.game.\(game.rom.id)")
-                        }
-                    }
-                }
+                AuroraPlatformGrid(title: filterTitle(filter) == "All" ? "Games" : filterTitle(filter), games: games)
             }
             if let staleMessage = content.staleMessage {
                 Text(staleMessage).themeText(.caption).foregroundStyle(theme.inkSecondary)
             }
         }
-        .litBy(lead?.artworkURL)
+        .litBy(content.lead?.artworkURL)
     }
+}
 
-    private var summary: some View {
+private struct AuroraPlatformSummary: View {
+    let total: Int
+    let installed: Int
+    let played: Int
+    let tier: EmbeddedSupportTier
+
+    var body: some View {
         HStack(alignment: .center, spacing: 18) {
-            figure(content.totalCount.formatted(), content.totalCount == 1 ? "game" : "games")
-            figure(content.installedCount.formatted(), "on this device")
+            PlatformFigure(value: total.formatted(), label: total == 1 ? "game" : "games")
+            PlatformFigure(value: installed.formatted(), label: "on this device")
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 8) {
-                SupportTierBadge(tier: content.tier)
-                if content.playedCount > 0 {
-                    StatusChip(title: "\(content.playedCount) played", tone: .ok)
+                SupportTierBadge(tier: tier)
+                if played > 0 {
+                    StatusChip(title: "\(played) played", tone: .ok)
                 }
             }
         }
         .padding(18)
         .themeSurface()
     }
+}
 
-    private func figure(_ value: String, _ label: String) -> some View {
+private struct PlatformFigure: View {
+    @Environment(\.rommioTheme) private var theme
+    let value: String
+    let label: String
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(value).themeText(.statValue, size: 32).foregroundStyle(theme.ink)
             Text(label).themeText(.caption).foregroundStyle(theme.inkSecondary)
         }
         .accessibilityElement(children: .combine)
     }
+}
 
+private struct AuroraPlatformControls: View {
+    @Environment(\.rommioTheme) private var theme
+    @Binding var filter: PlatformFilter
+    @Binding var order: PlatformOrder
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            PlatformFilterPicker(filter: $filter)
+            Button {
+                order = order == .alphabetical ? .recentlyPlayed : .alphabetical
+            } label: {
+                Label(order == .alphabetical ? "A–Z" : "Recently played", systemImage: "arrow.up.arrow.down")
+                    .themeText(.bodyEmphasis, size: 14)
+                    .foregroundStyle(theme.inkSecondary)
+            }
+            .buttonStyle(.plain)
+            .frame(minHeight: 32)
+            .accessibilityIdentifier("platform.order")
+        }
+    }
+}
+
+private struct PlatformFilterPicker: View {
+    @Binding var filter: PlatformFilter
+
+    var body: some View {
+        Picker("Show", selection: $filter) {
+            ForEach(PlatformFilter.allCases) { option in
+                Text(filterTitle(option)).tag(option)
+            }
+        }
+        .pickerStyle(.segmented)
+        .accessibilityIdentifier("platform.filter")
+    }
+}
+
+private struct AuroraPlatformGrid: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    let title: String
+    let games: [PlatformGame]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SectionHeader(title: title, detail: "\(games.count)")
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: horizontalSizeClass == .regular ? 128 : 104), spacing: 14, alignment: .top)],
+                      alignment: .leading, spacing: 20) {
+                ForEach(games) { game in
+                    PushButton(value: AppDestination.game(game.rom)) {
+                        GridTile(game: game)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("platform.game.\(game.rom.id)")
+                }
+            }
+        }
+    }
 }
 
 /// A cover with its title and when it was last played.
@@ -249,7 +367,7 @@ private struct GridTile: View {
 
 // MARK: Riso
 
-private struct RisoPlatformLayout: View {
+struct RisoPlatformLayout: View {
     @Environment(\.rommioTheme) private var theme
     let content: PlatformContent
     @Binding var filter: PlatformFilter
@@ -258,43 +376,34 @@ private struct RisoPlatformLayout: View {
     var body: some View {
         let games = content.filtered(filter, order: order)
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                opener
-                plates
-                filters.padding(.top, 18)
-                Text("Bold: on this device. Not downloaded entries are set lighter.")
-                    .themeText(.caption, size: 12.5)
-                    .foregroundStyle(theme.inkSecondary)
-                    .padding(.vertical, 6)
+            LazyVStack(alignment: .leading, spacing: 0) {
+                RisoPlatformOpener(platform: content.platform, tier: content.tier, total: content.totalCount,
+                                   installed: content.installedCount, played: content.playedCount)
+                if !content.plates.isEmpty {
+                    RisoPlatformPlates(picks: content.plates, played: content.platesArePlayed).padding(.top, 18)
+                }
+                RisoPlatformControls(filter: $filter, order: $order).padding(.top, 18)
+                RisoIndexNote()
                 PrintRule(weight: .keyline)
                 if games.isEmpty {
                     EmptyStateView(title: content.isLoading ? "Loading games" : content.emptyTitle(filter), systemImage: "gamecontroller",
                                    message: content.isLoading ? nil : content.emptyMessage(filter))
                 } else if order == .alphabetical {
-                    ForEach(letterGroups(games), id: \.letter) { group in
-                        HStack(alignment: .top, spacing: 0) {
-                            Text(group.letter)
-                                .themeText(.statValue, size: 30)
-                                .foregroundStyle(theme.accent2)
-                                .frame(width: 30, alignment: .leading)
-                                .padding(.top, 8)
-                                .accessibilityHidden(true)
-                            VStack(spacing: 0) {
-                                ForEach(Array(group.games.enumerated()), id: \.element.id) { index, game in
-                                    if index > 0 { Rectangle().fill(theme.hairline).frame(height: 1) }
-                                    entry(game)
-                                }
-                            }
+                    // Every entry is its own item: the index is built as it scrolls in.
+                    ForEach(content.letters(filter)) { group in
+                        ForEach(Array(group.games.enumerated()), id: \.element.id) { index, game in
+                            RisoIndexRow(letter: index == 0 ? group.letter : nil, game: game, first: index == 0, last: index == group.games.count - 1)
                         }
-                        .overlay(alignment: .bottom) { Rectangle().fill(theme.hairline).frame(height: 1) }
                     }
                 } else {
-                    ForEach(games) { game in
-                        entry(game).overlay(alignment: .bottom) { Rectangle().fill(theme.hairline).frame(height: 1) }
+                    // Keyed apart from the A–Z rows so switching the order never reuses a row.
+                    ForEach(games, id: \.recentKey) { game in
+                        RisoPlatformEntry(game: game)
+                            .overlay(alignment: .bottom) { RisoHairline() }
                     }
                 }
                 if let staleMessage = content.staleMessage {
-                    Text(staleMessage).themeText(.caption).foregroundStyle(theme.inkSecondary).padding(.top, 16)
+                    RisoPlatformStale(message: staleMessage)
                 }
             }
             .padding(.horizontal, theme.spacing.gutter)
@@ -305,79 +414,122 @@ private struct RisoPlatformLayout: View {
         .themedPage()
         .inlineNavigationTitle()
     }
+}
 
-    private var opener: some View {
+private struct RisoHairline: View {
+    @Environment(\.rommioTheme) private var theme
+    var body: some View { Rectangle().fill(theme.hairline).frame(height: 1) }
+}
+
+private struct RisoIndexNote: View {
+    @Environment(\.rommioTheme) private var theme
+
+    var body: some View {
+        Text("Bold: on this device. Not downloaded entries are set lighter.")
+            .themeText(.caption, size: 12.5)
+            .foregroundStyle(theme.inkSecondary)
+            .padding(.vertical, 6)
+    }
+}
+
+private struct RisoPlatformStale: View {
+    @Environment(\.rommioTheme) private var theme
+    let message: String
+
+    var body: some View {
+        Text(message).themeText(.caption).foregroundStyle(theme.inkSecondary).padding(.top, 16)
+    }
+}
+
+private struct RisoPlatformOpener: View {
+    @Environment(\.rommioTheme) private var theme
+    let platform: PlatformDTO
+    let tier: EmbeddedSupportTier
+    let total: Int
+    let installed: Int
+    let played: Int
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Platform")
                 Spacer()
-                Text(content.tier.title)
+                Text(tier.title)
                     .foregroundStyle(theme.inkSecondary)
             }
             .themeText(.label, size: 10.5)
             .foregroundStyle(theme.ink)
             .padding(.bottom, 6)
             .overlay(alignment: .bottom) { Rectangle().fill(theme.ink).frame(height: 3) }
-            DisplayText(text: content.platform.name, role: .display, size: 56, lineLimit: 2)
+            DisplayText(text: platform.name, role: .display, size: 56, lineLimit: 2)
                 .padding(.top, 4)
-            Text("\(PlayFormat.games(content.totalCount)) on your server, \(PlayFormat.count(content.installedCount)) on this device.")
+            Text("\(PlayFormat.games(total)) on your server, \(PlayFormat.count(installed)) on this device.")
                 .themeText(.body, size: 16.5)
                 .foregroundStyle(theme.ink)
             HStack(spacing: 12) {
-                SupportTierBadge(tier: content.tier)
-                if content.playedCount > 0 {
-                    StatusChip(title: "\(content.playedCount) played", tone: .ok)
+                SupportTierBadge(tier: tier)
+                if played > 0 {
+                    StatusChip(title: "\(played) played", tone: .ok)
                 }
             }
         }
     }
+}
 
-    /// The most played covers, printed (or the first on this device).
-    @ViewBuilder
-    private var plates: some View {
-        let played = content.games.filter { $0.playtime > 0 }.sorted { $0.playtime > $1.playtime }
-        let picks = Array((played.isEmpty ? content.games.filter(\.installed) : played).prefix(4))
-        if !picks.isEmpty {
-            VStack(alignment: .leading, spacing: 9) {
-                HStack(alignment: .top, spacing: 12) {
-                    ForEach(picks) { game in
-                        NavigationLink(value: AppDestination.game(game.rom)) {
-                            VStack(alignment: .leading, spacing: 3) {
-                                GameCover(url: game.artworkURL, title: game.rom.displayName, maxPointSize: 140)
-                                    .aspectRatio(3 / 4, contentMode: .fit)
-                                    .padding(.bottom, 4)
-                                Text(game.rom.displayName).themeText(.bodyEmphasis, size: 12.5).foregroundStyle(theme.ink).lineLimit(2)
-                                Text(game.playtime > 0 ? PlayFormat.duration(game.playtime) : "On this device")
-                                    .themeText(.label, size: 9.5).foregroundStyle(theme.inkSecondary)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .buttonStyle(.plain)
+/// The most played covers, printed (or the first on this device).
+private struct RisoPlatformPlates: View {
+    @Environment(\.rommioTheme) private var theme
+    let picks: [PlatformGame]
+    let played: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .top, spacing: 12) {
+                ForEach(picks) { game in
+                    PushButton(value: AppDestination.game(game.rom)) {
+                        RisoPlate(game: game)
                     }
-                    ForEach(0 ..< max(0, 4 - picks.count), id: \.self) { _ in Color.clear.frame(maxWidth: .infinity) }
+                    .buttonStyle(.plain)
                 }
-                Text(played.isEmpty ? "On this device" : "Most played on this platform")
-                    .themeText(.caption, size: 12.5)
-                    .foregroundStyle(theme.inkSecondary)
-                    .padding(.top, 6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .overlay(alignment: .top) { Rectangle().fill(theme.ink).frame(height: 1) }
+                ForEach(0 ..< max(0, 4 - picks.count), id: \.self) { _ in Color.clear.frame(maxWidth: .infinity) }
             }
-            .padding(.top, 18)
+            Text(played ? "Most played on this platform" : "On this device")
+                .themeText(.caption, size: 12.5)
+                .foregroundStyle(theme.inkSecondary)
+                .padding(.top, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .overlay(alignment: .top) { Rectangle().fill(theme.ink).frame(height: 1) }
         }
     }
+}
 
-    private var filters: some View {
+private struct RisoPlate: View {
+    @Environment(\.rommioTheme) private var theme
+    let game: PlatformGame
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            GameCover(url: game.artworkURL, title: game.rom.displayName, maxPointSize: 140)
+                .aspectRatio(3 / 4, contentMode: .fit)
+                .padding(.bottom, 4)
+            Text(game.rom.displayName).themeText(.bodyEmphasis, size: 12.5).foregroundStyle(theme.ink).lineLimit(2)
+            Text(game.playtime > 0 ? PlayFormat.duration(game.playtime) : "On this device")
+                .themeText(.label, size: 9.5).foregroundStyle(theme.inkSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct RisoPlatformControls: View {
+    @Environment(\.rommioTheme) private var theme
+    @Binding var filter: PlatformFilter
+    @Binding var order: PlatformOrder
+
+    var body: some View {
         // The segmented filter keeps the full width; the order sits under it (its
         // label is the same in both themes, "Recently played").
         VStack(alignment: .leading, spacing: 4) {
-            Picker("Show", selection: $filter) {
-                ForEach(PlatformFilter.allCases) { option in
-                    Text(filterTitle(option)).tag(option)
-                }
-            }
-            .pickerStyle(.segmented)
-            .accessibilityIdentifier("platform.filter")
+            PlatformFilterPicker(filter: $filter)
             Button {
                 order = order == .alphabetical ? .recentlyPlayed : .alphabetical
             } label: {
@@ -390,9 +542,47 @@ private struct RisoPlatformLayout: View {
             .accessibilityIdentifier("platform.order")
         }
     }
+}
 
-    private func entry(_ game: PlatformGame) -> some View {
-        NavigationLink(value: AppDestination.game(game.rom)) {
+/// One entry of the A–Z index: the letter beside the first entry of its group,
+/// a rule between entries and one under the group.
+private struct RisoIndexRow: View {
+    @Environment(\.rommioTheme) private var theme
+    let letter: String?
+    let game: PlatformGame
+    let first: Bool
+    let last: Bool
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            // The letter hangs in the margin of its group's first entry.
+            Color.clear
+                .frame(width: 30, height: 1)
+                .overlay(alignment: .topLeading) {
+                    if let letter {
+                        Text(letter)
+                            .themeText(.statValue, size: 30)
+                            .foregroundStyle(theme.accent2)
+                            .fixedSize()
+                            .padding(.top, 8)
+                            .accessibilityHidden(true)
+                    }
+                }
+            VStack(spacing: 0) {
+                if !first { RisoHairline() }
+                RisoPlatformEntry(game: game)
+            }
+        }
+        .overlay(alignment: .bottom) { if last { RisoHairline() } }
+    }
+}
+
+private struct RisoPlatformEntry: View {
+    @Environment(\.rommioTheme) private var theme
+    let game: PlatformGame
+
+    var body: some View {
+        PushButton(value: AppDestination.game(game.rom)) {
             HStack(alignment: .center, spacing: 8) {
                 Text(game.rom.displayName)
                     .themeText(game.installed ? .bodyEmphasis : .body, size: 16.5)
@@ -405,19 +595,8 @@ private struct RisoPlatformLayout: View {
                     .foregroundStyle(theme.ink)
                     .lineLimit(1)
                     .fixedSize()
-                Group {
-                    if game.installed {
-                        Color.clear
-                    } else {
-                        Image(systemName: "arrow.down.to.line")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(theme.ground)
-                            .frame(width: 26, height: 26)
-                            .background(theme.ink)
-                            .accessibilityLabel("Not downloaded")
-                    }
-                }
-                .frame(width: 34, alignment: .trailing)
+                RisoDownloadMark(installed: game.installed)
+                    .frame(width: 34, alignment: .trailing)
             }
             .frame(minHeight: 44)
             .contentShape(Rectangle())
@@ -425,16 +604,22 @@ private struct RisoPlatformLayout: View {
         .buttonStyle(RowButtonStyle())
         .accessibilityIdentifier("platform.game.\(game.rom.id)")
     }
+}
 
-    private func letterGroups(_ games: [PlatformGame]) -> [(letter: String, games: [PlatformGame])] {
-        var order: [String] = []
-        var groups: [String: [PlatformGame]] = [:]
-        for game in games {
-            let first = game.rom.displayName.first.map { String($0).uppercased() } ?? "#"
-            let letter = first.rangeOfCharacter(from: .letters) == nil ? "#" : first
-            if groups[letter] == nil { order.append(letter) }
-            groups[letter, default: []].append(game)
+private struct RisoDownloadMark: View {
+    @Environment(\.rommioTheme) private var theme
+    let installed: Bool
+
+    var body: some View {
+        if installed {
+            Color.clear
+        } else {
+            Image(systemName: "arrow.down.to.line")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(theme.ground)
+                .frame(width: 26, height: 26)
+                .background(theme.ink)
+                .accessibilityLabel("Not downloaded")
         }
-        return order.map { ($0, groups[$0]!) }
     }
 }

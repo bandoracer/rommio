@@ -1,5 +1,7 @@
 package io.github.bandoracer.rommio.ui.screen.platform
 
+import androidx.compose.runtime.Immutable
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.bandoracer.rommio.data.repository.RommRepository
@@ -9,11 +11,21 @@ import io.github.bandoracer.rommio.domain.stats.PlayStats
 import io.github.bandoracer.rommio.model.ConnectivityState
 import io.github.bandoracer.rommio.model.PlatformDto
 import io.github.bandoracer.rommio.model.RomDto
+import io.github.bandoracer.rommio.ui.component.PlayFormat
+import io.github.bandoracer.rommio.ui.component.formatPlayTime
+import io.github.bandoracer.rommio.ui.component.supportTierLabel
+import io.github.bandoracer.rommio.util.resolveRemoteAssetUrl
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -29,7 +41,7 @@ enum class PlatformFilter(val title: String) { ALL("All"), ON_DEVICE("On this de
 
 enum class PlatformOrder { ALPHABETICAL, RECENTLY_PLAYED }
 
-/** Everything both Platform layouts draw (docs/theme-layouts.md "Platform — two layouts"). */
+/** Everything the Platform page's data is made of (docs/theme-layouts.md "Platform — two layouts"). */
 data class PlatformUiState(
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
@@ -65,13 +77,141 @@ data class PlatformUiState(
     }
 }
 
+/** One game as both Platform layouts draw it (strings formatted once per data change). */
+@Immutable
+data class PlatformGameItem(
+    val id: Int,
+    val title: String,
+    val coverUrl: String?,
+    val installed: Boolean,
+    val played: Boolean,
+    /** Aurora tile caption: when it was last played, else where it is. */
+    val caption: String,
+    /** Riso A–Z figure: playtime, "Ready", or a blank. */
+    val figure: String,
+    /** Riso plate caption: playtime, or "On this device". */
+    val plateCaption: String,
+)
+
+/** A letter of the Riso A–Z index and its games. */
+@Immutable
+data class PlatformLetter(val letter: String, val games: List<PlatformGameItem>)
+
+/** The Platform page, built once per data or choice change (never in composition). */
+@Immutable
+data class PlatformPage(
+    val name: String = "",
+    val isLoading: Boolean = true,
+    val isRefreshing: Boolean = false,
+    val errorMessage: String? = null,
+    val staleMessage: String? = null,
+    val tier: EmbeddedSupportTier = EmbeddedSupportTier.UNSUPPORTED,
+    val tierLabel: String = supportTierLabel(EmbeddedSupportTier.UNSUPPORTED),
+    val totalCountText: String = "0",
+    val totalIsOne: Boolean = false,
+    val installedCount: Int = 0,
+    val playedCount: Int = 0,
+    val filter: PlatformFilter = PlatformFilter.ALL,
+    val order: PlatformOrder = PlatformOrder.ALPHABETICAL,
+    /** The games the filter keeps, in the chosen order. */
+    val games: List<PlatformGameItem> = emptyList(),
+    /** Riso's A–Z index (alphabetical order only). */
+    val letters: List<PlatformLetter> = emptyList(),
+    /** Riso's plates: the most played, else the first on this device (up to four). */
+    val plates: List<PlatformGameItem> = emptyList(),
+    val platesArePlayed: Boolean = false,
+    /** Aurora: the most recently played game lights the page. */
+    val leadCoverUrl: String? = null,
+) {
+    val orderLabel: String
+        get() = when (order) {
+            PlatformOrder.ALPHABETICAL -> "A–Z"
+            PlatformOrder.RECENTLY_PLAYED -> "Recently played"
+        }
+
+    companion object {
+        /** Builds the page from the platform's data and the page's choices. */
+        fun build(state: PlatformUiState, name: String, filter: PlatformFilter, order: PlatformOrder, baseUrl: String?): PlatformPage {
+            val items = HashMap<Int, PlatformGameItem>(state.games.size)
+            fun item(game: PlatformGame): PlatformGameItem = items.getOrPut(game.rom.id) {
+                PlatformGameItem(
+                    id = game.rom.id,
+                    title = game.rom.displayName,
+                    coverUrl = resolveRemoteAssetUrl(baseUrl, game.rom.urlCover),
+                    installed = game.installed,
+                    played = game.playedMs > 0,
+                    caption = game.lastPlayedAtEpochMs?.let { PlayFormat.relative(it) } ?: if (game.installed) "On this device" else "On your server",
+                    figure = if (game.playedMs > 0) formatPlayTime(game.playedMs) else if (game.installed) "Ready" else " ",
+                    plateCaption = if (game.playedMs > 0) formatPlayTime(game.playedMs) else "On this device",
+                )
+            }
+            val games = state.filtered(filter, order).map(::item)
+            val played = state.games.filter { it.playedMs > 0 }.sortedByDescending { it.playedMs }
+            val plates = played.ifEmpty { state.games.filter { it.installed } }.take(4).map(::item)
+            return PlatformPage(
+                name = name,
+                isLoading = state.isLoading,
+                isRefreshing = state.isRefreshing,
+                errorMessage = state.errorMessage,
+                staleMessage = state.staleMessage,
+                tier = state.tier,
+                tierLabel = supportTierLabel(state.tier),
+                totalCountText = java.text.NumberFormat.getIntegerInstance().format(state.totalCount),
+                totalIsOne = state.totalCount == 1,
+                installedCount = state.installedCount,
+                playedCount = state.playedCount,
+                filter = filter,
+                order = order,
+                games = games,
+                letters = if (order == PlatformOrder.ALPHABETICAL) letterGroups(games) else emptyList(),
+                plates = plates,
+                platesArePlayed = played.isNotEmpty(),
+                leadCoverUrl = state.filtered(PlatformFilter.ALL, PlatformOrder.RECENTLY_PLAYED).firstOrNull()
+                    ?.let { resolveRemoteAssetUrl(baseUrl, it.rom.urlCover) },
+            )
+        }
+
+        /** Games under their first letter ("#" for anything else), in the games' order. */
+        fun letterGroups(games: List<PlatformGameItem>): List<PlatformLetter> {
+            val order = mutableListOf<String>()
+            val groups = mutableMapOf<String, MutableList<PlatformGameItem>>()
+            for (game in games) {
+                val first = game.title.firstOrNull()?.uppercaseChar()
+                val letter = if (first != null && first.isLetter()) first.toString() else "#"
+                if (letter !in groups) order += letter
+                groups.getOrPut(letter) { mutableListOf() } += game
+            }
+            return order.map { PlatformLetter(it, groups.getValue(it)) }
+        }
+    }
+}
+
 class PlatformViewModel(
     private val repository: RommRepository,
     private val platformId: Int,
     private val playActivity: PlayActivityRepository? = null,
+    private val saved: SavedStateHandle = SavedStateHandle(),
+    /** The name from the route, until the platform is read. */
+    private val routeName: String = "",
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(PlatformUiState())
     val uiState: StateFlow<PlatformUiState> = _uiState.asStateFlow()
+
+    private val filter = MutableStateFlow(saved.get<String>(FILTER)?.let { runCatching { PlatformFilter.valueOf(it) }.getOrNull() } ?: PlatformFilter.ALL)
+    private val order = MutableStateFlow(saved.get<String>(ORDER)?.let { runCatching { PlatformOrder.valueOf(it) }.getOrNull() } ?: PlatformOrder.ALPHABETICAL)
+
+    /** The page both layouts draw; published only when it changes. */
+    val page: StateFlow<PlatformPage> = combine(
+        _uiState,
+        filter,
+        order,
+        repository.activeProfileFlow().map { it?.baseUrl }.distinctUntilChanged(),
+    ) { state, filter, order, baseUrl ->
+        PlatformPage.build(state, state.platform?.name ?: routeName, filter, order, baseUrl)
+    }
+        .distinctUntilChanged()
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, PlatformPage(name = routeName))
 
     init {
         viewModelScope.launch {
@@ -91,7 +231,7 @@ class PlatformViewModel(
                     ?: roms.firstOrNull()?.let(repository::embeddedSupportTier)
                     ?: EmbeddedSupportTier.UNSUPPORTED
                 Triple(platform, tier, games)
-            }.collect { (platform, tier, games) ->
+            }.distinctUntilChanged().flowOn(Dispatchers.Default).collect { (platform, tier, games) ->
                 _uiState.update {
                     it.copy(
                         platform = platform ?: it.platform,
@@ -103,6 +243,17 @@ class PlatformViewModel(
             }
         }
         refresh()
+    }
+
+    fun setFilter(value: PlatformFilter) {
+        filter.value = value
+        saved[FILTER] = value.name
+    }
+
+    fun toggleOrder() {
+        val next = if (order.value == PlatformOrder.ALPHABETICAL) PlatformOrder.RECENTLY_PLAYED else PlatformOrder.ALPHABETICAL
+        order.value = next
+        saved[ORDER] = next.name
     }
 
     fun refresh() {
@@ -133,5 +284,10 @@ class PlatformViewModel(
                 },
             )
         }
+    }
+
+    private companion object {
+        const val FILTER = "platform.filter"
+        const val ORDER = "platform.order"
     }
 }

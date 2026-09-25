@@ -34,6 +34,8 @@ data class SettingsUiState(
     val platformTiers: Map<EmbeddedSupportTier, Int> = emptyMap(),
     /** Every platform family's core on this device (Settings › Cores and BIOS). */
     val coreInventory: List<io.github.bandoracer.rommio.domain.player.CoreInventoryEntry> = emptyList(),
+    /** The Cores and BIOS row's subtitle ("5 ready · 2 need BIOS"), counted with the inventory; null before it resolves. */
+    val coreSummary: String? = null,
     /** Your server's platforms that no core in this build plays (browse only). */
     val browseOnlyPlatforms: List<String> = emptyList(),
     val errorMessage: String? = null,
@@ -92,11 +94,15 @@ class SettingsViewModel(
         refreshCores()
     }
 
-    /** Re-resolves the core inventory (after a BIOS import, or when Cores and BIOS opens). */
+    /**
+     * Re-resolves the core inventory (after a BIOS import, or when Cores and BIOS opens) on the IO
+     * dispatcher; each core and BIOS is verified again only when its file changed.
+     */
     fun refreshCores() {
         viewModelScope.launch {
             val inventory = runCatching { repository.coreInventory() }.getOrDefault(emptyList())
-            _uiState.update { it.copy(coreInventory = inventory) }
+            val summary = inventory.takeIf { it.isNotEmpty() }?.let(io.github.bandoracer.rommio.domain.player.CoreInventory::summary)
+            _uiState.update { it.copy(coreInventory = inventory, coreSummary = summary) }
         }
     }
 
@@ -142,6 +148,10 @@ class SettingsViewModel(
 
     fun setConsoleColorsEnabled(enabled: Boolean) {
         viewModelScope.launch { controlsRepository.setConsoleColorsEnabled(enabled) }
+    }
+
+    fun setHapticsEnabled(enabled: Boolean) {
+        viewModelScope.launch { controlsRepository.setHapticsEnabled(enabled) }
     }
 
     suspend fun deleteProfile(profileId: String): Boolean {

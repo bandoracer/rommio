@@ -15,6 +15,7 @@ import io.github.bandoracer.rommio.domain.input.HardwareBindingProfile
 import io.github.bandoracer.rommio.domain.input.PlatformControlProfile
 import io.github.bandoracer.rommio.domain.input.PlayerControlsPreferences
 import io.github.bandoracer.rommio.domain.input.PlayerControlsState
+import io.github.bandoracer.rommio.domain.input.PlayerStickTuning
 import io.github.bandoracer.rommio.domain.input.TouchLayoutProfile
 import io.github.bandoracer.rommio.domain.input.TouchSupportMode
 import io.github.bandoracer.rommio.domain.input.defaultHardwareBinding
@@ -113,6 +114,24 @@ class PlayerControlsRepository(
 
     suspend fun setConsoleColorsEnabled(enabled: Boolean) = StorageAccess.normal {
         preferencesStore.setConsoleColorsEnabled(enabled)
+    }
+
+    /** PlayStation's per-game Analog controls: both sticks and L3/R3 shown (off by default). */
+    fun observeAnalogControls(romId: Int): Flow<Boolean> = preferencesStore.analogControlsFlow(romId)
+
+    suspend fun setAnalogControls(romId: Int, enabled: Boolean) = StorageAccess.normal {
+        preferencesStore.setAnalogControls(romId, enabled)
+    }
+
+    /** A game's touch-stick tuning (Sensitivity, Dead zone, Centre); the console profile by default. */
+    fun observeStickTuning(romId: Int): Flow<PlayerStickTuning> = preferencesStore.stickTuningFlow(romId)
+
+    suspend fun setStickTuning(romId: Int, tuning: PlayerStickTuning) = StorageAccess.normal {
+        preferencesStore.setStickTuning(romId, tuning)
+    }
+
+    suspend fun setHapticsEnabled(enabled: Boolean) = StorageAccess.normal {
+        preferencesStore.setHapticsEnabled(enabled)
     }
 
     private fun observeTouchLayout(profile: PlatformControlProfile): Flow<TouchLayoutProfile?> {

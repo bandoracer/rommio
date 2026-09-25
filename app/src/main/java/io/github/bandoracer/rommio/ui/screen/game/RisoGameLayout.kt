@@ -29,7 +29,6 @@ import io.github.bandoracer.rommio.ui.component.DisplayText
 import io.github.bandoracer.rommio.ui.component.InkBox
 import io.github.bandoracer.rommio.ui.component.Kicker
 import io.github.bandoracer.rommio.ui.component.KickerFill
-import io.github.bandoracer.rommio.ui.component.PageArtSubject
 import io.github.bandoracer.rommio.ui.component.PageFieldStyle
 import io.github.bandoracer.rommio.ui.component.PlayFormat
 import io.github.bandoracer.rommio.ui.component.PrintRule
@@ -52,9 +51,9 @@ import io.github.bandoracer.rommio.ui.theme.RommioTheme
 fun RisoGameLayout(content: GameContent, actions: GameActions, scroll: ScrollState) {
     val theme = RommioTheme.current
     val regular = isRegularWidth()
-    PageArtSubject(null, PageFieldStyle.QUIET)
+    // Riso never lights a page (the screen's LitPage passes no subject).
     Column(Modifier.fillMaxSize().verticalScroll(scroll)) {
-        GameArtHero(content, heroHeight(0.32f))
+        GameArtHero(content.coverUrl, content.rom.displayName, heroHeight(0.32f))
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
             Column(
                 Modifier
@@ -243,7 +242,7 @@ private fun Details(content: GameContent, actions: GameActions, modifier: Modifi
     val theme = RommioTheme.current
     val rows = buildList {
         // RomM's rows lead (play-data-local.md §6 order), then how it plays here.
-        addAll(metadataDetails(content.rom.metadata))
+        addAll(content.details)
         add("Platform" to content.rom.platformName)
         add("How it plays" to content.tierLabel)
         content.selectedFile?.let { file -> add("File" to "${file.fileName}\n${content.fileMeta.orEmpty()}") }

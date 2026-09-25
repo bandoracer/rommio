@@ -320,6 +320,14 @@ class LibretroPlayerEngine : PlayerEngine {
             if (!closing && (!isPaused || (x == 0f && y == 0f))) sendMotion(source.toLibretroSource(), x, y, port)
         }
 
+    override fun sendDigital(keyCode: Int, pressed: Boolean, port: Int) {
+        if (!closing && (!isPaused || !pressed)) sendKey(if (pressed) ACTION_DOWN else ACTION_UP, keyCode, port)
+    }
+
+    override fun sendMotion(source: PlayerMotionSource, x: Float, y: Float, port: Int) {
+        if (!closing && (!isPaused || (x == 0f && y == 0f))) sendMotion(source.toLibretroSource(), x, y, port)
+    }
+
     private fun sendKey(action: Int, key: Int, port: Int) {
         commands?.offer { if (!closing && isInForeground && (!isPaused || action == ACTION_UP)) LibretroDroid.onKeyEvent(port, action, key) }
     }

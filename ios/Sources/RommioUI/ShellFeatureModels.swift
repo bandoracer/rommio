@@ -97,16 +97,16 @@ public final class PlayFeatureModel {
 
         do {
             if let cached = try await services.libraryRepository.cachedHome() {
-                snapshot = cached
+                update(\.snapshot, cached)
             } else if !refreshCatalog {
-                snapshot = try await services.libraryRepository.loadHome()
+                update(\.snapshot, try await services.libraryRepository.loadHome())
             }
         } catch {
             errors.append(error.localizedDescription)
         }
 
         do {
-            downloads = try await services.downloadQueue.records(profileID: activeProfile?.id)
+            update(\.downloads, try await services.downloadQueue.records(profileID: activeProfile?.id))
         } catch {
             errors.append(error.localizedDescription)
         }
@@ -116,30 +116,33 @@ public final class PlayFeatureModel {
         } catch {
             errors.append(error.localizedDescription)
         }
-        staleMessage = errors.isEmpty ? nil : errors.joined(separator: "\n")
+        update(\.staleMessage, errors.isEmpty ? nil : errors.joined(separator: "\n"))
     }
 
     private func loadCachedState() async {
         do {
             try await refreshProfileState()
             if let cached = try await services.libraryRepository.cachedHome() {
-                snapshot = cached
+                update(\.snapshot, cached)
             }
-            downloads = try await services.downloadQueue.records(profileID: activeProfile?.id)
+            update(\.downloads, try await services.downloadQueue.records(profileID: activeProfile?.id))
         } catch {
-            staleMessage = error.localizedDescription
+            update(\.staleMessage, error.localizedDescription)
         }
     }
 
     private func refreshProfileState() async throws {
-        activeProfile = try await services.profileStore.activeProfile()
-        if let activeProfile {
-            offlineState = try await services.offlineStore.load(profileID: activeProfile.id)
+        let profile = try await services.profileStore.activeProfile()
+        var state = if let profile {
+            try await services.offlineStore.load(profileID: profile.id)
         } else {
-            offlineState = OfflineState(connectivity: services.networkMonitor.connectivity)
+            OfflineState(connectivity: services.networkMonitor.connectivity)
         }
-        offlineState.connectivity = services.networkMonitor.connectivity
-        storageSummary = localStorageSummary(libraryStore: services.libraryStore, downloads: downloads, offlineState: offlineState)
+        state.connectivity = services.networkMonitor.connectivity
+        let storage = await BackgroundScans.storageSummary(libraryStore: services.libraryStore, downloads: downloads, offlineState: state)
+        update(\.activeProfile, profile)
+        update(\.offlineState, state)
+        update(\.storageSummary, storage)
     }
 }
 
@@ -202,30 +205,34 @@ public final class DownloadsFeatureModel {
 
         var errors: [String] = []
         do {
-            activeProfile = try await services.profileStore.activeProfile()
-            if let activeProfile {
-                offlineState = try await services.offlineStore.load(profileID: activeProfile.id)
+            let profile = try await services.profileStore.activeProfile()
+            var state = if let profile {
+                try await services.offlineStore.load(profileID: profile.id)
             } else {
-                offlineState = OfflineState(connectivity: services.networkMonitor.connectivity)
+                OfflineState(connectivity: services.networkMonitor.connectivity)
             }
-            offlineState.connectivity = services.networkMonitor.connectivity
+            state.connectivity = services.networkMonitor.connectivity
+            update(\.activeProfile, profile)
+            update(\.offlineState, state)
         } catch {
             errors.append(error.localizedDescription)
         }
 
         do {
-            records = try await services.downloadQueue.records(profileID: activeProfile?.id)
+            // Polled every second while downloads run: publish only what moved.
+            update(\.records, try await services.downloadQueue.records(profileID: activeProfile?.id))
         } catch {
             errors.append(error.localizedDescription)
         }
 
-        inventory = coreInstaller.inventory(
+        update(\.inventory, await BackgroundScans.inventory(
+            installer: coreInstaller,
             catalog: coreCatalog,
             libraryStore: services.libraryStore,
             bundle: coreBundle
-        )
+        ))
 
-        staleMessage = errors.isEmpty ? nil : errors.joined(separator: "\n")
+        update(\.staleMessage, errors.isEmpty ? nil : errors.joined(separator: "\n"))
     }
 
     public func retry(recordID: String) async {
@@ -327,45 +334,49 @@ public final class SettingsFeatureModel {
 
         var errors: [String] = []
         do {
-            profiles = try await services.profileStore.listProfiles()
+            let profiles = try await services.profileStore.listProfiles()
                 .sorted { $0.updatedAt > $1.updatedAt }
-            activeProfile = try await services.profileStore.activeProfile()
-            if let activeProfile {
-                offlineState = try await services.offlineStore.load(profileID: activeProfile.id)
+            let profile = try await services.profileStore.activeProfile()
+            var state = if let profile {
+                try await services.offlineStore.load(profileID: profile.id)
             } else {
-                offlineState = OfflineState(connectivity: services.networkMonitor.connectivity)
+                OfflineState(connectivity: services.networkMonitor.connectivity)
             }
-            offlineState.connectivity = services.networkMonitor.connectivity
+            state.connectivity = services.networkMonitor.connectivity
+            update(\.profiles, profiles)
+            update(\.activeProfile, profile)
+            update(\.offlineState, state)
         } catch {
             errors.append(error.localizedDescription)
         }
 
         do {
-            preferences = try await services.playerControlsRepository.preferences()
+            update(\.preferences, try await services.playerControlsRepository.preferences())
         } catch {
             errors.append(error.localizedDescription)
         }
 
         do {
             let downloads = try await services.downloadQueue.records(profileID: activeProfile?.id)
-            storageSummary = localStorageSummary(
+            update(\.storageSummary, await BackgroundScans.storageSummary(
                 libraryStore: services.libraryStore,
                 downloads: downloads,
                 offlineState: offlineState
-            )
+            ))
         } catch {
             errors.append(error.localizedDescription)
         }
 
-        managedLibraryPath = services.libraryStore.rootDirectory.path
+        update(\.managedLibraryPath, services.libraryStore.rootDirectory.path)
 
-        runtimeInventory = coreInstaller.inventory(
+        update(\.runtimeInventory, await BackgroundScans.inventory(
+            installer: coreInstaller,
             catalog: coreCatalog,
             libraryStore: services.libraryStore,
             bundle: coreBundle
-        )
+        ))
 
-        staleMessage = errors.isEmpty ? nil : errors.joined(separator: "\n")
+        update(\.staleMessage, errors.isEmpty ? nil : errors.joined(separator: "\n"))
     }
 
     public func setTouchControlsEnabled(_ enabled: Bool) async { await updatePreference { try await $0.setTouchControlsEnabled(enabled) } }
@@ -373,6 +384,7 @@ public final class SettingsFeatureModel {
     public func setRumbleToDeviceEnabled(_ enabled: Bool) async { await updatePreference { try await $0.setRumbleToDeviceEnabled(enabled) } }
     public func setOLEDBlackModeEnabled(_ enabled: Bool) async { await updatePreference { try await $0.setOLEDBlackModeEnabled(enabled) } }
     public func setConsoleColorsEnabled(_ enabled: Bool) async { await updatePreference { try await $0.setConsoleColorsEnabled(enabled) } }
+    public func setHapticsEnabled(_ enabled: Bool) async { await updatePreference { try await $0.setHapticsEnabled(enabled) } }
 
     public func reconfigureServerAccess() async {
         guard let reconfigureAction else { return }
@@ -409,7 +421,7 @@ public final class SettingsFeatureModel {
     ) async {
         do {
             try await operation(services.playerControlsRepository)
-            preferences = try await services.playerControlsRepository.preferences()
+            update(\.preferences, try await services.playerControlsRepository.preferences())
         } catch {
             staleMessage = error.localizedDescription
         }
@@ -429,7 +441,7 @@ private func downloadQueueSummary(
     )
 }
 
-private func localStorageSummary(
+func localStorageSummary(
     libraryStore: AppManagedLibraryStore,
     downloads: [DownloadRecord],
     offlineState: OfflineState
@@ -442,7 +454,9 @@ private func localStorageSummary(
     return LocalStorageSummary(
         installedGameCount: Set(installedRecords.map(\.romID)).count,
         installedFileCount: installedRecords.count,
-        totalBytes: directorySize(at: libraryStore.rootDirectory),
+        totalBytes: LibrarySizeCache.size(of: libraryStore.rootDirectory,
+                                          installedPaths: installedRecords.compactMap(\.localPath),
+                                          measure: directorySize(at:)),
         cacheBytes: offlineState.cacheBytes
     )
 }

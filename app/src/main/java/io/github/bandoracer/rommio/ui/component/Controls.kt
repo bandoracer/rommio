@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.bandoracer.rommio.domain.player.EmbeddedSupportTier
+import io.github.bandoracer.rommio.ui.theme.PageLight
 import io.github.bandoracer.rommio.ui.theme.RisoArtTokens
 import io.github.bandoracer.rommio.ui.theme.RommioTheme
 import io.github.bandoracer.rommio.ui.theme.RommioThemeValue
@@ -75,11 +76,10 @@ import io.github.bandoracer.rommio.ui.theme.ThemeColorTokens
 /** Semantic tones shared by badges, row icons and status text (`MUTE` is the spec's neutral). */
 enum class Tone { OK, WAIT, LIVE, BAD, TINT, MUTE }
 
+/** A tone's colour; the tint is the page light's (read only for [Tone.TINT]). */
 @Composable
-fun toneColor(tone: Tone): Color {
-    val c = RommioTheme.colors
-    return tone.color(c)
-}
+fun toneColor(tone: Tone): Color =
+    if (tone == Tone.TINT) RommioTheme.light.tint else tone.color(RommioTheme.colors)
 
 fun Tone.color(c: ThemeColorTokens): Color = when (this) {
     Tone.OK -> c.ok
@@ -92,11 +92,11 @@ fun Tone.color(c: ThemeColorTokens): Color = when (this) {
 
 /**
  * A tone as text on the page ground (docs/theme-layouts.md §1.2a): the tint through
- * [RommioThemeValue.tintText], errors in `badText`, and Riso never sets text in `ok` or `wait`
+ * [PageLight.tintText], errors in `badText`, and Riso never sets text in `ok` or `wait`
  * (its sync states are stamps with ink text).
  */
-fun Tone.textColor(theme: RommioThemeValue): Color = when {
-    this == Tone.TINT -> theme.tintText
+fun Tone.textColor(theme: RommioThemeValue, light: PageLight): Color = when {
+    this == Tone.TINT -> light.tintText
     this == Tone.BAD -> theme.colors.badText
     theme.isRiso && (this == Tone.WAIT || this == Tone.OK) -> theme.colors.ink
     else -> color(theme.colors)
@@ -142,6 +142,8 @@ fun PrimaryButton(
         return
     }
     val shape = RoundedCornerShape(percent = 50)
+    // The glow is the page's light (the one lit colour this button reads).
+    val glow = if (enabled) RommioTheme.light.mark1 else Color.Unspecified
     ButtonFrame(
         onClick = onClick,
         enabled = enabled,
@@ -151,7 +153,7 @@ fun PrimaryButton(
             .then(
                 if (enabled) {
                     Modifier
-                        .dropShadow(theme.mark1.copy(alpha = if (theme.isDark) 0.5f else 0.55f), 999.dp, 17.dp, 14.dp)
+                        .dropShadow(glow.copy(alpha = if (theme.isDark) 0.5f else 0.55f), 999.dp, 17.dp, 14.dp)
                         .dropShadow(Color.Black.copy(alpha = 0.16f), 999.dp, 3.dp, 2.dp)
                 } else {
                     Modifier
@@ -238,7 +240,7 @@ fun TextAction(
         !enabled -> c.inkTertiary
         destructive -> c.badText
         theme.isRiso -> c.ink
-        else -> theme.tintText
+        else -> RommioTheme.light.tintText
     }
     ButtonFrame(
         onClick = onClick,
@@ -275,6 +277,8 @@ fun IconCircleButton(
     size: Dp = 44.dp,
     prominent: Boolean = false,
     enabled: Boolean = true,
+    /** The glyph's size; 42 % of [size] when not given. */
+    iconSize: Dp? = null,
 ) {
     val theme = RommioTheme.current
     val c = theme.colors
@@ -290,7 +294,7 @@ fun IconCircleButton(
         // Paper under the ink square: identical on paper, legible over a printed hero.
         theme.isRiso -> Modifier.background(c.ground).border(2.dp, c.ink)
         prominent -> Modifier
-            .dropShadow(theme.mark1.copy(alpha = 0.45f), 999.dp, 10.dp, 5.dp)
+            .dropShadow(RommioTheme.light.mark1.copy(alpha = 0.45f), 999.dp, 10.dp, 5.dp)
             .clip(CircleShape)
             .background(c.buttonFill)
         else -> Modifier
@@ -307,7 +311,7 @@ fun IconCircleButton(
         contentAlignment = Alignment.Center,
     ) {
         Box(Modifier.size(size).then(face), contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = null, tint = ink, modifier = Modifier.size(size * 0.42f))
+            Icon(icon, contentDescription = null, tint = ink, modifier = Modifier.size(iconSize ?: (size * 0.42f)))
         }
     }
 }
@@ -502,8 +506,10 @@ fun StatusChip(
         return
     }
     // A tint pill is the readable tint on a wash of itself (§1.2a); errors read in `badText`.
-    val color = if (tone == Tone.TINT) theme.tintText else tone.color(c)
-    val textColor = if (tone == Tone.MUTE) color else tone.textColor(theme)
+    // Only a tint pill reads the page light.
+    val light = if (tone == Tone.TINT) RommioTheme.light else theme.unlit
+    val color = if (tone == Tone.TINT) light.tintText else tone.color(c)
+    val textColor = if (tone == Tone.MUTE) color else tone.textColor(theme, light)
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(percent = 50))
@@ -712,8 +718,10 @@ fun RommioProgressBar(
         return
     }
     val base = tone.color(c)
-    val from = if (lit) theme.mark2 else base
-    val to = if (lit) theme.mark1 else base
+    // A lit bar is the page light's marks (read only then).
+    val light = if (lit) RommioTheme.light else null
+    val from = light?.mark2 ?: base
+    val to = light?.mark1 ?: base
     val barHeight = height ?: 5.dp
     Box(
         modifier = modifier
@@ -884,7 +892,11 @@ fun RowIcon(
         }
         return
     }
-    val fill = if (tone == Tone.MUTE) Color(0xFF8C8C8C) else tone.color(c)
+    val fill = when (tone) {
+        Tone.MUTE -> Color(0xFF8C8C8C)
+        Tone.TINT -> RommioTheme.light.tint
+        else -> tone.color(c)
+    }
     Box(
         modifier = modifier
             .size(30.dp)

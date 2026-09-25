@@ -44,12 +44,15 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Constraints
 import io.github.bandoracer.rommio.ui.art.ArtBake
 import io.github.bandoracer.rommio.ui.art.AuroraLight
-import io.github.bandoracer.rommio.ui.art.AuroraLights
 import io.github.bandoracer.rommio.ui.art.CoverArt
 import io.github.bandoracer.rommio.ui.art.CoverPalette
 import io.github.bandoracer.rommio.ui.art.rememberCoverPalette
 import io.github.bandoracer.rommio.ui.theme.AuroraArtTokens
+import io.github.bandoracer.rommio.ui.theme.PageLight
+import io.github.bandoracer.rommio.ui.theme.ProvidePageLight
 import io.github.bandoracer.rommio.ui.theme.RommioTheme
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.unit.dp
 
 /**
  * Where a page's lights sit (docs/theme-layouts.md §1.3, the studio's `.a-field` variants): the
@@ -114,7 +117,7 @@ val LocalPageArt = staticCompositionLocalOf<PageArtState?> { null }
 
 /**
  * Declares this page's subject (its cover lights the page in Aurora; null for none) and the
- * page's field style. Pages without a declaration get the quiet field.
+ * page's field style, without lighting the page's own content. Prefer [LitPage].
  */
 @Composable
 fun PageArtSubject(coverUrl: String?, style: PageFieldStyle = PageFieldStyle.PAGE) {
@@ -128,15 +131,28 @@ fun PageArtSubject(coverUrl: String?, style: PageFieldStyle = PageFieldStyle.PAG
 }
 
 /**
- * Aurora's light for a cover in the current scheme: null in Riso, without art, while reading, or
- * for a neutral (greyscale) palette, which keeps the theme's own light.
+ * A page about [coverUrl]: declares it to the shell (which lights the field behind the page and
+ * the bars) and lights the page's own content with the same [PageLight]. The light is known on the
+ * first frame when the cover's palette is in memory (covers warm it as they are shown in Aurora),
+ * so the page opens lit; otherwise it arrives once and only its readers update. Riso and pages
+ * without a subject pass null: the theme's own light.
  */
 @Composable
-fun rememberAuroraLights(coverUrl: String?): AuroraLights? {
+fun LitPage(coverUrl: String?, style: PageFieldStyle = PageFieldStyle.PAGE, content: @Composable () -> Unit) {
+    PageArtSubject(coverUrl, style)
+    ProvidePageLight(rememberPageLight(coverUrl), content)
+}
+
+/**
+ * The light a cover casts on an Aurora page in the current scheme: the theme's own light in Riso,
+ * without art, while the palette loads, or for a neutral (greyscale) palette.
+ */
+@Composable
+fun rememberPageLight(coverUrl: String?): PageLight {
     val theme = RommioTheme.current
     val palette = rememberCoverPalette(if (theme.isGlass) coverUrl else null)
-    return remember(palette, theme.isDark) {
-        palette?.takeUnless(CoverPalette::isNeutral)?.let { AuroraLight.lights(it, theme.isDark) }
+    return remember(theme, palette) {
+        PageLight.of(theme, palette?.takeUnless(CoverPalette::isNeutral)?.let { AuroraLight.lights(it, theme.isDark) })
     }
 }
 
@@ -145,10 +161,11 @@ fun rememberAuroraLights(coverUrl: String?): AuroraLights? {
 fun rememberCoverMark(coverUrl: String?): Color {
     val theme = RommioTheme.current
     val palette = rememberCoverPalette(if (theme.isGlass) coverUrl else null)
-    return remember(palette, theme) {
+    val mark = remember(palette, theme.isDark) {
         palette?.takeUnless(CoverPalette::isNeutral)?.let { Color(0xFF000000.toInt() or AuroraLight.lights(it, theme.isDark).k1) }
-            ?: theme.mark1
     }
+    // The page's own mark only when the cover has none (reading the light only then).
+    return mark ?: RommioTheme.light.mark1
 }
 
 private fun Int.opaque(): Color = Color(0xFF000000.toInt() or this)
@@ -157,37 +174,43 @@ private fun Int.opaque(): Color = Color(0xFF000000.toInt() or this)
  * The page background (docs/theme-layouts.md §1.3–1.4). Riso: paper with its grain. Aurora:
  * the ground, the subject's cover blurred into light (lit pages only), three radial lights
  * (screen-blended in dark) and a veil back to the ground. An unlit page always uses the quiet
- * field (except welcome) with the theme's own lights. Reads the (lit) theme it is drawn in.
+ * field (except welcome) with the theme's own lights.
+ *
+ * Only this backdrop animates when the light changes (the colours and the cover crossfade over
+ * 450 ms); the animated values are read while drawing, so the animation redraws the field (and
+ * the glass blur of it) without recomposing anything. It sits on its own layer, so nothing else
+ * redraws it.
  */
 @Composable
 fun PageField(
     modifier: Modifier = Modifier,
     style: PageFieldStyle = PageFieldStyle.QUIET,
     coverUrl: String? = null,
+    /** The light to draw; the shell passes the declared subject's. */
+    light: PageLight = RommioTheme.light,
     /** Records the field for the glass surfaces above it to blur (§1.6; API 31+). */
     backdrop: GlassBackdrop? = null,
 ) {
     val theme = RommioTheme.current
-    val colors = theme.colors
     if (!theme.isGlass) {
         PaperGrain(modifier)
         return
     }
-    val lit = theme.light != null
+    val lit = light.isLit
     val effective = if (!lit && style != PageFieldStyle.WELCOME) PageFieldStyle.QUIET else style
     val dark = theme.isDark
     val motion = tween<Color>(durationMillis = 450)
-    val ground by animateColorAsState(colors.ground, motion, label = "ground")
-    val l1 by animateColorAsState(theme.lights.l1.opaque(), motion, label = "l1")
-    val l2 by animateColorAsState(theme.lights.l2.opaque(), motion, label = "l2")
-    val l3 by animateColorAsState(theme.lights.l3.opaque(), motion, label = "l3")
+    val ground = animateColorAsState(light.ground, motion, label = "ground")
+    val l1 = animateColorAsState(light.lights.l1.opaque(), motion, label = "l1")
+    val l2 = animateColorAsState(light.lights.l2.opaque(), motion, label = "l2")
+    val l3 = animateColorAsState(light.lights.l3.opaque(), motion, label = "l3")
     val lightOpacity = if (dark) AuroraArtTokens.lightOpacityDark else AuroraArtTokens.lightOpacityLight
-    // Glass above redraws while the light animates.
-    backdrop?.observe = { ground; l1; l2; l3 }
     Box(
         modifier
-            .recordGlassBackdrop(backdrop)
-            .background(ground)
+            // Its own layer: the field (and its recording for the glass) redraws only when it changes.
+            .graphicsLayer()
+            .recordGlassBackdrop(backdrop, theme.material.glassBlur.dp)
+            .drawBehind { drawRect(ground.value) }
             .clipToBounds()
             .clearAndSetSemantics {},
     ) {
@@ -197,7 +220,7 @@ fun PageField(
             }
             Canvas(Modifier.fillMaxSize()) {
                 val spots = effective.spots
-                val lights = listOf(l1, l2, l3)
+                val lights = listOf(l1.value, l2.value, l3.value)
                 drawIntoCanvas { canvas ->
                     val paint = Paint().apply {
                         alpha = lightOpacity
@@ -208,7 +231,8 @@ fun PageField(
                     canvas.restore()
                 }
                 val veil = effective.veil
-                drawRect(Brush.verticalGradient(*veil.map { (at, a) -> at to ground.copy(alpha = a) }.toTypedArray()))
+                val g = ground.value
+                drawRect(Brush.verticalGradient(*veil.map { (at, a) -> at to g.copy(alpha = a) }.toTypedArray()))
             }
         }
     }

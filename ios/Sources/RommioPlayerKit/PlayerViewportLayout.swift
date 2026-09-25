@@ -102,15 +102,16 @@ public struct PlayerControlDeckLayout {
     public var usesUtilityRow: Bool { utilityRowMidX != nil }
 
     public init(size: CGSize, insets: PlayerViewportSafeAreaInsets, deckHeight: Double, scale requestedScale: Double = 1,
-                visible: Bool = true, aspectRatio: Double? = nil, utilityCount: Int = 3) {
+                visible: Bool = true, aspectRatio: Double? = nil, utilityCount: Int = 3, railBase: CGFloat = 148) {
         self.init(bounds: CGRect(origin: .zero, size: size), insets: insets, deckHeight: deckHeight, scale: requestedScale,
-                  visible: visible, aspectRatio: aspectRatio, utilityCount: utilityCount, portrait: nil)
+                  visible: visible, aspectRatio: aspectRatio, utilityCount: utilityCount, portrait: nil, railBase: railBase)
     }
 
     /// Lays the deck out inside `bounds`. `portrait` forces a bottom deck (true)
     /// or side rails (false); nil derives it from the bounds' shape.
     public init(bounds: CGRect, insets: PlayerViewportSafeAreaInsets, deckHeight: Double, scale requestedScale: Double = 1,
-                visible: Bool = true, aspectRatio: Double? = nil, utilityCount: Int = 3, portrait forcedPortrait: Bool?) {
+                visible: Bool = true, aspectRatio: Double? = nil, utilityCount: Int = 3, portrait forcedPortrait: Bool?,
+                railBase: CGFloat = 148) {
         let size = bounds.size
         let portrait = forcedPortrait ?? (size.height >= size.width)
         isPortrait = portrait
@@ -120,17 +121,17 @@ public struct PlayerControlDeckLayout {
         let safeHeight = max(1, size.height - insets.top - insets.bottom)
         let availableHeight = max(1, safeHeight - 72)
         let requested = min(max(requestedScale, 0.92), 1.3)
-        var fittedScale = min(requested, (safeWidth - 16) / 296, availableHeight / height)
+        var fittedScale = min(requested, (safeWidth - 16) / (2 * railBase), availableHeight / height)
         if !portrait, visible, requested <= 1, let aspectRatio {
             // First fit the video at full height, then use its existing side bars.
             // Default controls can compact to 44pt targets before reducing video.
             let naturalWidth = min(safeWidth, safeHeight * max(0.1, aspectRatio))
             let sideRoom = (safeWidth - naturalWidth) / 2 - 4
-            fittedScale = min(fittedScale, max(0.92, sideRoom / 148))
+            fittedScale = min(fittedScale, max(0.92, sideRoom / railBase))
         }
         scale = fittedScale
         let utilityWidth = CGFloat(max(0, (utilityCount + 1) / 2 - 1)) * 50 + 48
-        railWidth = portrait ? 148 * scale : max(148 * scale, utilityWidth)
+        railWidth = portrait ? railBase * scale : max(railBase * scale, utilityWidth)
         leftOrigin = bounds.minX + insets.left + (portrait ? 8 : 0)
         rightOrigin = bounds.minX + size.width - insets.right - (portrait ? 8 : 0) - railWidth
         utilityY = bounds.minY + size.height - insets.bottom - 28
@@ -174,11 +175,20 @@ public struct PlayerControlDeckLayout {
 public struct PlayerStageLayout {
     public let viewport: PlayerViewportLayout
     public let deck: PlayerControlDeckLayout
+    /// Every touch control, the Menu button and the title strip, placed for this
+    /// stage (when the stage was resolved with a control plan).
+    public var controls: PlayerTouchLayout? = nil
 
     public var screens: [PlayerScreenPlacement] { viewport.screens }
     public var touchScreen: PlayerScreenPlacement? { screens.first(where: \.isTouchScreen) }
 }
 
+/// Resolves the stage: where the game (or DS screens) and the controls go.
+///
+/// With a control plan (`controls`), touch controls follow docs/player-controls.md:
+/// on a phone or tablet the portrait title strip and control band and the landscape
+/// rails (`StandardStage`); on iPhone Duo and for DS the stage rules below, with rails
+/// sized for the plan. Without one, the legacy rail geometry (148 pt rails).
 public func resolvePlayerStageLayout(
     containerSize: CGSize,
     safeAreaInsets: PlayerViewportSafeAreaInsets,
@@ -188,7 +198,110 @@ public func resolvePlayerStageLayout(
     controlScale: Double = 1,
     reserveTouchSpace: Bool? = nil,
     utilityCount: Int = 3,
-    stage: PlayerStageContext = PlayerStageContext()
+    stage: PlayerStageContext = PlayerStageContext(),
+    controls plan: PlayerControlPlan? = nil,
+    mirrored: Bool = false
+) -> PlayerStageLayout {
+    guard let plan else {
+        return resolveRailStage(containerSize: containerSize, safeAreaInsets: safeAreaInsets, aspectRatio: aspectRatio,
+                                topAlignedInPortrait: topAlignedInPortrait, controlDeckHeight: controlDeckHeight, controlScale: controlScale,
+                                reserveTouchSpace: reserveTouchSpace, utilityCount: utilityCount, stage: stage)
+    }
+    let visible = reserveTouchSpace ?? topAlignedInPortrait
+    if visible, !stage.dualScreen, !stage.isFoldable(in: containerSize) {
+        let pane = max(0, min(stage.trailingPaneWidth, containerSize.width * 0.6))
+        let insets = PlayerViewportSafeAreaInsets(top: safeAreaInsets.top, bottom: safeAreaInsets.bottom,
+                                                  left: safeAreaInsets.left, right: pane > 0 ? 0 : safeAreaInsets.right)
+        var layout = StandardStage(bounds: CGRect(x: 0, y: 0, width: containerSize.width - pane, height: containerSize.height),
+                                   insets: insets, plan: plan, requestedScale: CGFloat(controlScale), aspectRatio: aspectRatio,
+                                   prefersPortrait: stage.prefersPortrait, mirrored: mirrored).layout()
+        let screens = layout.screens.map(\.frame)
+        layout.controls?.gameScreens = screens
+        return layout
+    }
+    func railStage(_ plan: PlayerControlPlan, _ box: (base: CGFloat, height: CGFloat, clusterCenter: CGFloat)) -> PlayerStageLayout {
+        resolveRailStage(containerSize: containerSize, safeAreaInsets: safeAreaInsets, aspectRatio: aspectRatio,
+                         topAlignedInPortrait: topAlignedInPortrait,
+                         controlDeckHeight: visible ? Double(box.height) : controlDeckHeight, controlScale: controlScale,
+                         reserveTouchSpace: reserveTouchSpace, utilityCount: visible ? plan.utilities.count + 1 : 1, stage: stage,
+                         railBase: box.base, clusterCenter: box.clusterCenter)
+    }
+    /// The stage for a plan, with its rail box measured again at the scale the stage
+    /// picks (below full size the size floors make the controls relatively larger).
+    func fittedRailStage(_ plan: PlayerControlPlan) -> (PlayerStageLayout, (base: CGFloat, height: CGFloat, clusterCenter: CGFloat)) {
+        var box = plan.railBox()
+        var layout = railStage(plan, box)
+        for _ in 0 ..< 3 where visible && layout.deck.scale < 0.999 {
+            let refined = plan.railBox(scale: layout.deck.scale)
+            guard refined != box else { break }
+            box = refined
+            layout = railStage(plan, box)
+        }
+        return (layout, box)
+    }
+    var railPlan: PlayerControlPlan = plan
+    var (layout, box) = fittedRailStage(plan)
+    // A band too short for a stacked secondary (the 3DS d-pad under the circle pad) puts
+    // the d-pad beside the stick, rather than shrinking the controls under their floor.
+    if visible, layout.deck.scale < PlayerControlMetrics.scaleRange.lowerBound - 0.001, let compact = plan.compact() {
+        let (alternative, compactBox) = fittedRailStage(compact)
+        if alternative.deck.scale > layout.deck.scale {
+            railPlan = compact
+            layout = alternative
+            box = compactBox
+        }
+    }
+    let deck = layout.deck
+    if visible {
+        let railRange = deck.railTop ... deck.railTop + box.height * deck.scale
+        let rowMaxWidth: CGFloat
+        if let midX = deck.utilityRowMidX, railRange.contains(deck.utilityY) {
+            // The row sits between the rails.
+            rowMaxWidth = max(0, 2 * min(midX - (deck.leftOrigin + deck.railWidth), deck.rightOrigin - midX) - 12)
+        } else {
+            rowMaxWidth = max(0, containerSize.width - safeAreaInsets.left - safeAreaInsets.right - 24)
+        }
+        let utility: PlayerControlAnchors.Utility
+        if let midX = deck.utilityRowMidX {
+            utility = .row(midX: midX, y: deck.utilityY, maxWidth: rowMaxWidth)
+        } else {
+            utility = .feet(y: deck.utilityY, menu: railPlan.menuOnLeadingFoot ? .leadingFoot : .trailingFoot)
+        }
+        // Portrait (a band under the game, DS and 3DS): shoulders 16 pt above their
+        // side's stack; landscape rails: at the top of the rail.
+        let shoulders: PlayerControlAnchors.Shoulders = deck.isPortrait
+            ? .aboveCluster(PlayerControlMetrics(scale: 1).shoulderLift) : .top(deck.railTop)
+        let clusterY = deck.railTop + box.clusterCenter * deck.scale
+        let anchors = PlayerControlAnchors(
+            leftRail: deck.leftOrigin ... deck.leftOrigin + deck.railWidth,
+            rightRail: deck.rightOrigin ... deck.rightOrigin + deck.railWidth,
+            alignOuter: false, leftClusterY: clusterY, rightClusterY: clusterY,
+            shoulders: shoulders, utility: utility, titleStrip: nil)
+        var controls = railPlan.place(anchors, metrics: PlayerControlMetrics(scale: deck.scale), mirrored: mirrored)
+        controls.gameScreens = layout.screens.map(\.frame)
+        layout.controls = controls
+    } else {
+        layout.controls = PlayerTouchLayout(controls: [], faceZone: nil, chord: nil,
+                                            menuCenter: CGPoint(x: deck.utilityX(index: 0, count: 1, width: containerSize.width), y: deck.utilityY),
+                                            menuDiameter: PlayerControlMetrics.menuDiameter, titleStrip: nil,
+                                            metrics: PlayerControlMetrics(scale: CGFloat(controlScale)))
+    }
+    return layout
+}
+
+/// The rail-based stage (iPhone Duo, DS, controls hidden, and the legacy geometry).
+private func resolveRailStage(
+    containerSize: CGSize,
+    safeAreaInsets: PlayerViewportSafeAreaInsets,
+    aspectRatio: Double?,
+    topAlignedInPortrait: Bool,
+    controlDeckHeight: Double,
+    controlScale: Double,
+    reserveTouchSpace: Bool?,
+    utilityCount: Int,
+    stage: PlayerStageContext,
+    railBase: CGFloat = 148,
+    clusterCenter: CGFloat = PlayerControlDeckLayout.clusterCenter
 ) -> PlayerStageLayout {
     let visible = reserveTouchSpace ?? topAlignedInPortrait
     let pane = max(0, min(stage.trailingPaneWidth, containerSize.width * 0.6))
@@ -208,13 +321,14 @@ public func resolvePlayerStageLayout(
                                 isOpen: min(containerSize.width, containerSize.height) >= 600,
                                 deckHeight: CGFloat(max(1, controlDeckHeight)),
                                 requestedScale: CGFloat(min(max(controlScale, 0.92), 1.3)),
-                                utilityCount: max(1, utilityCount))
+                                utilityCount: max(1, utilityCount), railBase: railBase, clusterCenter: clusterCenter)
         return stage.dualScreen ? duo.dualScreen() : duo.singleScreen(aspectRatio: aspectRatio)
     }
 
     func deck(_ rect: CGRect, portrait: Bool?, insets: PlayerViewportSafeAreaInsets, aspect: Double? = nil) -> PlayerControlDeckLayout {
         PlayerControlDeckLayout(bounds: rect, insets: insets, deckHeight: controlDeckHeight, scale: controlScale,
-                                visible: visible, aspectRatio: aspect ?? aspectRatio, utilityCount: utilityCount, portrait: portrait)
+                                visible: visible, aspectRatio: aspect ?? aspectRatio, utilityCount: utilityCount, portrait: portrait,
+                                railBase: railBase)
     }
 
     if stage.dualScreen {
@@ -274,6 +388,9 @@ private struct FoldableStage {
     let deckHeight: CGFloat
     let requestedScale: CGFloat
     let utilityCount: Int
+    /// Rail width and cluster centre at scale 1 (a control plan's, or the legacy 148 / 122).
+    var railBase: CGFloat = 148
+    var clusterCenter: CGFloat = PlayerControlDeckLayout.clusterCenter
 
     /// Utility targets are 48 pt, 52 pt apart.
     private let rowHeight: CGFloat = 48
@@ -295,7 +412,7 @@ private struct FoldableStage {
     private var rowY: CGFloat { safe.maxY - gap - rowHeight / 2 }
 
     private func fittedScale(availableHeight: CGFloat) -> CGFloat {
-        max(0.5, min(requestedScale, (safe.width - 16) / 296, availableHeight / deckHeight))
+        max(0.5, min(requestedScale, (safe.width - 3 * gap) / (2 * railBase), availableHeight / deckHeight))
     }
 
     // MARK: Single screen
@@ -319,7 +436,7 @@ private struct FoldableStage {
         let scale = fittedScale(availableHeight: safe.height - 2 * gap - rowHeight)
         // Rails always leave room for utilities at their foot, so the game's
         // size never depends on where the utility row lands.
-        let railWidth = max(148 * scale, footUtilityWidth)
+        let railWidth = max(railBase * scale, footUtilityWidth)
         let leftOrigin = safe.minX + gap
         let rightOrigin = safe.maxX - gap - railWidth
         let columnMinX = leftOrigin + railWidth + gap
@@ -343,7 +460,7 @@ private struct FoldableStage {
             && rowWidth <= available.width
         let railFloor = rowUnderGame ? safe.maxY - gap : rowY - rowHeight / 2 - gap / 2
         let railHeight = deckHeight * scale
-        let target = bounds.minY + bounds.height * (isOpen ? 0.7 : 0.68) - PlayerControlDeckLayout.clusterCenter * scale
+        let target = bounds.minY + bounds.height * (isOpen ? 0.7 : 0.68) - clusterCenter * scale
         let railTop = max(safe.minY + gap / 2, min(target, railFloor - railHeight))
         let deck = PlayerControlDeckLayout(
             scale: scale, railTop: railTop, railWidth: railWidth, leftOrigin: leftOrigin, rightOrigin: rightOrigin,
@@ -355,7 +472,7 @@ private struct FoldableStage {
     private func portraitLayout(aspectRatio: Double?) -> PlayerStageLayout {
         let top = safe.minY + gap + cameraPad
         let scale = fittedScale(availableHeight: safe.height - 72)
-        let railWidth = 148 * scale
+        let railWidth = railBase * scale
         let railHeight = deckHeight * scale
         let railTop = rowY - rowHeight / 2 - gap / 2 - railHeight
         // Clusters under the thumbs (about a quarter in from each side of the
@@ -401,7 +518,7 @@ private struct FoldableStage {
         // fits, otherwise under them. The band never takes more than about half
         // the height, so both screens stay playable.
         let scale = fittedScale(availableHeight: min(safe.height - 72, safe.height * 0.45))
-        let railWidth = 148 * scale
+        let railWidth = railBase * scale
         let railHeight = deckHeight * scale
         let leftOrigin = safe.minX + gap
         let rightOrigin = safe.maxX - gap - railWidth

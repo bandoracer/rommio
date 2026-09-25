@@ -96,6 +96,7 @@ struct LaunchChoicePresentation: Identifiable {
 /// primary button (its label follows the selection) and "Not now".
 struct LaunchChoiceSheet: View {
     @Environment(\.rommioTheme) private var theme
+    @Environment(\.pageLight) private var light
     let choice: LaunchChoice
     /// Starts the game with the chosen option (the sheet closes first).
     let start: (LaunchChoice.Option) -> Void
@@ -110,7 +111,7 @@ struct LaunchChoiceSheet: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                heading
+                LaunchChoiceHeading(rom: choice.rom)
                 ThemedGroup(inset: 90) {
                     ForEach(choice.rows) { row in
                         LaunchChoiceRow(row: row, coverURL: choice.artworkURL, gameTitle: choice.rom.displayName, selected: row.option == selected) {
@@ -145,7 +146,7 @@ struct LaunchChoiceSheet: View {
                     .accessibilityIdentifier("launch.start")
                     Button("Not now", action: dismiss)
                         .themeText(.bodyEmphasis)
-                        .foregroundStyle(theme.readableTint)
+                        .foregroundStyle(light.readableTint)
                         .frame(minHeight: 44)
                         .accessibilityIdentifier("launch.dismiss")
                 }
@@ -162,16 +163,22 @@ struct LaunchChoiceSheet: View {
         .accessibilityIdentifier("launch.sheet")
     }
 
-    @ViewBuilder
-    private var heading: some View {
+}
+
+/// "Start" and the game.
+private struct LaunchChoiceHeading: View {
+    @Environment(\.rommioTheme) private var theme
+    let rom: RomDTO
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if theme.isRiso {
-                Kicker(label: "Start", detail: choice.rom.platformSlug.uppercased(), fill: .ink)
-                DisplayText(text: choice.rom.displayName, role: .display, size: 40, lineLimit: 3)
+                Kicker(label: "Start", detail: rom.platformSlug.uppercased(), fill: .ink)
+                DisplayText(text: rom.displayName, role: .display, size: 40, lineLimit: 3)
                 PrintRule(weight: .keyline)
             } else {
                 Text("Start").themeText(.section).foregroundStyle(theme.inkSecondary)
-                Text(choice.rom.displayName)
+                Text(rom.displayName)
                     .themeText(.title, size: 30)
                     .foregroundStyle(theme.ink)
                     .lineLimit(3)
@@ -236,6 +243,7 @@ private struct LaunchChoiceRow: View {
 /// A radio: a filled `mark1` disc with a centre (Aurora), an ink square (Riso).
 struct ChoiceRadio: View {
     @Environment(\.rommioTheme) private var theme
+    @Environment(\.pageLight) private var light
     let selected: Bool
 
     var body: some View {
@@ -247,9 +255,9 @@ struct ChoiceRadio: View {
                     .frame(width: 18, height: 18)
             } else {
                 ZStack {
-                    Circle().strokeBorder(selected ? theme.mark1 : theme.inkTertiary, lineWidth: 1.5)
+                    Circle().strokeBorder(selected ? light.mark1 : theme.inkTertiary, lineWidth: 1.5)
                     if selected {
-                        Circle().fill(theme.mark1)
+                        Circle().fill(light.mark1)
                         Circle().fill(theme.markInk).frame(width: 7, height: 7)
                     }
                 }

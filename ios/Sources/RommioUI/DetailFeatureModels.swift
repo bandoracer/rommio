@@ -233,7 +233,7 @@ final class LibraryFeatureModel {
         do {
             let cached = try await services.libraryRepository.cachedPlatforms()
             if !cached.isEmpty {
-                platforms = cached
+                update(\.platforms, cached)
             }
         } catch {
             errors.append(error.localizedDescription)
@@ -241,15 +241,15 @@ final class LibraryFeatureModel {
 
         do {
             let loaded = try await services.libraryRepository.loadPlatforms()
-            platforms = loaded
+            update(\.platforms, loaded)
         } catch {
             errors.append(error.localizedDescription)
         }
 
-        staleMessage = errors.isEmpty || platforms.isEmpty ? nil : errors.joined(separator: "\n")
-        errorMessage = loadErrorMessage(empty: platforms.isEmpty, errors: errors, offline: services.networkMonitor.connectivity == .offline,
+        update(\.staleMessage, errors.isEmpty || platforms.isEmpty ? nil : errors.joined(separator: "\n"))
+        update(\.errorMessage, loadErrorMessage(empty: platforms.isEmpty, errors: errors, offline: services.networkMonitor.connectivity == .offline,
                                         offlineText: "You're offline. Your library appears here after this server syncs once.",
-                                        fallback: "Couldn't load the library.")
+                                        fallback: "Couldn't load the library."))
     }
 }
 
@@ -280,7 +280,7 @@ final class CollectionsFeatureModel {
         do {
             let cached = try await services.libraryRepository.cachedCollections()
             if !cached.isEmpty {
-                collections = cached
+                update(\.collections, cached)
             }
         } catch {
             errors.append(error.localizedDescription)
@@ -288,12 +288,12 @@ final class CollectionsFeatureModel {
 
         do {
             let loaded = try await services.libraryRepository.loadCollections()
-            collections = loaded
+            update(\.collections, loaded)
         } catch {
             errors.append(error.localizedDescription)
         }
 
-        staleMessage = errors.isEmpty || collections.isEmpty ? nil : errors.joined(separator: "\n")
+        update(\.staleMessage, errors.isEmpty || collections.isEmpty ? nil : errors.joined(separator: "\n"))
     }
 }
 
@@ -335,7 +335,7 @@ final class PlatformDetailFeatureModel {
         do {
             let cached = try await services.libraryRepository.cachedRoms(platformID: platform.id)
             if !cached.isEmpty {
-                roms = cached
+                update(\.roms, cached)
             }
         } catch {
             errors.append(error.localizedDescription)
@@ -343,15 +343,15 @@ final class PlatformDetailFeatureModel {
 
         do {
             let loaded = try await services.libraryRepository.loadRoms(platformID: platform.id)
-            roms = loaded
+            update(\.roms, loaded)
         } catch {
             errors.append(error.localizedDescription)
         }
 
-        staleMessage = errors.isEmpty || roms.isEmpty ? nil : errors.joined(separator: "\n")
-        errorMessage = loadErrorMessage(empty: roms.isEmpty, errors: errors, offline: services.networkMonitor.connectivity == .offline,
+        update(\.staleMessage, errors.isEmpty || roms.isEmpty ? nil : errors.joined(separator: "\n"))
+        update(\.errorMessage, loadErrorMessage(empty: roms.isEmpty, errors: errors, offline: services.networkMonitor.connectivity == .offline,
                                         offlineText: "Offline. This platform will appear after the profile sync completes.",
-                                        fallback: "Unable to load this platform.")
+                                        fallback: "Unable to load this platform."))
     }
 }
 
@@ -393,7 +393,7 @@ final class CollectionDetailFeatureModel {
         do {
             let cached = try await services.libraryRepository.cachedRoms(collection: collection)
             if !cached.isEmpty {
-                roms = cached
+                update(\.roms, cached)
             }
         } catch {
             errors.append(error.localizedDescription)
@@ -401,15 +401,15 @@ final class CollectionDetailFeatureModel {
 
         do {
             let loaded = try await services.libraryRepository.loadRoms(collection: collection)
-            roms = loaded
+            update(\.roms, loaded)
         } catch {
             errors.append(error.localizedDescription)
         }
 
-        staleMessage = errors.isEmpty || roms.isEmpty ? nil : errors.joined(separator: "\n")
-        errorMessage = loadErrorMessage(empty: roms.isEmpty, errors: errors, offline: services.networkMonitor.connectivity == .offline,
+        update(\.staleMessage, errors.isEmpty || roms.isEmpty ? nil : errors.joined(separator: "\n"))
+        update(\.errorMessage, loadErrorMessage(empty: roms.isEmpty, errors: errors, offline: services.networkMonitor.connectivity == .offline,
                                         offlineText: "Offline. This collection will appear after the profile sync completes.",
-                                        fallback: "Unable to load this collection.")
+                                        fallback: "Unable to load this collection."))
     }
 }
 
@@ -623,19 +623,20 @@ final class GameDetailFeatureModel {
         var errors: [String] = []
 
         do {
-            if let profile = try await services.profileStore.activeProfile() {
-                offlineState = try await services.offlineStore.load(profileID: profile.id)
+            var state = if let profile = try await services.profileStore.activeProfile() {
+                try await services.offlineStore.load(profileID: profile.id)
             } else {
-                offlineState = OfflineState(connectivity: services.networkMonitor.connectivity)
+                OfflineState(connectivity: services.networkMonitor.connectivity)
             }
-            offlineState.connectivity = services.networkMonitor.connectivity
+            state.connectivity = services.networkMonitor.connectivity
+            update(\.offlineState, state)
         } catch {
             errors.append(error.localizedDescription)
         }
 
         do {
             if let cached = try await services.libraryRepository.cachedRom(id: rom.id) {
-                rom = cached
+                update(\.rom, cached)
             }
         } catch {
             errors.append(error.localizedDescription)
@@ -643,38 +644,47 @@ final class GameDetailFeatureModel {
 
         do {
             let loaded = try await services.libraryRepository.loadRom(id: rom.id)
-            rom = loaded
+            update(\.rom, loaded)
         } catch {
             errors.append(error.localizedDescription)
         }
 
+        let records: [DownloadRecord]
         do {
-            let records = try await services.downloadQueue.records(profileID: try await services.profileStore.activeProfile()?.id)
-            fileStates = buildFileStates(from: records)
-            selectedFileID = preferredFileState(from: fileStates)?.file.id
+            records = try await services.downloadQueue.records(profileID: try await services.profileStore.activeProfile()?.id)
         } catch {
             errors.append(error.localizedDescription)
-            fileStates = buildFileStates(from: [])
-            selectedFileID = preferredFileState(from: fileStates)?.file.id
+            records = []
         }
+        let states = buildFileStates(from: records)
+        update(\.fileStates, states)
+        update(\.selectedFileID, preferredFileState(from: states)?.file.id)
 
         await refreshSaves()
         if !usesProgressStore { await refreshStateBrowser() }
 
-        staleMessage = errors.isEmpty || !hasRenderableContent ? nil : errors.joined(separator: "\n")
+        update(\.staleMessage, errors.isEmpty || !hasRenderableContent ? nil : errors.joined(separator: "\n"))
     }
 
     /// Reads this game's saves from the current store: the install's content
     /// generation first, else every generation of the ROM.
     func refreshSaves() async {
-        guard let account = await services.activeProgressAccount() else { saves = .empty; conflicts = []; usesProgressStore = false; return }
+        guard let account = await services.activeProgressAccount() else {
+            update(\.saves, .empty)
+            update(\.conflicts, [])
+            update(\.usesProgressStore, false)
+            return
+        }
         await services.playData.flush()
         let state = selectedFileState
         do {
-            saves = try await services.savedProgress.gameSaves(account, romId: Int64(rom.id), fileId: state.map { Int64($0.file.id) },
-                                                              contentSha256: state?.downloadRecord?.contentSHA256)
-            conflicts = try await services.savedProgress.conflicts(account, romId: Int64(rom.id))
-            usesProgressStore = !saves.isEmpty || !conflicts.isEmpty || runsOnProgressStore
+            let saves = try await services.savedProgress.gameSaves(account, romId: Int64(rom.id), fileId: state.map { Int64($0.file.id) },
+                                                                  contentSha256: state?.downloadRecord?.contentSHA256)
+            let conflicts = try await services.savedProgress.conflicts(account, romId: Int64(rom.id))
+            // One batch: the page's saves, conflicts and where they come from change together.
+            update(\.saves, saves)
+            update(\.conflicts, conflicts)
+            update(\.usesProgressStore, !saves.isEmpty || !conflicts.isEmpty || runsOnProgressStore)
         } catch {
             // Storage busy (backup or recovery): keep what is shown.
         }
@@ -958,7 +968,7 @@ final class GameDetailFeatureModel {
     private func refreshStateBrowser() async {
         guard supportsExternalStateBrowser,
               let selectedFile = selectedFileState?.file else {
-            stateBrowser = GameStateBrowser()
+            update(\.stateBrowser, GameStateBrowser())
             return
         }
         let installation = InstalledROMReference(
@@ -971,24 +981,25 @@ final class GameDetailFeatureModel {
         let activeProfile = try? await services.profileStore.activeProfile()
         if let activeProfile {
             do {
-                stateBrowser = try await services.syncBridge.refreshStateBrowser(
+                let browser = try await services.syncBridge.refreshStateBrowser(
                     profile: activeProfile,
                     installation: installation,
                     rom: rom,
                     runtimeID: selectedFileState?.resolution.runtimeProfile?.runtimeID ?? "",
                     connectivity: offlineState.connectivity
                 )
+                update(\.stateBrowser, browser)
                 return
             } catch {
                 staleMessage = error.localizedDescription
             }
         }
         do {
-            stateBrowser = try services.syncBridge.cachedStateBrowser(
+            update(\.stateBrowser, try services.syncBridge.cachedStateBrowser(
                 profile: activeProfile,
                 installation: installation,
                 connectivity: offlineState.connectivity
-            )
+            ))
         } catch {
             staleMessage = error.localizedDescription
         }

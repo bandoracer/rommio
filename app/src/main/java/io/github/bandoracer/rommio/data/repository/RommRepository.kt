@@ -890,9 +890,14 @@ class RommRepository(
         return migrationBundleManager.importMigrationBundle(sourceUri, replaceExisting)
     }
 
+    /** Reads the disk (BIOS identification, the installed core): from a coroutine, use [coreSupport]. */
     fun resolveCoreSupport(rom: RomDto, file: RomFileDto?): CoreResolution {
         return coreResolver.resolve(rom.platformSlug, file?.effectiveFileExtension)
     }
+
+    /** [resolveCoreSupport] on the IO dispatcher, so no caller resolves a core on the main thread. */
+    suspend fun coreSupport(rom: RomDto, file: RomFileDto?): CoreResolution =
+        withContext(Dispatchers.IO) { resolveCoreSupport(rom, file) }
 
     /** Settings › Cores and BIOS: every platform family's core, resolved on this device (disk reads). */
     suspend fun coreInventory(): List<io.github.bandoracer.rommio.domain.player.CoreInventoryEntry> =
@@ -910,12 +915,12 @@ class RommRepository(
             ?: EmbeddedSupportTier.UNSUPPORTED
     }
 
+    /**
+     * A game's tier from its platform and first file's type, without reading the disk (lists call
+     * this per game; it is the tier [embeddedPlayerSupport] implies, see [CoreResolver.supportTier]).
+     */
     fun embeddedSupportTier(rom: RomDto): EmbeddedSupportTier {
-        val resolution = embeddedPlayerSupport(rom)
-        if (resolution.capability == PlayerCapability.UNSUPPORTED) {
-            return EmbeddedSupportTier.UNSUPPORTED
-        }
-        return resolution.platformFamily?.supportTier ?: EmbeddedSupportTier.UNSUPPORTED
+        return coreResolver.supportTier(rom.platformSlug, rom.files.firstOrNull()?.effectiveFileExtension)
     }
 
     fun supportsEmbeddedPlayer(platform: PlatformDto): Boolean {
@@ -935,10 +940,10 @@ class RommRepository(
     }
 
     suspend fun installRecommendedCore(rom: RomDto, file: RomFileDto?): CoreResolution = StorageAccess.normal {
-        val resolution = resolveCoreSupport(rom, file)
+        val resolution = coreSupport(rom, file)
         val profile = recommendedRuntimeProfile(resolution)
         coreInstaller.installCore(profile)
-        return@normal resolveCoreSupport(rom, file)
+        return@normal coreSupport(rom, file)
     }
 
     suspend fun enqueuePendingSync(installation: DownloadedRomEntity, rom: RomDto) = StorageAccess.normal {
@@ -1148,7 +1153,7 @@ class RommRepository(
     }
 
     suspend fun refreshGameStateRecovery(installation: DownloadedRomEntity, rom: RomDto) = StorageAccess.normal {
-        val resolution = resolveCoreSupport(
+        val resolution = coreSupport(
             rom = rom,
             file = rom.files.firstOrNull { it.id == installation.fileId } ?: rom.files.firstOrNull(),
         )
@@ -1289,7 +1294,7 @@ class RommRepository(
     }
 
     suspend fun syncGame(installation: DownloadedRomEntity, rom: RomDto): SyncSummary = StorageAccess.normal {
-        val resolution = resolveCoreSupport(
+        val resolution = coreSupport(
             rom = rom,
             file = rom.files.firstOrNull { it.id == installation.fileId } ?: rom.files.firstOrNull(),
         )
@@ -1321,7 +1326,7 @@ class RommRepository(
                 syncPresentation = currentGameSyncPresentation(installation),
             )
         }
-        val resolution = resolveCoreSupport(
+        val resolution = coreSupport(
             rom = rom,
             file = rom.files.firstOrNull { it.id == installation.fileId } ?: rom.files.firstOrNull(),
         )
@@ -1330,7 +1335,7 @@ class RommRepository(
     }
 
     suspend fun adoptRemoteContinuity(installation: DownloadedRomEntity, rom: RomDto): PlayerLaunchPreparation = StorageAccess.normal {
-        val resolution = resolveCoreSupport(
+        val resolution = coreSupport(
             rom = rom,
             file = rom.files.firstOrNull { it.id == installation.fileId } ?: rom.files.firstOrNull(),
         )
@@ -1339,7 +1344,7 @@ class RommRepository(
     }
 
     suspend fun flushContinuity(installation: DownloadedRomEntity, rom: RomDto, sessionActive: Boolean): SyncSummary = StorageAccess.normal {
-        val resolution = resolveCoreSupport(
+        val resolution = coreSupport(
             rom = rom,
             file = rom.files.firstOrNull { it.id == installation.fileId } ?: rom.files.firstOrNull(),
         )

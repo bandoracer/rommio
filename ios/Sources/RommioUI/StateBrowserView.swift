@@ -5,6 +5,7 @@ import RommioFoundation
 /// in the theme's list (glass groups, or paper rows between rules).
 struct StateBrowserView: View {
     @Environment(\.rommioTheme) private var theme
+    @Environment(\.pageLight) private var light
     let browser: GameStateBrowser
     let onUseResume: (() -> Void)?
     let onLoadState: (BrowsableGameState) -> Void
@@ -61,7 +62,7 @@ struct StateBrowserView: View {
                 .themedRow()
             }
             .themedList()
-            .tint(theme.readableTint)
+            .tint(light.readableTint)
             .navigationTitle("Browse states")
             .toolbar {
                 if let onClose {
@@ -129,7 +130,7 @@ struct StateBrowserView: View {
                 if let slot = state.slot {
                     Text("\(slot)")
                         .themeText(.statValue, size: 22)
-                        .foregroundStyle(theme.isRiso ? theme.accent2 : theme.mark1)
+                        .foregroundStyle(theme.isRiso ? theme.accent2 : light.mark1)
                 }
                 Text(state.label)
                     .themeText(.bodyEmphasis, size: 16)

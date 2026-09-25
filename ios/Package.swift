@@ -69,13 +69,17 @@ let package = Package(
             dependencies: ["RommioPlayerBridge", "RommioFoundation", "RommioContract"],
             exclude: ["Fixtures"]
         ),
+        .target(
+            name: "RommioStackProbe",
+            path: "Tests/Support/RommioStackProbe"
+        ),
         .testTarget(
             name: "RommioUITests",
-            dependencies: ["RommioUI", "RommioFoundation", "RommioPlayerKit", "RommioContract"]
+            dependencies: ["RommioUI", "RommioFoundation", "RommioPlayerKit", "RommioContract", "RommioStackProbe"]
         ),
         .testTarget(
             name: "RommioPlayerKitTests",
-            dependencies: ["RommioPlayerKit", "RommioContract", "ZIPFoundation"]
+            dependencies: ["RommioPlayerKit", "RommioContract", "RommioFoundation", "ZIPFoundation"]
         ),
     ]
 )

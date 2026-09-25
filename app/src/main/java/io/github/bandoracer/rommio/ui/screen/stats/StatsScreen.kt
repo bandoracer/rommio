@@ -7,19 +7,21 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.CalendarToday
@@ -31,6 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,23 +47,22 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.bandoracer.rommio.AppContainer
 import io.github.bandoracer.rommio.domain.stats.PlayStats
-import io.github.bandoracer.rommio.model.RomDto
 import io.github.bandoracer.rommio.ui.component.ColumnRule
 import io.github.bandoracer.rommio.ui.component.CoverThumb
-import io.github.bandoracer.rommio.ui.component.DotLeader
 import io.github.bandoracer.rommio.ui.component.EmptyState
 import io.github.bandoracer.rommio.ui.component.GlowingCover
 import io.github.bandoracer.rommio.ui.component.LightStrip
 import io.github.bandoracer.rommio.ui.component.ListDivider
 import io.github.bandoracer.rommio.ui.component.ListGroup
 import io.github.bandoracer.rommio.ui.component.ListRow
+import io.github.bandoracer.rommio.ui.component.LitPage
 import io.github.bandoracer.rommio.ui.component.MountedPrint
-import io.github.bandoracer.rommio.ui.component.PageArtSubject
 import io.github.bandoracer.rommio.ui.component.PageFieldStyle
 import io.github.bandoracer.rommio.ui.component.PageHeader
 import io.github.bandoracer.rommio.ui.component.PlayFormat
@@ -70,14 +72,11 @@ import io.github.bandoracer.rommio.ui.component.RuleWeight
 import io.github.bandoracer.rommio.ui.component.SectionHeader
 import io.github.bandoracer.rommio.ui.component.StatCard
 import io.github.bandoracer.rommio.ui.component.dropShadow
-import io.github.bandoracer.rommio.ui.component.formatClockTime
 import io.github.bandoracer.rommio.ui.component.formatPlayTime
 import io.github.bandoracer.rommio.ui.component.isRegularWidth
 import io.github.bandoracer.rommio.ui.component.rememberCoverMark
 import io.github.bandoracer.rommio.ui.component.sized
-import io.github.bandoracer.rommio.ui.screen.collectAsStateWithLifecycleCompat
 import io.github.bandoracer.rommio.ui.theme.RommioTheme
-import io.github.bandoracer.rommio.util.resolveRemoteAssetUrl
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -115,17 +114,18 @@ internal fun List<StatsSession>.byDay(zone: ZoneId = ZoneId.systemDefault()): Li
         .toSortedMap(compareByDescending { it })
         .map { (day, sessions) -> day to sessions.sortedByDescending { it.session.endedAtEpochMs } }
 
-private fun LocalDate.epochMs(zone: ZoneId = ZoneId.systemDefault()): Long = atStartOfDay(zone).toInstant().toEpochMilli() + 43_200_000L
+/** What Stats can do. */
+private class StatsActions(val open: (Int) -> Unit, val resume: ((StatsTop) -> Unit)?)
 
 /**
  * Stats (docs/theme-layouts.md "Stats — two layouts"), from play recorded on this device. Aurora:
  * summary cards and time by game, lit by the most played game. Riso: the month in ink, then
- * recent sessions by day.
+ * recent sessions by day. The page is built by [StatsViewModel] ([StatsPage]); sessions are lazy.
  */
 @Composable
 fun StatsScreen(
     container: AppContainer,
-    imageBaseUrl: String?,
+    @Suppress("UNUSED_PARAMETER") imageBaseUrl: String?,
     onOpenGame: (romId: Int) -> Unit,
     /** Resume on the lead starts the most played game (asking first when the launch planner would). */
     launchFlow: io.github.bandoracer.rommio.ui.screen.LaunchFlow? = null,
@@ -135,35 +135,36 @@ fun StatsScreen(
             initializer { StatsViewModel(container.repository, container.playActivity, container.playDataChanges) }
         },
     )
-    val state by viewModel.uiState.collectAsStateWithLifecycleCompat()
+    val page by viewModel.page.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { viewModel.refresh() }
-    val cover: (RomDto) -> String? = { resolveRemoteAssetUrl(imageBaseUrl, it.urlCover) }
     // The player is reachable from Stats: Resume on the most played game when it can start here.
-    val resume: ((StatsGame) -> Unit)? = launchFlow?.let { flow ->
-        { game ->
-            val fileId = game.playableFileId
-            if (fileId != null) {
-                flow.play(io.github.bandoracer.rommio.ui.screen.LaunchTarget(game.rom.id, game.rom.displayName, fileId, cover(game.rom), platformSlug = game.rom.platformSlug))
-            } else {
-                onOpenGame(game.rom.id)
-            }
-        }
+    val actions = remember(onOpenGame, launchFlow) {
+        StatsActions(
+            open = onOpenGame,
+            resume = launchFlow?.let { flow ->
+                { game: StatsTop ->
+                    val fileId = game.playableFileId
+                    if (fileId != null) {
+                        flow.play(io.github.bandoracer.rommio.ui.screen.LaunchTarget(game.id, game.title, fileId, game.coverUrl, platformSlug = game.platformSlug))
+                    } else {
+                        onOpenGame(game.id)
+                    }
+                }
+            },
+        )
     }
-    if (RommioTheme.isRiso) RisoStats(state, cover, onOpenGame, resume) else AuroraStats(state, cover, onOpenGame, resume)
-}
-
-/** Recorded sessions are authoritative; play from before recording is estimated (docs/play-data-local.md). */
-private fun footnote(stats: PlayStats): String = if (stats.includesEstimates) {
-    "Play time counts active play on this device; paused and background time is left out. Play from before sessions were recorded is estimated from automatic saves."
-} else {
-    "Play time counts active play on this device; paused and background time is left out."
+    if (RommioTheme.isRiso) {
+        LitPage(null, PageFieldStyle.QUIET) { RisoStats(page, actions) }
+    } else {
+        LitPage(page.top?.coverUrl, PageFieldStyle.PAGE) { AuroraStats(page, actions) }
+    }
 }
 
 @Composable
-private fun StatsEmpty(state: StatsUiState) {
+private fun StatsEmpty(page: StatsPage) {
     EmptyState(
-        title = if (state.isLoading) "Adding up your play" else "No play recorded yet",
-        message = if (state.isLoading) "" else "Play a game on this device and your time, sessions and streak show up here.",
+        title = if (page.isLoading) "Adding up your play" else "No play recorded yet",
+        message = if (page.isLoading) "" else "Play a game on this device and your time, sessions and streak show up here.",
         icon = Icons.Outlined.BarChart,
         modifier = Modifier.padding(top = 40.dp),
     )
@@ -172,163 +173,152 @@ private fun StatsEmpty(state: StatsUiState) {
 // ---- Aurora ----------------------------------------------------------------------------------
 
 @Composable
-private fun AuroraStats(state: StatsUiState, cover: (RomDto) -> String?, open: (Int) -> Unit, resume: ((StatsGame) -> Unit)?) {
+private fun AuroraStats(page: StatsPage, actions: StatsActions) {
     val theme = RommioTheme.current
-    val c = theme.colors
-    val stats = state.stats
-    val top = state.games.firstOrNull()
-    PageArtSubject(top?.rom?.let(cover), PageFieldStyle.PAGE)
     val regular = isRegularWidth()
+    val gutter = if (regular) 32.dp else theme.spacing.gutter
+    val section = theme.spacing.section
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-        Column(
-            Modifier
-                .widthIn(max = 1000.dp)
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .testTag("shell.statsList")
-                .padding(horizontal = if (regular) 32.dp else theme.spacing.gutter)
-                .padding(top = 8.dp, bottom = 40.dp),
-            verticalArrangement = Arrangement.spacedBy(theme.spacing.section),
+        LazyColumn(
+            Modifier.widthIn(max = 1000.dp).fillMaxSize().testTag("shell.statsList"),
+            contentPadding = PaddingValues(start = gutter, end = gutter, top = 8.dp, bottom = 40.dp),
         ) {
-            PageHeader(title = "Stats")
-            if (stats.isEmpty) {
-                StatsEmpty(state)
-                return@Column
+            item(key = "header", contentType = "header") { PageHeader(title = "Stats") }
+            if (page.isEmpty) {
+                item(key = "empty", contentType = "empty") { Box(Modifier.padding(top = section)) { StatsEmpty(page) } }
+                return@LazyColumn
             }
-            top?.let { game ->
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable(role = Role.Button, onClickLabel = "Open ${game.rom.displayName}") { open(game.rom.id) }
-                        .padding(vertical = 6.dp)
-                        .testTag("stats.top"),
-                    horizontalArrangement = Arrangement.spacedBy(18.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    GlowingCover(cover(game.rom), game.rom.displayName, height = 150.dp, reflection = false)
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        RoleText("Most played", theme.type.section, color = c.inkSecondary)
-                        RoleText(game.rom.displayName, theme.type.title, size = 30f, color = c.ink, maxLines = 3)
-                        RoleText(
-                            "${formatPlayTime(game.total.playedMs)} · ${io.github.bandoracer.rommio.ui.component.Fmt.count(game.total.sessionCount, "session")}",
-                            theme.type.secondary,
-                            color = c.inkSecondary,
-                        )
-                        if (resume != null && game.playableFileId != null) {
-                            io.github.bandoracer.rommio.ui.component.PrimaryButton(
-                                text = "Resume",
-                                icon = Icons.Outlined.PlayArrow,
-                                onClick = { resume(game) },
-                                large = false,
-                                modifier = Modifier
-                                    .padding(top = 6.dp)
-                                    .semantics { contentDescription = "Resume ${game.rom.displayName}" }
-                                    .testTag("stats.resume"),
-                            )
-                        }
-                    }
-                }
+            page.top?.let { top -> item(key = "top", contentType = "top") { AuroraTop(top, actions, Modifier.padding(top = section)) } }
+            item(key = "summary", contentType = "summary") { SummaryCards(page, regular, Modifier.padding(top = section)) }
+            item(key = "games", contentType = "games") { TimeByGame(page, actions.open, Modifier.padding(top = section)) }
+            item(key = "sessionsHeader", contentType = "sectionHeader") {
+                SectionHeader(title = "Recent sessions", meta = page.sessionCount.toString(), modifier = Modifier.padding(top = section))
             }
-            // Summary cards: two columns (four on regular width).
-            val cards: List<@Composable (Modifier) -> Unit> = listOf(
-                { m -> StatCard("Total playtime", compactDuration(stats.totalPlayedMs), m.testTag("stats.total"), icon = Icons.Outlined.Schedule) },
-                { m -> StatCard("Sessions", java.text.NumberFormat.getIntegerInstance().format(stats.sessionCount), m, icon = Icons.Outlined.PlayCircle) },
-                { m -> StatCard("Streak", streakText(stats.currentStreakDays), m, icon = Icons.Outlined.LocalFireDepartment) },
-                { m ->
-                    StatCard(
-                        "Last played",
-                        stats.lastPlayedAtEpochMs?.let { PlayFormat.shortAgo(it) } ?: "—",
-                        m,
-                        caption = state.sessions.firstOrNull()?.rom?.displayName,
-                        icon = Icons.Outlined.CalendarToday,
-                    )
-                },
-            )
-            Column(Modifier.testTag("stats.summary"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                cards.chunked(if (regular) 4 else 2).forEach { row ->
-                    Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        row.forEach { card -> card(Modifier.weight(1f).fillMaxHeight()) }
-                    }
-                }
+            // A day of sessions per lazy item (a day is one glass group).
+            itemsIndexed(page.days.take(5), key = { _, day -> "day/${day.key}" }, contentType = { _, _ -> "day" }) { _, day ->
+                AuroraDay(day, actions.open, Modifier.padding(top = 18.dp))
             }
-            TimeByGame(state, cover, open)
-            RecentByDay(state, cover, open)
-            RoleText(footnote(stats), theme.type.caption, color = c.inkTertiary, modifier = Modifier.testTag("stats.footnote"))
-        }
-    }
-}
-
-@Composable
-private fun TimeByGame(state: StatsUiState, cover: (RomDto) -> String?, open: (Int) -> Unit) {
-    val theme = RommioTheme.current
-    val games = state.games.take(8)
-    val longest = maxOf(games.firstOrNull()?.total?.playedMs ?: 1L, 1L)
-    ListGroup(title = "Time by game", meta = state.stats.games.size.toString()) {
-        games.forEachIndexed { index, game ->
-            if (index > 0) ListDivider(inset = 68.dp)
-            val mark = rememberCoverMark(cover(game.rom))
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable(role = Role.Button, onClickLabel = "Open ${game.rom.displayName}") { open(game.rom.id) }
-                    .padding(bottom = 10.dp)
-                    .testTag("stats.game.${game.rom.id}"),
-            ) {
-                ListRow(
-                    title = game.rom.displayName,
-                    subtitle = "${game.total.sessionCount} session${if (game.total.sessionCount == 1) "" else "s"} · last ${PlayFormat.relative(game.total.lastPlayedAtEpochMs)}",
-                    leading = { CoverThumb(cover(game.rom), game.rom.displayName) },
-                    trailing = { RoleText(formatPlayTime(game.total.playedMs), theme.type.numeral, color = theme.colors.ink) },
-                )
-                val fraction = (game.total.playedMs.toFloat() / longest).coerceIn(0.02f, 1f)
-                Box(Modifier.fillMaxWidth().padding(start = 68.dp, end = 16.dp)) {
-                    Box(
-                        Modifier
-                            .fillMaxWidth(fraction)
-                            .height(4.dp)
-                            .dropShadow(mark.copy(alpha = 0.6f), 999.dp, 5.dp, 0.dp)
-                            .clip(CircleShape)
-                            .background(mark),
-                    )
-                }
+            item(key = "footnote", contentType = "footnote") {
+                RoleText(page.footnote, theme.type.caption, color = theme.colors.inkTertiary, modifier = Modifier.padding(top = section).testTag("stats.footnote"))
             }
         }
     }
 }
 
 @Composable
-private fun RecentByDay(state: StatsUiState, cover: (RomDto) -> String?, open: (Int) -> Unit) {
+private fun AuroraTop(game: StatsTop, actions: StatsActions, modifier: Modifier) {
     val theme = RommioTheme.current
     val c = theme.colors
-    val days = state.sessions.byDay().take(5)
-    Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        SectionHeader(title = "Recent sessions", meta = state.stats.sessionCount.toString())
-        days.forEach { (day, sessions) ->
-            val total = sessions.sumOf { it.session.playedMs }
-            val lights = sessions.distinctBy { it.rom.id }.map { rememberCoverMark(cover(it.rom)) }
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.Bottom) {
-                    RoleText(PlayFormat.dayTitle(day.epochMs()), theme.type.headline, color = c.ink, modifier = Modifier.weight(1f).semantics { heading() })
-                    RoleText(
-                        "${sessions.size} session${if (sessions.size == 1) "" else "s"} · ${formatPlayTime(total)}",
-                        theme.type.numeral,
-                        size = 12.5f,
-                        color = c.inkSecondary,
-                    )
-                }
-                LightStrip(lights)
-                ListGroup {
-                    sessions.forEachIndexed { index, item ->
-                        if (index > 0) ListDivider(inset = 68.dp)
-                        ListRow(
-                            title = item.rom.displayName,
-                            subtitle = listOfNotNull(formatClockTime(item.session.endedAtEpochMs), item.session.endReason?.let(::sessionEndLabel)).joinToString(" · "),
-                            leading = { CoverThumb(cover(item.rom), item.rom.displayName) },
-                            trailing = { RoleText(formatPlayTime(item.session.playedMs), theme.type.numeral, color = c.inkSecondary) },
-                            onClick = { open(item.rom.id) },
-                        )
-                    }
-                }
+    Row(
+        modifier
+            .fillMaxWidth()
+            .clickable(role = Role.Button, onClickLabel = "Open ${game.title}") { actions.open(game.id) }
+            .padding(vertical = 6.dp)
+            .testTag("stats.top"),
+        horizontalArrangement = Arrangement.spacedBy(18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        GlowingCover(game.coverUrl, game.title, height = 150.dp, reflection = false)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            RoleText("Most played", theme.type.section, color = c.inkSecondary)
+            RoleText(game.title, theme.type.title, size = 30f, color = c.ink, maxLines = 3)
+            RoleText(game.line, theme.type.secondary, color = c.inkSecondary)
+            val resume = actions.resume
+            if (resume != null && game.playableFileId != null) {
+                io.github.bandoracer.rommio.ui.component.PrimaryButton(
+                    text = "Resume",
+                    icon = Icons.Outlined.PlayArrow,
+                    onClick = { resume(game) },
+                    large = false,
+                    modifier = Modifier
+                        .padding(top = 6.dp)
+                        .semantics { contentDescription = "Resume ${game.title}" }
+                        .testTag("stats.resume"),
+                )
+            }
+        }
+    }
+}
+
+/** Summary cards: two columns (four on regular width). */
+@Composable
+private fun SummaryCards(page: StatsPage, regular: Boolean, modifier: Modifier) {
+    val cards: List<@Composable (Modifier) -> Unit> = listOf(
+        { m -> StatCard("Total playtime", page.totalText, m.testTag("stats.total"), icon = Icons.Outlined.Schedule) },
+        { m -> StatCard("Sessions", page.sessionsText, m, icon = Icons.Outlined.PlayCircle) },
+        { m -> StatCard("Streak", page.streakText, m, icon = Icons.Outlined.LocalFireDepartment) },
+        { m -> StatCard("Last played", page.lastPlayedText, m, caption = page.lastPlayedCaption, icon = Icons.Outlined.CalendarToday) },
+    )
+    Column(modifier.testTag("stats.summary"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        cards.chunked(if (regular) 4 else 2).forEach { row ->
+            Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                row.forEach { card -> card(Modifier.weight(1f).fillMaxHeight()) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TimeByGame(page: StatsPage, open: (Int) -> Unit, modifier: Modifier) {
+    val theme = RommioTheme.current
+    ListGroup(title = "Time by game", meta = page.gameCount.toString(), modifier = modifier) {
+        page.games.forEachIndexed { index, game ->
+            if (index > 0) ListDivider(inset = 68.dp)
+            GameTimeRow(game, open, theme)
+        }
+    }
+}
+
+@Composable
+private fun GameTimeRow(game: StatsGameRow, open: (Int) -> Unit, theme: io.github.bandoracer.rommio.ui.theme.RommioThemeValue) {
+    val mark = rememberCoverMark(game.coverUrl)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clickable(role = Role.Button, onClickLabel = "Open ${game.title}") { open(game.id) }
+            .padding(bottom = 10.dp)
+            .testTag("stats.game.${game.id}"),
+    ) {
+        ListRow(
+            title = game.title,
+            subtitle = game.subtitle,
+            leading = { CoverThumb(game.coverUrl, game.title) },
+            trailing = { RoleText(game.playedText, theme.type.numeral, color = theme.colors.ink) },
+        )
+        Box(Modifier.fillMaxWidth().padding(start = 68.dp, end = 16.dp)) {
+            Box(
+                Modifier
+                    .fillMaxWidth(game.fraction)
+                    .height(4.dp)
+                    .dropShadow(mark.copy(alpha = 0.6f), 999.dp, 5.dp, 0.dp)
+                    .clip(CircleShape)
+                    .background(mark),
+            )
+        }
+    }
+}
+
+@Composable
+private fun AuroraDay(day: StatsDay, open: (Int) -> Unit, modifier: Modifier) {
+    val theme = RommioTheme.current
+    val c = theme.colors
+    val lights = day.sessions.distinctBy { it.gameId }.map { rememberCoverMark(it.coverUrl) }
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            RoleText(day.title, theme.type.headline, color = c.ink, modifier = Modifier.weight(1f).semantics { heading() })
+            RoleText(day.summary, theme.type.numeral, size = 12.5f, color = c.inkSecondary)
+        }
+        LightStrip(lights)
+        ListGroup {
+            day.sessions.forEachIndexed { index, item ->
+                if (index > 0) ListDivider(inset = 68.dp)
+                ListRow(
+                    title = item.title,
+                    subtitle = item.subtitle,
+                    leading = { CoverThumb(item.coverUrl, item.title) },
+                    trailing = { RoleText(item.playedText, theme.type.numeral, color = c.inkSecondary) },
+                    onClick = { open(item.gameId) },
+                )
             }
         }
     }
@@ -337,64 +327,69 @@ private fun RecentByDay(state: StatsUiState, cover: (RomDto) -> String?, open: (
 // ---- Riso ------------------------------------------------------------------------------------
 
 @Composable
-private fun RisoStats(state: StatsUiState, cover: (RomDto) -> String?, open: (Int) -> Unit, resume: ((StatsGame) -> Unit)?) {
+private fun RisoStats(page: StatsPage, actions: StatsActions) {
     val theme = RommioTheme.current
     val c = theme.colors
-    val stats = state.stats
-    PageArtSubject(null, PageFieldStyle.QUIET)
     val regular = isRegularWidth()
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-        Column(
-            Modifier
-                .widthIn(max = 1100.dp)
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .testTag("shell.statsList")
-                .padding(horizontal = theme.spacing.gutter)
-                .padding(top = 8.dp, bottom = 40.dp),
+        LazyColumn(
+            Modifier.widthIn(max = 1100.dp).fillMaxSize().testTag("shell.statsList"),
+            contentPadding = PaddingValues(start = theme.spacing.gutter, end = theme.spacing.gutter, top = 8.dp, bottom = 40.dp),
         ) {
-            PageHeader(title = "Stats", modifier = Modifier.padding(bottom = 6.dp))
-            if (stats.isEmpty) {
-                StatsEmpty(state)
-                return@Column
+            item(key = "header", contentType = "header") { PageHeader(title = "Stats", modifier = Modifier.padding(bottom = 6.dp)) }
+            if (page.isEmpty) {
+                item(key = "empty", contentType = "empty") { StatsEmpty(page) }
+                return@LazyColumn
             }
-            RoleText(
-                "${io.github.bandoracer.rommio.ui.component.Fmt.count(stats.sessionCount, "session")} recorded · kept on this device",
-                theme.type.body,
-                size = 15f,
-                italic = true,
-                color = c.inkSecondary,
-                modifier = Modifier.padding(bottom = 12.dp),
-            )
+            item(key = "count", contentType = "count") {
+                RoleText(page.sessionCountLine, theme.type.body, size = 15f, italic = true, color = c.inkSecondary, modifier = Modifier.padding(bottom = 12.dp))
+            }
             if (regular) {
-                Row(Modifier.height(IntrinsicSize.Min)) {
-                    Column(Modifier.weight(1f).padding(end = 20.dp)) {
-                        Month(stats)
-                        RisoLead(state, resume)
-                        Games(state, open)
+                // The broadsheet's two ruled columns are one item (they share their height).
+                item(key = "columns", contentType = "columns") {
+                    Row(Modifier.height(IntrinsicSize.Min)) {
+                        Column(Modifier.weight(1f).padding(end = 20.dp)) {
+                            page.month?.let { Month(page, it) }
+                            RisoLead(page.top, actions.resume)
+                            Games(page, actions.open)
+                        }
+                        ColumnRule()
+                        Column(Modifier.weight(1f).padding(start = 20.dp)) {
+                            page.days.forEach { day ->
+                                DiaryDayHeader(day)
+                                day.sessions.forEachIndexed { index, item -> DiaryEntry(item, index, actions.open) }
+                            }
+                        }
                     }
-                    ColumnRule()
-                    Column(Modifier.weight(1f).padding(start = 20.dp)) { Diary(state, cover, open) }
                 }
             } else {
-                Month(stats)
-                RisoLead(state, resume)
-                Games(state, open)
-                Diary(state, cover, open)
+                page.month?.let { month -> item(key = "month", contentType = "month") { Month(page, month) } }
+                if (page.top?.playableFileId != null && actions.resume != null) {
+                    item(key = "lead", contentType = "lead") { RisoLead(page.top, actions.resume) }
+                }
+                item(key = "games", contentType = "games") { Games(page, actions.open) }
+                page.days.forEach { day -> diaryDay(day, actions.open) }
             }
-            RoleText(footnote(stats), theme.type.caption, color = c.inkSecondary, modifier = Modifier.padding(top = 20.dp).testTag("stats.footnote"))
+            item(key = "footnote", contentType = "footnote") {
+                RoleText(page.footnote, theme.type.caption, color = c.inkSecondary, modifier = Modifier.padding(top = 20.dp).testTag("stats.footnote"))
+            }
         }
+    }
+}
+
+/** A day of the diary as lazy items: its heading, then each session. */
+private fun LazyListScope.diaryDay(day: StatsDay, open: (Int) -> Unit) {
+    item(key = "day/${day.key}", contentType = "dayHeader") { DiaryDayHeader(day) }
+    itemsIndexed(day.sessions, key = { _, item -> "session/${item.key}" }, contentType = { _, _ -> "session" }) { index, item ->
+        DiaryEntry(item, index, open)
     }
 }
 
 /** The month in ink: a sentence of figures, a bar per day, and the figures in a ruled box. */
 @Composable
-private fun Month(stats: PlayStats) {
+private fun Month(page: StatsPage, month: StatsMonth) {
     val theme = RommioTheme.current
     val c = theme.colors
-    val window = statsWindow(stats)
-    val daily = dailyTotals(stats)
-    val longest = maxOf(daily.maxOrNull() ?: 1L, 1L)
     Column {
         PrintRule(weight = RuleWeight.HEAVY)
         Column(Modifier.padding(top = 10.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -404,12 +399,12 @@ private fun Month(stats: PlayStats) {
             }
             Text(
                 buildAnnotatedString {
-                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(formatPlayTime(window.playedMs)) }
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(month.playedText) }
                     append(" across ")
-                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append("${window.sessions} session${if (window.sessions == 1) "" else "s"}") }
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(month.sessionsText) }
                     append(" and ")
-                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(PlayFormat.games(window.games)) }
-                    append(if (stats.currentStreakDays > 0) ". Streak: ${streakText(stats.currentStreakDays)}." else ".")
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(month.gamesText) }
+                    append(month.streakSentence)
                 },
                 style = theme.type.body.style.sized(17f),
                 color = c.ink,
@@ -423,13 +418,13 @@ private fun Month(stats: PlayStats) {
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
-                daily.forEachIndexed { index, value ->
-                    if (value > 0) {
+                month.bars.forEachIndexed { index, value ->
+                    if (value > 0f) {
                         Box(
                             Modifier
                                 .weight(1f)
-                                .height(maxOf(4.dp, 54.dp * (value.toFloat() / longest)))
-                                .background(if (index >= daily.size - 7) c.accent1 else c.accent2),
+                                .height(maxOf(4.dp, 54.dp * value))
+                                .background(if (index >= month.bars.size - 7) c.accent1 else c.accent2),
                         )
                     } else {
                         Box(Modifier.weight(1f).height(1.5.dp).background(c.hairline))
@@ -449,9 +444,9 @@ private fun Month(stats: PlayStats) {
                     .testTag("stats.summary"),
             ) {
                 listOf(
-                    "Total" to compactDuration(stats.totalPlayedMs),
-                    "Sessions" to java.text.NumberFormat.getIntegerInstance().format(stats.sessionCount),
-                    "Streak" to streakText(stats.currentStreakDays),
+                    "Total" to page.totalText,
+                    "Sessions" to page.sessionsText,
+                    "Streak" to page.streakText,
                 ).forEachIndexed { index, (label, value) ->
                     if (index > 0) ColumnRule()
                     StatCard(label, value, Modifier.weight(1f))
@@ -463,13 +458,12 @@ private fun Month(stats: PlayStats) {
 
 /** Under the month: the most played game with Resume (when it can start on this device). */
 @Composable
-private fun RisoLead(state: StatsUiState, resume: ((StatsGame) -> Unit)?) {
-    val game = state.games.firstOrNull() ?: return
-    if (resume == null || game.playableFileId == null) return
+private fun RisoLead(game: StatsTop?, resume: ((StatsTop) -> Unit)?) {
+    if (game == null || resume == null || game.playableFileId == null) return
     val theme = RommioTheme.current
     Column(Modifier.padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        io.github.bandoracer.rommio.ui.component.Kicker("Most played", detail = formatPlayTime(game.total.playedMs), fill = io.github.bandoracer.rommio.ui.component.KickerFill.PINK)
-        io.github.bandoracer.rommio.ui.component.DisplayText(game.rom.displayName, size = 34f, maxLines = 2)
+        io.github.bandoracer.rommio.ui.component.Kicker("Most played", detail = game.playedText, fill = io.github.bandoracer.rommio.ui.component.KickerFill.PINK)
+        io.github.bandoracer.rommio.ui.component.DisplayText(game.title, size = 34f, maxLines = 2)
         io.github.bandoracer.rommio.ui.component.PrimaryButton(
             text = "Resume",
             icon = Icons.Outlined.PlayArrow,
@@ -477,7 +471,7 @@ private fun RisoLead(state: StatsUiState, resume: ((StatsGame) -> Unit)?) {
             large = false,
             modifier = Modifier
                 .fillMaxWidth()
-                .semantics { contentDescription = "Resume ${game.rom.displayName}" }
+                .semantics { contentDescription = "Resume ${game.title}" }
                 .testTag("stats.resume"),
         )
         PrintRule(weight = RuleWeight.FINE, modifier = Modifier.padding(top = 6.dp))
@@ -486,24 +480,24 @@ private fun RisoLead(state: StatsUiState, resume: ((StatsGame) -> Unit)?) {
 }
 
 @Composable
-private fun Games(state: StatsUiState, open: (Int) -> Unit) {
+private fun Games(page: StatsPage, open: (Int) -> Unit) {
     val theme = RommioTheme.current
     val c = theme.colors
     Column {
-        SectionHeader(title = "Time by game", meta = state.stats.games.size.toString(), modifier = Modifier.padding(top = 20.dp))
-        state.games.take(6).forEachIndexed { index, game ->
+        SectionHeader(title = "Time by game", meta = page.gameCount.toString(), modifier = Modifier.padding(top = 20.dp))
+        page.games.take(6).forEachIndexed { index, game ->
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .clickable(role = Role.Button, onClickLabel = "Open ${game.rom.displayName}") { open(game.rom.id) }
-                    .testTag("stats.game.${game.rom.id}"),
+                    .clickable(role = Role.Button, onClickLabel = "Open ${game.title}") { open(game.id) }
+                    .testTag("stats.game.${game.id}"),
             ) {
                 Row(Modifier.fillMaxWidth().heightIn(min = 46.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                     RoleText("${index + 1}", theme.type.statValue, size = 22f, color = c.accent2, modifier = Modifier.width(22.dp).alignByBaseline())
                     io.github.bandoracer.rommio.ui.component.LeaderLayout(
                         modifier = Modifier.weight(1f).alignByBaseline(),
-                        start = { RoleText(game.rom.displayName, theme.type.bodyEmphasis, size = 16f, color = c.ink, maxLines = 1) },
-                        end = { RoleText(formatPlayTime(game.total.playedMs), theme.type.numeral, size = 12f, color = c.ink) },
+                        start = { RoleText(game.title, theme.type.bodyEmphasis, size = 16f, color = c.ink, maxLines = 1) },
+                        end = { RoleText(game.playedText, theme.type.numeral, size = 12f, color = c.ink) },
                     )
                 }
                 PrintRule(weight = RuleWeight.HAIRLINE)
@@ -512,39 +506,36 @@ private fun Games(state: StatsUiState, open: (Int) -> Unit) {
     }
 }
 
-/** Recent sessions by day, as diary entries. */
+/** A diary day's heading: the day, its date when the title isn't it, the entries, a keyline. */
 @Composable
-private fun Diary(state: StatsUiState, cover: (RomDto) -> String?, open: (Int) -> Unit) {
+private fun DiaryDayHeader(day: StatsDay) {
     val theme = RommioTheme.current
     val c = theme.colors
-    Column {
-        state.sessions.byDay().take(6).forEach { (day, sessions) ->
-            Column(Modifier.padding(top = 18.dp)) {
-                Row(Modifier.padding(bottom = 7.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Bottom) {
-                    // The full date only when the title isn't already the date (§4 day groups).
-                    val group = PlayFormat.dayGroup(day)
-                    RoleText(group.title, theme.type.headline, size = 26f, color = c.ink, modifier = Modifier.semantics { heading() })
-                    RoleText(group.caption.orEmpty(), theme.type.caption, size = 14f, italic = true, color = c.inkSecondary, maxLines = 1, modifier = Modifier.weight(1f))
-                    RoleText("${sessions.size} ${if (sessions.size == 1) "entry" else "entries"}", theme.type.label, size = 10f, color = c.inkSecondary)
-                }
-                PrintRule(weight = RuleWeight.KEYLINE)
-            }
-            sessions.forEachIndexed { index, item ->
-                Column(Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "Open ${item.rom.displayName}") { open(item.rom.id) }) {
-                    Row(Modifier.padding(vertical = 11.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        RoleText(formatClockTime(item.session.endedAtEpochMs), theme.type.numeral, size = 11.5f, color = c.ink, maxLines = 1, modifier = Modifier.width(62.dp).padding(top = 3.dp))
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            RoleText(item.rom.displayName, theme.type.headline, size = 19f, color = c.ink, maxLines = 2)
-                            RoleText("${formatPlayTime(item.session.playedMs)} on this device.", theme.type.body, size = 15f, color = c.ink)
-                            RoleText(listOfNotNull(item.rom.platformSlug.uppercase(), item.session.endReason?.let(::sessionEndLabel)).joinToString(" · "),
-                                theme.type.label, size = 9.5f, color = c.inkSecondary)
-                        }
-                        MountedPrint(cover(item.rom), item.rom.displayName, 52.dp, 68.dp, rotation = if (index % 2 == 0) -1.2f else 1.4f)
-                    }
-                    PrintRule(weight = RuleWeight.HAIRLINE)
-                }
-            }
+    Column(Modifier.padding(top = 18.dp)) {
+        Row(Modifier.padding(bottom = 7.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Bottom) {
+            RoleText(day.groupTitle, theme.type.headline, size = 26f, color = c.ink, modifier = Modifier.semantics { heading() })
+            RoleText(day.groupCaption, theme.type.caption, size = 14f, italic = true, color = c.inkSecondary, maxLines = 1, modifier = Modifier.weight(1f))
+            RoleText(day.entries, theme.type.label, size = 10f, color = c.inkSecondary)
         }
+        PrintRule(weight = RuleWeight.KEYLINE)
+    }
+}
+
+@Composable
+private fun DiaryEntry(item: StatsSessionRow, index: Int, open: (Int) -> Unit) {
+    val theme = RommioTheme.current
+    val c = theme.colors
+    Column(Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "Open ${item.title}") { open(item.gameId) }) {
+        Row(Modifier.padding(vertical = 11.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            RoleText(item.clock, theme.type.numeral, size = 11.5f, color = c.ink, maxLines = 1, modifier = Modifier.width(62.dp).padding(top = 3.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                RoleText(item.title, theme.type.headline, size = 19f, color = c.ink, maxLines = 2)
+                RoleText("${item.playedText} on this device.", theme.type.body, size = 15f, color = c.ink)
+                RoleText(item.label, theme.type.label, size = 9.5f, color = c.inkSecondary)
+            }
+            MountedPrint(item.coverUrl, item.title, 52.dp, 68.dp, rotation = if (index % 2 == 0) -1.2f else 1.4f)
+        }
+        PrintRule(weight = RuleWeight.HAIRLINE)
     }
 }
 

@@ -5,7 +5,7 @@ enum PlayerControlRole: Equatable, Sendable {
     case face, shoulder, direction, system, stick
 
     static let directions: Set<String> = ["Up", "Down", "Left", "Right"]
-    static let shoulders: Set<String> = ["L", "R", "L1", "L2", "R1", "R2"]
+    static let shoulders: Set<String> = ["L", "R", "L1", "L2", "R1", "R2", "ZL", "ZR", "Option 1", "Option 2"]
     static let systems: Set<String> = ["L3", "R3", "Start", "Select", "Mode", "Pause", "Coin", "Option", "Analog"]
 
     static func resolve(label: String, stick: Bool, trigger: Bool) -> PlayerControlRole {
@@ -29,8 +29,15 @@ enum PlayerControlShape: Equatable, Sendable {
     case rounded(CGFloat)
 }
 
-/// How one control is drawn: resolved from the player theme, then painted by
-/// the UIKit input views. Geometry and hit areas are the input views' own.
+/// A soft shadow under a frosted control.
+struct PlayerControlShadow: Equatable, Sendable {
+    let color: Color
+    let radius: CGFloat
+    let y: CGFloat
+}
+
+/// How one control is drawn: resolved from the player theme, then painted by the
+/// touch surface's control views. Where controls go is `PlayerControlPlan`'s.
 struct PlayerControlAppearance: Equatable {
     let role: PlayerControlRole
     let shape: PlayerControlShape
@@ -43,26 +50,26 @@ struct PlayerControlAppearance: Equatable {
     /// The misregistered plate behind the control (Riso), and its offset.
     let plate: Color?
     let plateOffset: CGSize
-    /// Frosted glass behind the fill (Aurora).
+    /// Frosted glass behind the fill, with the glass edge's top rim (Aurora).
     let frosted: Bool
     let font: PlayerFontSpec
     /// The legend text, or nil when a symbol is drawn instead.
     let text: String?
     /// An SF Symbol legend (directions, the menu).
     let symbol: String?
+    /// A console colour's 2 pt ring (Aurora console colours).
+    var ring: Color? = nil
+    var shadow: PlayerControlShadow? = nil
+    /// The top rim of the glass edge (Aurora): white at the top, clear by 12% down.
+    var rim: Color? = nil
+    /// Pressed faces shrink to this for 60 ms (Aurora); Riso lightens its ink instead.
+    var pressedScale: CGFloat = 1
 
-    /// The drawn face inside a control's bounds. The proportions are the input
-    /// views' long-standing ones, so a restyle never moves a control.
-    static func faceRect(in bounds: CGRect, role: PlayerControlRole) -> CGRect {
-        let visual = role == .stick ? bounds.width : bounds.width * (role.isPill ? 0.94 : 0.78)
-        let height = role.isPill ? visual * 0.72 : visual
-        return CGRect(x: bounds.midX - visual / 2, y: bounds.midY - height / 2, width: visual, height: height)
-    }
-
-    /// The legend size for a face of `diameter` points: the role's token size
-    /// scaled from a 56 pt reference face.
+    /// The legend size for a face of `diameter` points: the role's token size is for a
+    /// 64 pt two-button face (22 pt in Aurora), about 20 pt on a 56 pt diamond face.
+    /// Pills use the token size.
     func legendSize(for diameter: CGFloat) -> CGFloat {
-        let scale: CGFloat = role.isPill ? 1 : diameter / PlayerControlStyleRenderer.referenceDiameter
+        let scale: CGFloat = role.isPill ? 1 : (diameter + 24) / (PlayerControlStyleRenderer.referenceDiameter + 24)
         return max(9, font.size * scale)
     }
 }
@@ -81,25 +88,49 @@ struct PlayerDPadAppearance: Equatable {
     let pivot: Color?
     let arrowInk: Color
     let glyphs: PlayerGlyphSet
+    var shadow: PlayerControlShadow? = nil
+    var rim: Color? = nil
 }
 
-/// Resolves every control's look from a `PlayerVisualTheme`. Pure: no UIKit,
-/// so the style rules are unit-tested; the input views only paint the result.
-struct PlayerControlStyleRenderer {
-    /// Legend sizes in the tokens are for a face this wide.
-    static let referenceDiameter: CGFloat = 56
+/// Resolves every control's look from a `PlayerVisualTheme`. Pure: no UIKit, so the
+/// style rules are unit-tested; the control views only paint the result.
+struct PlayerControlStyleRenderer: Equatable {
+    /// Legend sizes in the tokens are for a face this wide (a two-button face).
+    static let referenceDiameter: CGFloat = 64
+    /// Face buttons never fade below this, whatever the opacity setting.
+    static let minimumFaceOpacity = 0.5
 
     let theme: PlayerVisualTheme
+
+    static func == (lhs: PlayerControlStyleRenderer, rhs: PlayerControlStyleRenderer) -> Bool {
+        lhs.theme.identity == rhs.theme.identity
+    }
 
     private var misregistration: CGSize {
         CGSize(width: theme.shape.misregistration, height: theme.shape.misregistration)
     }
 
+    /// Frosted controls' shadow and rim (studio `--ctl-shadow`).
+    private var glassShadow: PlayerControlShadow? {
+        guard theme.shape.frosted else { return nil }
+        return theme.dark
+            ? PlayerControlShadow(color: .black.opacity(0.55), radius: 14, y: 10)
+            : PlayerControlShadow(color: Color(red: 40 / 255, green: 20 / 255, blue: 60 / 255).opacity(0.28), radius: 13, y: 9)
+    }
+
+    private var glassRim: Color? {
+        guard theme.shape.frosted else { return nil }
+        return .white.opacity(theme.dark ? 0.22 : 0.95)
+    }
+
     /// Legends as printed on a console: arrows and PlayStation shapes as glyphs.
     static func legend(for label: String) -> String {
         ["Up": "↑", "Down": "↓", "Left": "←", "Right": "→", "Square": "□", "Cross": "×", "Circle": "○", "Triangle": "△",
-         "C-Up": "C↑", "C-Down": "C↓", "C-Left": "C←", "C-Right": "C→"][label] ?? label
+         "C-Up": "C↑", "C-Down": "C↓", "C-Left": "C←", "C-Right": "C→", "Option 1": "Opt 1", "Option 2": "Opt 2"][label] ?? label
     }
+
+    /// PlayStation face legends as SF Symbols.
+    static let shapeSymbols = ["Square": "square", "Cross": "xmark", "Circle": "circle", "Triangle": "triangle"]
 
     func appearance(label: String, stick: Bool = false, trigger: Bool = false) -> PlayerControlAppearance {
         appearance(label: label, role: .resolve(label: label, stick: stick, trigger: trigger))
@@ -112,41 +143,47 @@ struct PlayerControlStyleRenderer {
         switch role {
         case .face, .direction:
             let style = role == .direction ? neutral : theme.faceStyle(label: label)
+            // PlayStation shapes read best as drawn symbols, not font glyphs.
+            let shapeSymbol = role == .face ? Self.shapeSymbols[label] : nil
             return PlayerControlAppearance(
                 role: role, shape: .circle, fill: style.fillColor, pressedFill: style.pressedFillColor,
                 stroke: style.borderColor, pressedStroke: style.pressedBorderColor, strokeWidth: style.borderWidth,
                 ink: style.contentColor, plate: style.plateColor, plateOffset: style.plateColor == nil ? .zero : misregistration,
-                frosted: style.frosted, font: theme.legendFont, text: role == .direction ? nil : Self.legend(for: label),
-                symbol: role == .direction ? theme.glyphs.direction(label) : nil)
+                frosted: style.frosted, font: theme.legendFont,
+                text: role == .direction || shapeSymbol != nil ? nil : Self.legend(for: label),
+                symbol: role == .direction ? theme.glyphs.direction(label) : shapeSymbol,
+                ring: style.ring, shadow: glassShadow, rim: glassRim, pressedScale: frosted ? 0.94 : 1)
         case .shoulder:
             if frosted {
                 return PlayerControlAppearance(
                     role: role, shape: .tab(top: 14, bottom: 20), fill: neutral.fillColor, pressedFill: neutral.pressedFillColor,
                     stroke: neutral.borderColor, pressedStroke: neutral.pressedBorderColor, strokeWidth: neutral.borderWidth,
                     ink: neutral.contentColor, plate: nil, plateOffset: .zero, frosted: true,
-                    font: theme.legendFont.resized(15), text: label, symbol: nil)
+                    font: theme.legendFont.resized(15), text: Self.legend(for: label), symbol: nil,
+                    shadow: glassShadow, rim: glassRim, pressedScale: 0.94)
             }
             return PlayerControlAppearance(
                 role: role, shape: .tab(top: 18, bottom: 6), fill: palette.shoulderFill.color,
                 pressedFill: palette.shoulderFill.color.mix(with: .white, by: 0.35), stroke: .clear, pressedStroke: .clear,
                 strokeWidth: 0, ink: palette.faceInk.color, plate: palette.offsetPlate.color, plateOffset: misregistration,
-                frosted: false, font: theme.legendFont.resized(18), text: label, symbol: nil)
+                frosted: false, font: theme.legendFont.resized(18), text: Self.legend(for: label), symbol: nil)
         case .system:
             return PlayerControlAppearance(
                 role: role, shape: .capsule, fill: neutral.fillColor, pressedFill: neutral.pressedFillColor,
-                stroke: neutral.borderColor, pressedStroke: neutral.pressedBorderColor, strokeWidth: frosted ? 1 : 1.5,
+                stroke: neutral.borderColor, pressedStroke: neutral.pressedBorderColor, strokeWidth: frosted ? neutral.borderWidth : 1.5,
                 ink: neutral.contentColor, plate: nil, plateOffset: .zero, frosted: frosted,
-                font: theme.labelFont, text: label, symbol: nil)
+                font: theme.labelFont, text: label, symbol: nil,
+                shadow: glassShadow, rim: glassRim, pressedScale: frosted ? 0.94 : 1)
         case .stick:
             return PlayerControlAppearance(
                 role: role, shape: .circle, fill: neutral.fillColor, pressedFill: neutral.pressedFillColor,
-                stroke: neutral.borderColor, pressedStroke: neutral.pressedBorderColor, strokeWidth: frosted ? 1 : 1.5,
+                stroke: neutral.borderColor, pressedStroke: neutral.pressedBorderColor, strokeWidth: frosted ? neutral.borderWidth : 1.5,
                 ink: neutral.contentColor, plate: nil, plateOffset: .zero, frosted: frosted,
-                font: theme.labelFont, text: nil, symbol: nil)
+                font: theme.labelFont, text: nil, symbol: nil, shadow: glassShadow, rim: glassRim)
         }
     }
 
-    /// The menu (pause) button: frosted glass (Aurora) or a pink ink pill (Riso).
+    /// The menu (pause) button: a 44 pt frosted circle (Aurora) or a pink ink pill (Riso).
     func menu() -> PlayerControlAppearance {
         let palette = theme.palette
         let frosted = theme.shape.frosted
@@ -155,8 +192,9 @@ struct PlayerControlStyleRenderer {
             fill: frosted ? theme.neutralControlStyle.fillColor : palette.menuFill.color,
             pressedFill: frosted ? theme.neutralControlStyle.pressedFillColor : palette.menuFill.color.mix(with: .white, by: 0.3),
             stroke: frosted ? theme.neutralControlStyle.borderColor : .clear, pressedStroke: .clear,
-            strokeWidth: frosted ? 1 : 0, ink: frosted ? theme.neutralControlStyle.contentColor : palette.menuInk.color,
-            plate: nil, plateOffset: .zero, frosted: frosted, font: theme.labelFont, text: nil, symbol: theme.glyphs.menu)
+            strokeWidth: frosted ? theme.neutralControlStyle.borderWidth : 0, ink: frosted ? theme.neutralControlStyle.contentColor : palette.menuInk.color,
+            plate: nil, plateOffset: .zero, frosted: frosted, font: theme.labelFont, text: nil, symbol: theme.glyphs.menu,
+            shadow: glassShadow, rim: glassRim)
     }
 
     func dpad() -> PlayerDPadAppearance {
@@ -172,13 +210,23 @@ struct PlayerControlStyleRenderer {
         return PlayerDPadAppearance(
             twoPlate: false, disc: neutral.fillColor, discStroke: neutral.borderColor, frosted: true,
             arm: neutral.contentColor.opacity(0.16), pressedArm: theme.accentColor.opacity(0.45),
-            plate: nil, plateOffset: .zero, pivot: nil, arrowInk: neutral.contentColor, glyphs: theme.glyphs)
+            plate: nil, plateOffset: .zero, pivot: nil, arrowInk: neutral.contentColor, glyphs: theme.glyphs,
+            shadow: glassShadow, rim: glassRim)
     }
 
-    /// Controls print at full ink when the theme says so (Riso never lays them
-    /// over a game screen); otherwise the user's opacity applies.
-    func opacity(user: Double) -> Double {
-        theme.shape.controlOpacity >= 1 ? 1 : user
+    /// Controls print at full ink when the theme says so (Riso never lays them over a
+    /// game screen); otherwise the user's opacity applies, never below 0.5 for faces.
+    func opacity(user: Double, role: PlayerControlRole = .system) -> Double {
+        if theme.shape.controlOpacity >= 1 { return 1 }
+        return role == .face ? max(Self.minimumFaceOpacity, user) : user
+    }
+}
+
+extension PlayerVisualTheme {
+    /// What makes two player themes draw differently (for diffing the touch surface).
+    var identity: String {
+        let faces = faceControlStyles.keys.sorted().map { key in "\(key)=\(faceControlStyles[key]?.fillColor.description ?? "")/\(faceControlStyles[key]?.ring?.description ?? "-")" }
+        return "\(shape.frosted)|\(dark)|\(palette.ground)|\(palette.controlFill)|\(faces.joined(separator: ","))|\(accentColor)"
     }
 }
 
@@ -238,26 +286,88 @@ extension PlayerFontSpec {
     }
 }
 
-/// Paints one control's appearance into a view: the offset plate, frosted glass,
-/// the face and its legend. Owns only sublayers; the view keeps its touches.
+/// The glass edge of a frosted control: its soft shadow, the frost, and a 1 pt white
+/// rim at the top fading out by 12% of its height.
+@MainActor
+final class PlayerGlassLayers {
+    let shadow = CAShapeLayer()
+    let blur = UIVisualEffectView(effect: nil)
+    private let blurMask = CAShapeLayer()
+    let rim = CAGradientLayer()
+    private let rimMask = CAShapeLayer()
+
+    init(in view: UIView, below: CALayer? = nil) {
+        shadow.fillColor = UIColor.clear.cgColor
+        view.layer.insertSublayer(shadow, at: 0)
+        blur.isUserInteractionEnabled = false
+        blur.layer.mask = blurMask
+        view.addSubview(blur)
+        rim.mask = rimMask
+        rimMask.fillColor = nil
+        rimMask.strokeColor = UIColor.black.cgColor
+        rimMask.lineWidth = 1
+        rim.startPoint = CGPoint(x: 0.5, y: 0)
+        rim.endPoint = CGPoint(x: 0.5, y: 1)
+        rim.locations = [0, 0.12]
+    }
+
+    /// The rim goes above the fill; call after the fill layer is in place.
+    func attachRim(to view: UIView) { view.layer.addSublayer(rim) }
+
+    func paint(path: UIBezierPath, bounds: CGRect, frosted: Bool, shadow shadowSpec: PlayerControlShadow?, rim rimColor: Color?) {
+        blur.isHidden = !frosted
+        if frosted {
+            if blur.effect == nil { blur.effect = UIBlurEffect(style: .systemUltraThinMaterial) }
+            blur.frame = bounds
+            blurMask.path = path.cgPath
+        }
+        if let shadowSpec {
+            shadow.isHidden = false
+            shadow.path = path.cgPath
+            shadow.fillColor = UIColor.black.withAlphaComponent(0.001).cgColor
+            shadow.shadowPath = path.cgPath
+            shadow.shadowColor = UIColor(shadowSpec.color).cgColor
+            shadow.shadowOpacity = 1
+            shadow.shadowRadius = shadowSpec.radius
+            shadow.shadowOffset = CGSize(width: 0, height: shadowSpec.y)
+        } else {
+            shadow.isHidden = true
+        }
+        if let rimColor {
+            rim.isHidden = false
+            rim.frame = bounds
+            rim.colors = [UIColor(rimColor).cgColor, UIColor(rimColor).withAlphaComponent(0).cgColor]
+            rimMask.frame = bounds
+            rimMask.path = path.cgPath
+        } else {
+            rim.isHidden = true
+        }
+    }
+}
+
+/// Paints one control's appearance into its view (the view's bounds are the drawn
+/// shape): the offset plate, frosted glass, the face, a console ring, the rim and the
+/// legend. Owns only sublayers; touches belong to the touch surface.
 @MainActor
 final class PlayerControlPainter {
     private let plate = CAShapeLayer()
     private let face = CAShapeLayer()
-    private let blur = UIVisualEffectView(effect: nil)
-    private let blurMask = CAShapeLayer()
+    private let ring = CAShapeLayer()
+    private let glass: PlayerGlassLayers
     let label = UILabel()
     private let symbol = UIImageView()
 
     init(in view: UIView) {
-        view.layer.addSublayer(plate)
-        blur.isUserInteractionEnabled = false
-        blur.layer.mask = blurMask
-        view.addSubview(blur)
+        glass = PlayerGlassLayers(in: view)
+        view.layer.insertSublayer(plate, above: glass.shadow)
         view.layer.addSublayer(face)
+        ring.fillColor = nil
+        view.layer.addSublayer(ring)
+        glass.attachRim(to: view)
         label.textAlignment = .center
         label.adjustsFontSizeToFitWidth = true
-        label.minimumScaleFactor = 0.6
+        label.minimumScaleFactor = 0.55
+        label.baselineAdjustment = .alignCenters
         label.isUserInteractionEnabled = false
         view.addSubview(label)
         symbol.contentMode = .scaleAspectFit
@@ -265,50 +375,45 @@ final class PlayerControlPainter {
         view.addSubview(symbol)
     }
 
-    /// Hides everything (for controls that another view draws, like d-pad arms).
-    func clear() {
-        plate.path = nil
-        face.path = nil
-        blur.isHidden = true
-        label.isHidden = true
-        symbol.isHidden = true
-    }
-
-    func paint(_ appearance: PlayerControlAppearance?, faceRect: CGRect, pressed: Bool, bringToFront view: UIView) {
-        guard let appearance else { clear(); return }
+    /// `bodyOpacity` fades the face (plate, frost, fill, rim, shadow) but not its legend
+    /// or console ring, which stay at full ink.
+    func paint(_ appearance: PlayerControlAppearance, bounds: CGRect, pressed: Bool, in view: UIView, bodyOpacity: CGFloat = 1) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let path = appearance.shape.path(in: faceRect)
+        for layer in [plate, face, glass.shadow, glass.rim] { layer.opacity = Float(bodyOpacity) }
+        let path = appearance.shape.path(in: bounds)
         if let plateColor = appearance.plate {
-            plate.path = appearance.shape.path(in: faceRect.offsetBy(dx: appearance.plateOffset.width, dy: appearance.plateOffset.height)).cgPath
+            plate.path = appearance.shape.path(in: bounds.offsetBy(dx: appearance.plateOffset.width, dy: appearance.plateOffset.height)).cgPath
             plate.fillColor = UIColor(plateColor).cgColor
         } else {
             plate.path = nil
         }
-        blur.isHidden = !appearance.frosted
-        if appearance.frosted {
-            blur.effect = UIBlurEffect(style: .systemUltraThinMaterial)
-            blur.frame = view.bounds
-            blurMask.path = path.cgPath
-        }
+        glass.paint(path: path, bounds: bounds, frosted: appearance.frosted, shadow: appearance.shadow, rim: appearance.rim)
         face.path = path.cgPath
         face.fillColor = UIColor(pressed ? appearance.pressedFill : appearance.fill).cgColor
         face.strokeColor = UIColor(pressed ? appearance.pressedStroke : appearance.stroke).cgColor
         face.lineWidth = appearance.strokeWidth
-        let legendSize = appearance.legendSize(for: min(faceRect.width, faceRect.height))
+        if let ringColor = appearance.ring {
+            ring.path = appearance.shape.path(in: bounds.insetBy(dx: 1, dy: 1)).cgPath
+            ring.strokeColor = UIColor(ringColor).cgColor
+            ring.lineWidth = 2
+        } else {
+            ring.path = nil
+        }
+        let diameter = min(bounds.width, bounds.height)
         if let text = appearance.text {
             label.isHidden = false
-            label.attributedText = appearance.font.attributed(text, size: legendSize, color: UIColor(appearance.ink))
-            label.frame = faceRect.insetBy(dx: 2, dy: 1)
+            label.attributedText = appearance.font.attributed(text, size: appearance.legendSize(for: diameter), color: UIColor(appearance.ink))
+            label.frame = bounds.insetBy(dx: appearance.role.isPill ? 6 : 3, dy: 1)
         } else {
             label.isHidden = true
         }
         if let name = appearance.symbol {
             symbol.isHidden = false
-            let config = UIImage.SymbolConfiguration(pointSize: max(12, min(faceRect.width, faceRect.height) * 0.36), weight: .bold)
+            let config = UIImage.SymbolConfiguration(pointSize: max(12, diameter * 0.36), weight: appearance.frosted ? .semibold : .bold)
             symbol.image = UIImage(systemName: name, withConfiguration: config)
             symbol.tintColor = UIColor(appearance.ink)
-            symbol.frame = faceRect.insetBy(dx: faceRect.width * 0.2, dy: faceRect.height * 0.2)
+            symbol.frame = bounds.insetBy(dx: bounds.width * 0.28, dy: bounds.height * 0.28)
         } else {
             symbol.isHidden = true
         }
@@ -318,12 +423,11 @@ final class PlayerControlPainter {
     }
 }
 
-/// Paints the whole d-pad (disc or plates, arms, pivot, arrows) into its view.
+/// Paints the whole d-pad (disc or plates, arms, the held arms lit, pivot, arrows).
 @MainActor
 final class PlayerDPadPainter {
     private let disc = CAShapeLayer()
-    private let blur = UIVisualEffectView(effect: nil)
-    private let blurMask = CAShapeLayer()
+    private let glass: PlayerGlassLayers
     private let plate = CAShapeLayer()
     private let arms = CAShapeLayer()
     private let pressed = CAShapeLayer()
@@ -331,10 +435,9 @@ final class PlayerDPadPainter {
     private var arrows: [String: UIImageView] = [:]
 
     init(in view: UIView) {
-        blur.isUserInteractionEnabled = false
-        blur.layer.mask = blurMask
-        view.addSubview(blur)
+        glass = PlayerGlassLayers(in: view)
         for layer in [disc, plate, arms, pressed, pivot] { view.layer.addSublayer(layer) }
+        glass.attachRim(to: view)
         for name in ["Up", "Down", "Left", "Right"] {
             let image = UIImageView()
             image.contentMode = .scaleAspectFit
@@ -358,14 +461,11 @@ final class PlayerDPadPainter {
             disc.path = discPath.cgPath
             disc.fillColor = UIColor(discColor).cgColor
             disc.strokeColor = appearance.discStroke.map { UIColor($0).cgColor }
-            disc.lineWidth = 1
-            blur.isHidden = !appearance.frosted
-            blur.effect = UIBlurEffect(style: .systemUltraThinMaterial)
-            blur.frame = bounds
-            blurMask.path = discPath.cgPath
+            disc.lineWidth = 0.5
+            glass.paint(path: discPath, bounds: bounds, frosted: appearance.frosted, shadow: appearance.shadow, rim: appearance.rim)
         } else {
             disc.path = nil
-            blur.isHidden = true
+            glass.paint(path: UIBezierPath(rect: .zero), bounds: bounds, frosted: false, shadow: nil, rim: nil)
         }
         if let plateColor = appearance.plate {
             var transform = CGAffineTransform(translationX: appearance.plateOffset.width, y: appearance.plateOffset.height)
@@ -376,7 +476,7 @@ final class PlayerDPadPainter {
         }
         arms.path = cross.cgPath
         arms.fillColor = UIColor(appearance.arm).cgColor
-        // The pressed arms light up.
+        // The held arms light up.
         let pressedPath = UIBezierPath()
         let centre = CGPoint(x: crossRect.midX, y: crossRect.midY)
         let reach = crossRect.width / 2
@@ -399,7 +499,7 @@ final class PlayerDPadPainter {
         } else {
             pivot.path = nil
         }
-        let arrowSize = armWidth * (appearance.twoPlate ? 0.42 : 0.5)
+        let arrowSize = armWidth * (appearance.twoPlate ? 0.42 : 0.44)
         let inset = armWidth * 0.55
         let positions: [String: CGPoint] = [
             "Up": CGPoint(x: centre.x, y: crossRect.minY + inset), "Down": CGPoint(x: centre.x, y: crossRect.maxY - inset),

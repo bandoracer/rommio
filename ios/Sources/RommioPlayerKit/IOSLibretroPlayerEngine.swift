@@ -138,7 +138,7 @@ private final class PlayerAudioEngine {
     }
 }
 
-public final class IOSLibretroPlayerEngine: ProgressPlayerEngine, @unchecked Sendable {
+public final class IOSLibretroPlayerEngine: ProgressPlayerEngine, ImmediatePlayerInput, @unchecked Sendable {
     private let logger = Logger(subsystem: "io.github.mattsays.rommio.ios", category: "PlayerEngine")
     private let bundle: Bundle
     private let lock = NSLock()
@@ -345,9 +345,27 @@ public final class IOSLibretroPlayerEngine: ProgressPlayerEngine, @unchecked Sen
     }
 
     public func dispatchDigital(keyCode: Int, pressed: Bool, port: Int) async throws {
+        try sendDigital(keyCode: keyCode, pressed: pressed, port: port)
+    }
+
+    /// Applied now, on the caller's thread; the bridge latches input for the next frame.
+    public func sendDigital(keyCode: Int, pressed: Bool, port: Int) throws {
         try withBridge { bridge in
             bridge.setDigitalInputPressed(pressed, keyCode: keyCode, port: UInt(max(port, 0)))
         }
+        #if DEBUG
+        PlayerInputLog.record("D\(keyCode):\(pressed ? 1 : 0)")
+        #endif
+    }
+
+    public func sendMotion(source: PlayerMotionSource, x: Double, y: Double, port: Int) throws {
+        try withBridge { bridge in
+            bridge.setMotionSource(source.bridgeSource, x: x, y: y, port: UInt(max(port, 0)))
+        }
+        #if DEBUG
+        let stick = source == .analogRight ? 1 : 0
+        PlayerInputLog.record("A\(stick):\(Int((x * 100).rounded())),\(Int((y * 100).rounded()))")
+        #endif
     }
 
     public func dispatchPointer(x: Double, y: Double, pressed: Bool, port: Int) async throws {
@@ -357,9 +375,7 @@ public final class IOSLibretroPlayerEngine: ProgressPlayerEngine, @unchecked Sen
     }
 
     public func dispatchMotion(source: PlayerMotionSource, x: Double, y: Double, port: Int) async throws {
-        try withBridge { bridge in
-            bridge.setMotionSource(source.bridgeSource, x: x, y: y, port: UInt(max(port, 0)))
-        }
+        try sendMotion(source: source, x: x, y: y, port: port)
     }
 
     public func updateInputConfiguration(_ configuration: PlayerInputConfiguration) async throws {
@@ -368,6 +384,8 @@ public final class IOSLibretroPlayerEngine: ProgressPlayerEngine, @unchecked Sen
         if let scale = configuration.controlScale { inputConfiguration.controlScale = scale }
         if let count = configuration.controlUtilityCount { inputConfiguration.controlUtilityCount = count }
         if let stage = configuration.stage { inputConfiguration.stage = stage }
+        if let family = configuration.controlFamily { inputConfiguration.controlFamily = family }
+        if let analog = configuration.controlAnalog { inputConfiguration.controlAnalog = analog }
         inputConfiguration.deadzone = configuration.deadzone
     }
 
@@ -604,7 +622,7 @@ private extension PlayerMotionSource {
     }
 }
 #else
-public final class IOSLibretroPlayerEngine: PlayerEngine, @unchecked Sendable {
+public final class IOSLibretroPlayerEngine: PlayerEngine, ImmediatePlayerInput, @unchecked Sendable {
     public init(bundle: Bundle = .main) {
         _ = bundle
     }
@@ -622,6 +640,8 @@ public final class IOSLibretroPlayerEngine: PlayerEngine, @unchecked Sendable {
     public func updateVariables(_ variables: [String : String]) async throws { _ = variables; throw PlayerEngineError.hostUnavailable }
     public func dispatchDigital(keyCode: Int, pressed: Bool, port: Int) async throws { _ = keyCode; _ = pressed; _ = port; throw PlayerEngineError.hostUnavailable }
     public func dispatchMotion(source: PlayerMotionSource, x: Double, y: Double, port: Int) async throws { _ = source; _ = x; _ = y; _ = port; throw PlayerEngineError.hostUnavailable }
+    public func sendDigital(keyCode: Int, pressed: Bool, port: Int) throws { _ = keyCode; _ = pressed; _ = port; throw PlayerEngineError.hostUnavailable }
+    public func sendMotion(source: PlayerMotionSource, x: Double, y: Double, port: Int) throws { _ = source; _ = x; _ = y; _ = port; throw PlayerEngineError.hostUnavailable }
     public func updateInputConfiguration(_ configuration: PlayerInputConfiguration) async throws { _ = configuration; throw PlayerEngineError.hostUnavailable }
     public func availableControllerTypes(port: Int) async throws -> [PlayerControllerDescriptor] { _ = port; throw PlayerEngineError.hostUnavailable }
     public func setControllerType(port: Int, controllerTypeID: Int) async throws { _ = port; _ = controllerTypeID; throw PlayerEngineError.hostUnavailable }

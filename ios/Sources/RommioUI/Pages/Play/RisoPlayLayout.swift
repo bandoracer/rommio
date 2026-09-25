@@ -12,13 +12,14 @@ struct RisoPlayLayout: View {
     let content: PlayContent
     let actions: PlayActions
 
-    private var lead: PlayGameItem? { content.continuePlaying.first }
-    private var briefs: [PlayGameItem] { Array(content.continuePlaying.dropFirst().prefix(4)) }
-
     var body: some View {
         ScrollView {
             Group {
-                if horizontalSizeClass == .regular { AnyView(broadsheet) } else { AnyView(column) }
+                if horizontalSizeClass == .regular {
+                    RisoPlayBroadsheet(content: content, actions: actions)
+                } else {
+                    RisoPlayColumn(content: content, actions: actions)
+                }
             }
             .padding(.horizontal, horizontalSizeClass == .regular ? 28 : theme.spacing.gutter)
             .padding(.bottom, 40)
@@ -27,52 +28,72 @@ struct RisoPlayLayout: View {
         }
         .themedPage()
     }
+}
 
-    // MARK: Compact: one column
+private extension PlayContent {
+    var lead: PlayGameItem? { continuePlaying.first }
+    var briefs: [PlayGameItem] { Array(continuePlaying.dropFirst().prefix(4)) }
+}
 
-    private var column: some View {
+// MARK: Compact: one column
+
+private struct RisoPlayColumn: View {
+    let content: PlayContent
+    let actions: PlayActions
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            AnyView(masthead)
-            AnyView(Dateline(leading: PlayFormat.longDate(Date()), trailing: content.serverName)
-                .padding(.top, 6))
-            AnyView(ears)
-            if let lead { AnyView(leadStory(lead, big: false).padding(.top, 14)) }
-            AnyView(columns.padding(.top, 20))
-            AnyView(RisoRecentSaves(items: content.recentSaves, open: actions.openSave).padding(.top, 26))
-            AnyView(notices.padding(.top, 20))
+            RisoPlayMasthead(wide: false)
+            Dateline(leading: PlayFormat.longDate(Date()), trailing: content.serverName)
+                .padding(.top, 6)
+            RisoPlayEars(ears: RisoEars(content), actions: actions)
+            if let lead = content.lead { RisoLeadStory(game: lead, big: false, actions: actions).padding(.top, 14) }
+            RisoPlayColumns(briefs: content.briefs, collection: content.collection, actions: actions).padding(.top, 20)
+            RisoRecentSaves(days: content.recentSaveDays, count: content.recentSaves.count, actions: actions).padding(.top, 26)
+            RisoPlayNotices(staleMessage: content.staleMessage, errorMessage: content.errorMessage, showsEmpty: content.isEmpty && !content.isLoading)
+                .padding(.top, 20)
         }
     }
+}
 
-    // MARK: Regular: a broadsheet across the fold
+// MARK: Regular: a broadsheet across the fold
 
-    private var broadsheet: some View {
+private struct RisoPlayBroadsheet: View {
+    @Environment(\.rommioTheme) private var theme
+    let content: PlayContent
+    let actions: PlayActions
+
+    var body: some View {
+        let ears = RisoEars(content)
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center, spacing: 20) {
-                downloadsEar.frame(maxWidth: 240, alignment: .leading).padding(10).overlay { Rectangle().strokeBorder(theme.ink, lineWidth: 1.5) }
+                RisoDownloadsEar(ears: ears, action: actions.openDownloads)
+                    .frame(maxWidth: 240, alignment: .leading).padding(10).overlay { Rectangle().strokeBorder(theme.ink, lineWidth: 1.5) }
                 Spacer(minLength: 0)
-                masthead
+                RisoPlayMasthead(wide: true)
                 Spacer(minLength: 0)
-                syncEar.frame(maxWidth: 240, alignment: .leading).padding(10).overlay { Rectangle().strokeBorder(theme.ink, lineWidth: 1.5) }
+                RisoSyncEar(ears: ears)
+                    .frame(maxWidth: 240, alignment: .leading).padding(10).overlay { Rectangle().strokeBorder(theme.ink, lineWidth: 1.5) }
             }
             Dateline(leading: PlayFormat.longDate(Date()), trailing: content.serverName)
                 .padding(.top, 10)
             HStack(alignment: .top, spacing: 0) {
                 VStack(alignment: .leading, spacing: 22) {
-                    if let lead { leadStory(lead, big: true) }
-                    if let collection = content.collection { collectionColumn(collection, wide: true) }
-                    notices
+                    if let lead = content.lead { RisoLeadStory(game: lead, big: true, actions: actions) }
+                    if let collection = content.collection { RisoCollectionColumn(item: collection, wide: true, actions: actions) }
+                    RisoPlayNotices(staleMessage: content.staleMessage, errorMessage: content.errorMessage, showsEmpty: content.isEmpty && !content.isLoading)
                 }
                 .padding(.trailing, 20)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Rectangle().fill(theme.ink).frame(width: 1)
                 VStack(alignment: .leading, spacing: 22) {
-                    if !briefs.isEmpty {
+                    if !content.briefs.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
-                            SectionHeader(title: "In progress", detail: "\(briefs.count)")
-                            ForEach(briefs) { brief($0) }
+                            SectionHeader(title: "In progress", detail: "\(content.briefs.count)")
+                            ForEach(content.briefs) { RisoBrief(game: $0, actions: actions) }
                         }
                     }
-                    RisoRecentSaves(items: content.recentSaves, limit: 8, open: actions.openSave)
+                    RisoRecentSaves(days: content.recentSaveDaysShort, count: content.recentSaves.count, limit: 8, actions: actions)
                 }
                 .padding(.leading, 20)
                 .frame(width: 330, alignment: .leading)
@@ -80,42 +101,75 @@ struct RisoPlayLayout: View {
             .padding(.top, 14)
         }
     }
+}
 
-    // MARK: Masthead and ears
+// MARK: Masthead and ears
 
-    private var masthead: some View {
-        DisplayText(text: "Play", role: .display, size: horizontalSizeClass == .regular ? 88 : 52, plateOffset: 1.25, lineLimit: 1)
+private struct RisoPlayMasthead: View {
+    let wide: Bool
+
+    var body: some View {
+        DisplayText(text: "Play", role: .display, size: wide ? 88 : 52, plateOffset: 1.25, lineLimit: 1)
             .padding(.top, 2)
     }
+}
 
-    private var ears: some View {
+/// What the ears print: the download queue and the library's sync.
+private struct RisoEars: Equatable {
+    let download: PlayDownloadItem?
+    let installedCount: Int
+    let isOffline: Bool
+    let lastSync: Date?
+
+    init(_ content: PlayContent) {
+        download = content.download
+        installedCount = content.installedCount
+        isOffline = content.isOffline
+        lastSync = content.lastSync
+    }
+}
+
+private struct RisoPlayEars: View {
+    @Environment(\.rommioTheme) private var theme
+    let ears: RisoEars
+    let actions: PlayActions
+
+    var body: some View {
         HStack(alignment: .top, spacing: 0) {
-            downloadsEar.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 9).padding(.trailing, 10)
+            RisoDownloadsEar(ears: ears, action: actions.openDownloads)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 9).padding(.trailing, 10)
             Rectangle().fill(theme.ink).frame(width: 1)
-            syncEar.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 9).padding(.leading, 12)
+            RisoSyncEar(ears: ears)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 9).padding(.leading, 12)
         }
         .fixedSize(horizontal: false, vertical: true)
         .overlay(alignment: .bottom) { Rectangle().fill(theme.ink).frame(height: 1.5) }
     }
+}
 
-    private var downloadsEar: some View {
-        Button(action: actions.openDownloads) {
+private struct RisoDownloadsEar: View {
+    @Environment(\.rommioTheme) private var theme
+    let ears: RisoEars
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
             VStack(alignment: .leading, spacing: 4) {
                 Label("Downloads", systemImage: "arrow.down.to.line")
                     .themeText(.label, size: 9.5)
                     .foregroundStyle(theme.inkSecondary)
-                if let download = content.download, !download.name.isEmpty {
+                if let download = ears.download, !download.name.isEmpty {
                     Text("\(download.name) · \(Int((download.progress * 100).rounded()))%")
                         .themeText(.bodyEmphasis, size: 14)
                         .foregroundStyle(theme.ink)
                         .lineLimit(1)
-                    Text(queueLine(download)).themeText(.label, size: 9.5).foregroundStyle(theme.inkSecondary).lineLimit(1)
+                    Text(Self.queueLine(download)).themeText(.label, size: 9.5).foregroundStyle(theme.inkSecondary).lineLimit(1)
                     ThemedProgressBar(value: download.progress, tone: .live, height: 5)
-                } else if let download = content.download {
-                    Text(queueLine(download)).themeText(.bodyEmphasis, size: 14).foregroundStyle(theme.ink).lineLimit(1)
+                } else if let download = ears.download {
+                    Text(Self.queueLine(download)).themeText(.bodyEmphasis, size: 14).foregroundStyle(theme.ink).lineLimit(1)
                 } else {
                     Text("Nothing downloading").themeText(.bodyEmphasis, size: 14).foregroundStyle(theme.ink).lineLimit(1)
-                    Text("\(PlayFormat.games(content.installedCount)) on this device").themeText(.label, size: 9.5)
+                    Text("\(PlayFormat.games(ears.installedCount)) on this device").themeText(.label, size: 9.5)
                         .foregroundStyle(theme.inkSecondary).lineLimit(1)
                 }
             }
@@ -125,16 +179,28 @@ struct RisoPlayLayout: View {
         .accessibilityIdentifier("play.downloadsEar")
     }
 
-    private var syncEar: some View {
+    static func queueLine(_ download: PlayDownloadItem) -> String {
+        var parts: [String] = []
+        if download.waiting > 0 { parts.append("\(download.waiting) waiting") }
+        if download.failed > 0 { parts.append("\(download.failed) failed") }
+        return parts.isEmpty ? "Downloading" : parts.joined(separator: " · ")
+    }
+}
+
+private struct RisoSyncEar: View {
+    @Environment(\.rommioTheme) private var theme
+    let ears: RisoEars
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Label(content.isOffline ? "Offline" : "Online", systemImage: content.isOffline ? "wifi.slash" : "wifi")
+            Label(ears.isOffline ? "Offline" : "Online", systemImage: ears.isOffline ? "wifi.slash" : "wifi")
                 .themeText(.label, size: 9.5)
                 .foregroundStyle(theme.inkSecondary)
-            Text("\(PlayFormat.games(content.installedCount)) ready")
+            Text("\(PlayFormat.games(ears.installedCount)) ready")
                 .themeText(.bodyEmphasis, size: 14)
                 .foregroundStyle(theme.ink)
                 .lineLimit(1)
-            Text(content.lastSync.map { "Synced \(PlayFormat.inline($0))" } ?? (content.isOffline ? "Waiting for a connection" : "Library not synced yet"))
+            Text(ears.lastSync.map { "Synced \(PlayFormat.inline($0))" } ?? (ears.isOffline ? "Waiting for a connection" : "Library not synced yet"))
                 .themeText(.label, size: 9.5)
                 .foregroundStyle(theme.inkSecondary)
                 .lineLimit(1)
@@ -142,17 +208,16 @@ struct RisoPlayLayout: View {
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("play.syncLine")
     }
+}
 
-    private func queueLine(_ download: PlayDownloadItem) -> String {
-        var parts: [String] = []
-        if download.waiting > 0 { parts.append("\(download.waiting) waiting") }
-        if download.failed > 0 { parts.append("\(download.failed) failed") }
-        return parts.isEmpty ? "Downloading" : parts.joined(separator: " · ")
-    }
+// MARK: The lead
 
-    // MARK: The lead
+private struct RisoLeadStory: View {
+    let game: PlayGameItem
+    let big: Bool
+    let actions: PlayActions
 
-    private func leadStory(_ game: PlayGameItem, big: Bool) -> some View {
+    var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Kicker(label: "Continue playing", detail: [game.rom.platformSlug.uppercased(), game.lastPlayedAt.map { PlayFormat.relative($0) }]
                     .compactMap { $0 }.joined(separator: " · "), fill: .pink)
@@ -162,65 +227,91 @@ struct RisoPlayLayout: View {
             }
             .buttonStyle(.plain)
             RatioColumns(ratio: big ? 0.63 : 0.6, spacing: big ? 18 : 14) {
-                VStack(alignment: .leading, spacing: 7) {
-                    GameCover(url: game.artworkURL, title: game.rom.displayName, maxPointSize: big ? 360 : 260)
-                        .aspectRatio(3 / 4, contentMode: .fit)
-                        .onTapGesture { actions.open(game.rom) }
-                        .contextMenu { PlayGameMenu(game: game, actions: actions) }
-                    FigureCaption(text: "\(game.rom.platformName). \(game.lastPlayedAt.map { "Played \(PlayFormat.inline($0))." } ?? "Not played on this device yet.")")
-                }
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(dek(game))
-                        .themeText(.body, size: big ? 17 : 16)
-                        .foregroundStyle(theme.ink)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let conflict = game.conflict {
-                        ConflictChip(item: conflict) { actions.chooseConflict(conflict) }
-                    }
-                    if game.sessionCount > 0 {
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text("On this device").themeText(.label, size: 9.5).foregroundStyle(theme.inkSecondary)
-                            StatusChip(title: game.sessionCount == 1 ? "1 session" : "\(game.sessionCount) sessions", tone: .ok)
-                        }
-                    }
-                    Button { actions.resume(game.rom) } label: {
-                        Label("Resume", systemImage: "play.fill")
-                    }
-                    .buttonStyle(PrimaryButtonStyle(large: true))
-                    .accessibilityLabel("Resume \(game.rom.displayName)")
-                    .accessibilityIdentifier("play.resume.\(game.rom.id)")
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                RisoLeadFigure(game: game, big: big, actions: actions)
+                RisoLeadText(game: game, big: big, actions: actions)
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("play.continue")
     }
+}
 
-    private func dek(_ game: PlayGameItem) -> String {
+private struct RisoLeadFigure: View {
+    let game: PlayGameItem
+    let big: Bool
+    let actions: PlayActions
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            GameCover(url: game.artworkURL, title: game.rom.displayName, maxPointSize: big ? 360 : 260)
+                .aspectRatio(3 / 4, contentMode: .fit)
+                .onTapGesture { actions.open(game.rom) }
+                .contextMenu { PlayGameMenu(game: game, actions: actions) }
+            FigureCaption(text: "\(game.rom.platformName). \(game.lastPlayedAt.map { "Played \(PlayFormat.inline($0))." } ?? "Not played on this device yet.")")
+        }
+    }
+}
+
+private struct RisoLeadText: View {
+    @Environment(\.rommioTheme) private var theme
+    let game: PlayGameItem
+    let big: Bool
+    let actions: PlayActions
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(dek)
+                .themeText(.body, size: big ? 17 : 16)
+                .foregroundStyle(theme.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            if let conflict = game.conflict {
+                ConflictChip(item: conflict) { actions.chooseConflict(conflict) }
+            }
+            if game.sessionCount > 0 {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("On this device").themeText(.label, size: 9.5).foregroundStyle(theme.inkSecondary)
+                    StatusChip(title: game.sessionCount == 1 ? "1 session" : "\(game.sessionCount) sessions", tone: .ok)
+                }
+            }
+            Button { actions.resume(game.rom) } label: {
+                Label("Resume", systemImage: "play.fill")
+            }
+            .buttonStyle(PrimaryButtonStyle(large: true))
+            .accessibilityLabel("Resume \(game.rom.displayName)")
+            .accessibilityIdentifier("play.resume.\(game.rom.id)")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var dek: String {
         guard let last = game.lastPlayedAt else { return "Pick up where you left off. Your resume point is waiting." }
         return "You last played \(PlayFormat.inline(last)), \(PlayFormat.duration(game.playtime)) in so far on this device."
     }
+}
 
-    // MARK: Briefs and the pinned collection
+// MARK: Briefs and the pinned collection
 
-    @ViewBuilder
-    private var columns: some View {
+private struct RisoPlayColumns: View {
+    @Environment(\.rommioTheme) private var theme
+    let briefs: [PlayGameItem]
+    let collection: PlayCollectionItem?
+    let actions: PlayActions
+
+    var body: some View {
         let hasBriefs = !briefs.isEmpty
-        let collection = content.collection
         if hasBriefs || collection != nil {
             HStack(alignment: .top, spacing: 0) {
                 if hasBriefs {
                     VStack(alignment: .leading, spacing: 12) {
-                        columnHeading("In progress")
-                        ForEach(briefs.prefix(collection == nil ? 4 : 3)) { brief($0) }
+                        RisoColumnHeading(title: "In progress")
+                        ForEach(briefs.prefix(collection == nil ? 4 : 3)) { RisoBrief(game: $0, actions: actions) }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.trailing, collection == nil ? 0 : 14)
                 }
                 if let collection {
                     if hasBriefs { Rectangle().fill(theme.ink).frame(width: 1) }
-                    collectionColumn(collection, wide: !hasBriefs)
+                    RisoCollectionColumn(item: collection, wide: !hasBriefs, actions: actions)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.leading, hasBriefs ? 14 : 0)
                 }
@@ -228,15 +319,26 @@ struct RisoPlayLayout: View {
             .fixedSize(horizontal: false, vertical: true)
         }
     }
+}
 
-    private func columnHeading(_ title: String) -> some View {
+private struct RisoColumnHeading: View {
+    @Environment(\.rommioTheme) private var theme
+    let title: String
+
+    var body: some View {
         Text(title)
             .themeText(.section, size: 16)
             .foregroundStyle(theme.ink)
             .accessibilityAddTraits(.isHeader)
     }
+}
 
-    private func brief(_ game: PlayGameItem) -> some View {
+private struct RisoBrief: View {
+    @Environment(\.rommioTheme) private var theme
+    let game: PlayGameItem
+    let actions: PlayActions
+
+    var body: some View {
         Button { actions.open(game.rom) } label: {
             HStack(alignment: .top, spacing: 10) {
                 GameCover(url: game.artworkURL, title: game.rom.displayName, maxPointSize: 80)
@@ -261,12 +363,20 @@ struct RisoPlayLayout: View {
         .contextMenu { PlayGameMenu(game: game, actions: actions) }
         .accessibilityIdentifier("play.quickResume.\(game.rom.id)")
     }
+}
 
-    private func collectionColumn(_ item: PlayCollectionItem, wide: Bool) -> some View {
+private struct RisoCollectionColumn: View {
+    @Environment(\.rommioTheme) private var theme
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    let item: PlayCollectionItem
+    let wide: Bool
+    let actions: PlayActions
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Button { actions.openCollection(item.collection) } label: {
                 HStack(spacing: 8) {
-                    columnHeading(item.collection.name)
+                    RisoColumnHeading(title: item.collection.name)
                     if wide { Rectangle().fill(theme.ink).frame(height: 1.5) }
                     Text("\(item.playedCount) of \(item.games.count) played").themeText(.label, size: 9.5).foregroundStyle(theme.inkSecondary)
                         .fixedSize()
@@ -284,46 +394,62 @@ struct RisoPlayLayout: View {
                                                                      : [GridItem(.flexible(), alignment: .top)], alignment: .leading, spacing: 0) {
                 ForEach(rows, id: \.element.id) { index, game in
                     Button { actions.open(game.rom) } label: {
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text("\(index + 1)")
-                                .themeText(.statValue, size: 19)
-                                .foregroundStyle(game.playtime > 0 ? theme.ink : theme.inkSecondary)
-                                .frame(width: 16, alignment: .leading)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(game.rom.displayName).themeText(.bodyEmphasis, size: 14).foregroundStyle(theme.ink).lineLimit(2)
-                                Text(game.playtime > 0 ? PlayFormat.duration(game.playtime) : "Not started")
-                                    .themeText(.label, size: 9.5)
-                                    .foregroundStyle(theme.inkSecondary)
-                            }
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.vertical, 7)
-                        .overlay(alignment: .top) { Rectangle().fill(theme.hairline).frame(height: 1) }
-                        .contentShape(Rectangle())
+                        RisoCollectionEntry(rank: index + 1, game: game)
                     }
                     .buttonStyle(.plain)
                 }
             }
         }
     }
+}
 
-    // MARK: Notices and empty
+private struct RisoCollectionEntry: View {
+    @Environment(\.rommioTheme) private var theme
+    let rank: Int
+    let game: PlayGameItem
 
-    @ViewBuilder
-    private var notices: some View {
-        if let staleMessage = content.staleMessage {
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("\(rank)")
+                .themeText(.statValue, size: 19)
+                .foregroundStyle(game.playtime > 0 ? theme.ink : theme.inkSecondary)
+                .frame(width: 16, alignment: .leading)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(game.rom.displayName).themeText(.bodyEmphasis, size: 14).foregroundStyle(theme.ink).lineLimit(2)
+                Text(game.playtime > 0 ? PlayFormat.duration(game.playtime) : "Not started")
+                    .themeText(.label, size: 9.5)
+                    .foregroundStyle(theme.inkSecondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 7)
+        .overlay(alignment: .top) { Rectangle().fill(theme.hairline).frame(height: 1) }
+        .contentShape(Rectangle())
+    }
+}
+
+// MARK: Notices and empty
+
+private struct RisoPlayNotices: View {
+    @Environment(\.rommioTheme) private var theme
+    let staleMessage: String?
+    let errorMessage: String?
+    let showsEmpty: Bool
+
+    var body: some View {
+        if let staleMessage {
             VStack(alignment: .leading, spacing: 4) {
                 Kicker(label: "Showing your saved library", fill: .yellow)
                 Text(staleMessage).themeText(.caption).foregroundStyle(theme.inkSecondary).lineLimit(3)
             }
         }
-        if let error = content.errorMessage {
-            Text(error)
+        if let errorMessage {
+            Text(errorMessage)
                 .themeText(.body, size: 15)
                 .foregroundStyle(theme.ink)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("play.error")
-        } else if content.isEmpty && !content.isLoading {
+        } else if showsEmpty {
             EmptyStateView(title: "Nothing to continue yet", systemImage: "play.circle",
                            message: "Games you play show up here. Open the Library to start one.")
         }

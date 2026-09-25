@@ -26,8 +26,9 @@ private struct ThemeInjector<Content: View>: View {
         let theme = RommioTheme(themeID, dark: colorScheme == .dark)
         content()
             .environment(\.rommioTheme, theme)
+            .environment(\.pageLight, theme.unlitLight)
             // The system tint colours bar buttons and list buttons (text): the readable tint.
-            .tint(theme.readableTint)
+            .tint(theme.unlitLight.readableTint)
             .onChange(of: themeID, initial: true) { _, id in
                 ThemeChrome.apply(RommioTheme(id, dark: false))
             }
@@ -37,7 +38,7 @@ private struct ThemeInjector<Content: View>: View {
 extension View {
     /// Re-applies the theme below a boundary that doesn't inherit it (a new window).
     func rommioTheme(_ theme: RommioTheme) -> some View {
-        environment(\.rommioTheme, theme).tint(theme.readableTint)
+        environment(\.rommioTheme, theme).environment(\.pageLight, theme.unlitLight).tint(theme.unlitLight.readableTint)
     }
 }
 

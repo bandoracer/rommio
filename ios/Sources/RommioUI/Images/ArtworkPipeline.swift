@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import ImageIO
+import os
 import SwiftUI
 
 /// A decoded, downsampled image. CGImage is immutable once created.
@@ -16,10 +17,13 @@ actor ArtworkPipeline {
 
     private let loader: Loader
     private let directory: URL?
-    private let memory = NSCache<NSString, CGImageBox>()
+    /// Decoded images, prints and backdrops (NSCache is thread-safe; reads may skip the actor).
+    private nonisolated(unsafe) let memory = NSCache<NSString, CGImageBox>()
     private var inflight: [String: Task<DecodedArtwork?, Never>] = [:]
-    private var palettes: [String: CoverPalette] = [:]
+    /// Palettes known in memory, readable synchronously so a page lights on its first frame.
+    private nonisolated let palettes = OSAllocatedUnfairLock<[String: CoverPalette]>(initialState: [:])
     private var paletteTasks: [String: Task<CoverPalette?, Never>] = [:]
+    private var lightTasks: [String: Task<Void, Never>] = [:]
 
     init(directory: URL? = ArtworkPipeline.defaultDirectory, loader: @escaping Loader = ArtworkPipeline.plainLoader) {
         self.directory = directory
@@ -35,6 +39,11 @@ actor ArtworkPipeline {
         let (data, response) = try await URLSession.shared.data(from: url)
         if let http = response as? HTTPURLResponse, !(200 ..< 300).contains(http.statusCode) { throw URLError(.badServerResponse) }
         return data
+    }
+
+    /// The image if it's already decoded in memory at this size.
+    nonisolated func cachedImage(for url: URL, maxPixelSize: Int) -> DecodedArtwork? {
+        memory.object(forKey: "\(url.absoluteString)#\(maxPixelSize)" as NSString).map { DecodedArtwork(cgImage: $0.image) }
     }
 
     /// The image at `url`, downsampled so its longest side is at most `maxPixelSize`.
@@ -63,7 +72,7 @@ actor ArtworkPipeline {
     /// and on disk beside the image. Deterministic for a given image.
     func palette(for url: URL) async -> CoverPalette? {
         let key = url.absoluteString
-        if let cached = palettes[key] { return cached }
+        if let cached = palettes.withLock({ $0[key] }) { return cached }
         if let running = paletteTasks[key] { return await running.value }
         let file = directory?.appending(path: Self.fileName(for: url) + ".palette.json")
         let task = Task<CoverPalette?, Never> {
@@ -80,12 +89,51 @@ actor ArtworkPipeline {
         paletteTasks[key] = task
         let result = await task.value
         paletteTasks[key] = nil
-        if let result { palettes[key] = result }
+        if let result { palettes.withLock { $0[key] = result } }
         return result
     }
 
     /// The palette if it's already known (memory only), for a first frame without flicker.
-    func cachedPalette(for url: URL) -> CoverPalette? { palettes[url.absoluteString] }
+    nonisolated func cachedPalette(for url: URL) -> CoverPalette? { palettes.withLock { $0[url.absoluteString] } }
+
+    /// Every palette if all are already known in memory, else nil.
+    nonisolated func cachedPalettes(for urls: [URL]) -> [CoverPalette]? {
+        palettes.withLock { known in
+            let found = urls.compactMap { known[$0.absoluteString] }
+            return found.count == urls.count ? found : nil
+        }
+    }
+
+    /// Puts a palette in memory (tests, and palettes read elsewhere).
+    nonisolated func rememberPalette(_ palette: CoverPalette, for url: URL) {
+        palettes.withLock { $0[url.absoluteString] = palette }
+    }
+
+    /// The baked backdrop if it's already in memory, for a first frame without a fade.
+    nonisolated func cachedBackdrop(for url: URL, dark: Bool) -> DecodedArtwork? {
+        memory.object(forKey: Self.backdropKey(url, dark: dark)).map { DecodedArtwork(cgImage: $0.image) }
+    }
+
+    /// Aurora: a cover was decoded for display, so work out its light in the background
+    /// (palette and baked backdrop) before a page asks for it. A Game page opened from
+    /// here renders lit on its first frame.
+    nonisolated func prepareLight(for url: URL, dark: Bool) {
+        if cachedPalette(for: url) != nil, cachedBackdrop(for: url, dark: dark) != nil { return }
+        Task(priority: .utility) { await self.startLight(for: url, dark: dark) }
+    }
+
+    private func startLight(for url: URL, dark: Bool) {
+        let key = url.absoluteString + (dark ? "#d" : "#l")
+        guard lightTasks[key] == nil else { return }
+        lightTasks[key] = Task(priority: .utility) {
+            if let palette = await self.palette(for: url), !palette.isNeutral {
+                _ = await self.backdrop(for: url, dark: dark)
+            }
+            await self.finishLight(key)
+        }
+    }
+
+    private func finishLight(_ key: String) { lightTasks[key] = nil }
 
     /// The cover printed in two inks (Riso), at display size, cached in memory.
     func risoPrint(for url: URL, maxPixelSize: Int, style: RisoPrintStyle, misregistration: Double,
@@ -105,7 +153,7 @@ actor ArtworkPipeline {
     /// The cover as Aurora page light: small, blurred, saturated and brightened
     /// (the studio's `--art-filter`), cached in memory.
     func backdrop(for url: URL, dark: Bool) async -> DecodedArtwork? {
-        let key = "\(url.absoluteString)#backdrop#\(dark ? 1 : 0)" as NSString
+        let key = Self.backdropKey(url, dark: dark)
         if let cached = memory.object(forKey: key) { return DecodedArtwork(cgImage: cached.image) }
         guard let image = await image(for: url, maxPixelSize: 96) else { return nil }
         let baked = await Task.detached(priority: .utility) {
@@ -116,6 +164,10 @@ actor ArtworkPipeline {
         return DecodedArtwork(cgImage: baked)
     }
 
+    private nonisolated static func backdropKey(_ url: URL, dark: Bool) -> NSString {
+        "\(url.absoluteString)#backdrop#\(dark ? 1 : 0)" as NSString
+    }
+
     /// One Core Image context for palette extraction and printing: maths on
     /// encoded sRGB values, like the studio's CSS.
     /// (CIContext is thread-safe.)
@@ -123,7 +175,7 @@ actor ArtworkPipeline {
 
     /// Drops everything cached on disk and in memory.
     func removeAll() {
-        palettes.removeAll()
+        palettes.withLock { $0.removeAll() }
         memory.removeAllObjects()
         if let directory {
             try? FileManager.default.removeItem(at: directory)
@@ -148,7 +200,7 @@ actor ArtworkPipeline {
     }
 }
 
-private final class CGImageBox {
+private final class CGImageBox: @unchecked Sendable {
     let image: CGImage
     init(_ image: CGImage) { self.image = image }
 }
@@ -165,12 +217,15 @@ extension EnvironmentValues {
 }
 
 /// Server artwork through the shared pipeline; `placeholder` shows until (or
-/// unless) the image arrives.
+/// unless) the image arrives. An image already in memory shows on the first frame.
 struct ArtworkImage<Placeholder: View>: View {
     let url: URL?
     var contentMode: ContentMode = .fill
     /// Longest side in points; the image is decoded at this size × display scale.
     var maxPointSize: CGFloat = 320
+    /// Aurora: once the cover is decoded, work out its light (palette and backdrop)
+    /// in the background for this scheme, so its Game page opens lit.
+    var preparesLight: Bool? = nil
     @ViewBuilder var placeholder: () -> Placeholder
 
     @Environment(\.artworkPipeline) private var pipeline
@@ -178,9 +233,11 @@ struct ArtworkImage<Placeholder: View>: View {
     @State private var loaded: (url: URL, image: DecodedArtwork)?
 
     var body: some View {
+        let pixels = Int(maxPointSize * displayScale)
+        let image = loaded.flatMap { $0.url == url ? $0.image : nil } ?? url.flatMap { pipeline.cachedImage(for: $0, maxPixelSize: pixels) }
         ZStack {
-            if let loaded, loaded.url == url {
-                Image(decorative: loaded.image.cgImage, scale: displayScale)
+            if let image {
+                Image(decorative: image.cgImage, scale: displayScale)
                     .resizable()
                     .aspectRatio(contentMode: contentMode)
                     .transition(.opacity)
@@ -190,10 +247,13 @@ struct ArtworkImage<Placeholder: View>: View {
         }
         .task(id: url) {
             guard let url else { loaded = nil; return }
-            let image = await pipeline.image(for: url, maxPixelSize: Int(maxPointSize * displayScale))
-            if let image, !Task.isCancelled {
-                withAnimation(.easeOut(duration: 0.2)) { loaded = (url, image) }
+            if image == nil {
+                let decoded = await pipeline.image(for: url, maxPixelSize: pixels)
+                guard let decoded, !Task.isCancelled else { return }
+                withAnimation(.easeOut(duration: 0.2)) { loaded = (url, decoded) }
             }
+            // Aurora: decoded for display (so on disk too); work out its light in the background.
+            if let dark = preparesLight { pipeline.prepareLight(for: url, dark: dark) }
         }
     }
 }

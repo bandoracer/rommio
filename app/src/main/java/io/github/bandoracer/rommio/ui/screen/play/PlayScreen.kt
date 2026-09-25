@@ -10,11 +10,13 @@ import androidx.compose.material.icons.outlined.Download
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -22,9 +24,7 @@ import io.github.bandoracer.rommio.AppContainer
 import io.github.bandoracer.rommio.domain.player.EmbeddedSupportTier
 import io.github.bandoracer.rommio.model.RomDto
 import io.github.bandoracer.rommio.model.RommCollectionDto
-import io.github.bandoracer.rommio.ui.component.PlayFormat
 import io.github.bandoracer.rommio.ui.component.ToolbarIconButton
-import io.github.bandoracer.rommio.ui.screen.collectAsStateWithLifecycleCompat
 import io.github.bandoracer.rommio.ui.theme.RommioTheme
 import io.github.bandoracer.rommio.util.resolveRemoteAssetUrl
 
@@ -34,7 +34,6 @@ class PlayActions(
     val open: (romId: Int) -> Unit,
     val openCollection: (RommCollectionDto) -> Unit,
     val openDownloads: () -> Unit,
-    val cover: (RomDto) -> String?,
     /** A Recent saves tile: its game, or the Conflict sheet when its resume point is in conflict. */
     val openSave: (RecentSaveItem) -> Unit = { open(it.rom.id) },
     /** Long press › "Start options": the Launch choice (resume or the game save). */
@@ -54,8 +53,9 @@ val InProgressGame.playableFileId: Int?
 
 /**
  * Play (docs/theme-layouts.md "Play — two layouts"): Continue playing first, then recent
- * activity. One content model ([PlayUiState]); Aurora pages through the games in progress, lit by
- * each, and Riso sets the page like a front page. Downloads are one tap away in the toolbar.
+ * activity. One content model ([PlayPage], built by [PlayViewModel]); Aurora pages through the
+ * games in progress, lit by each, and Riso sets the page like a front page. Downloads are one tap
+ * away in the toolbar.
  */
 @Composable
 fun PlayScreen(
@@ -72,48 +72,44 @@ fun PlayScreen(
             initializer { PlayViewModel(container.repository, container.playActivity, container.savedProgress, container.playDataChanges) }
         },
     )
-    val state by viewModel.uiState.collectAsStateWithLifecycleCompat()
+    val page by viewModel.page.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { viewModel.refreshActivity() }
-    val cover: (RomDto) -> String? = { rom -> resolveRemoteAssetUrl(imageBaseUrl, rom.urlCover) }
-    fun target(rom: RomDto, fileId: Int?) = io.github.bandoracer.rommio.ui.screen.LaunchTarget(rom.id, rom.displayName, fileId, cover(rom), platformSlug = rom.platformSlug)
-    val actions = PlayActions(
-        // A conflict asks which to keep first (Conflict sheet); a resume point this device can't
-        // load asks how to start (Launch choice); otherwise the player opens.
-        resume = { game ->
-            val fileId = game.playableFileId
-            if (fileId != null) launchFlow.play(target(game.rom, fileId)) else onOpenGame(game.rom.id)
-        },
-        open = onOpenGame,
-        openCollection = onOpenCollection,
-        openDownloads = onOpenDownloads,
-        cover = cover,
-        openSave = { item ->
-            if (item.entry.sync == io.github.bandoracer.rommio.domain.playdata.SaveSyncStatus.CONFLICT && item.entry.isCurrentResume) {
-                launchFlow.chooseConflict(target(item.rom, item.playableFileId)) { onOpenGame(item.rom.id) }
-            } else {
-                onOpenGame(item.rom.id)
-            }
-        },
-        startOptions = { game ->
-            val fileId = game.playableFileId
-            if (fileId != null) launchFlow.startOptions(target(game.rom, fileId)) else onOpenGame(game.rom.id)
-        },
-    )
-    if (RommioTheme.isRiso) {
-        RisoPlayLayout(state, actions)
-    } else {
-        AuroraPlayLayout(state, actions)
+    val actions = remember(imageBaseUrl, onOpenGame, launchFlow, onOpenDownloads, onOpenCollection) {
+        val cover: (RomDto) -> String? = { rom -> resolveRemoteAssetUrl(imageBaseUrl, rom.urlCover) }
+        fun target(rom: RomDto, fileId: Int?) = io.github.bandoracer.rommio.ui.screen.LaunchTarget(rom.id, rom.displayName, fileId, cover(rom), platformSlug = rom.platformSlug)
+        PlayActions(
+            // A conflict asks which to keep first (Conflict sheet); a resume point this device can't
+            // load asks how to start (Launch choice); otherwise the player opens.
+            resume = { game ->
+                val fileId = game.playableFileId
+                if (fileId != null) launchFlow.play(target(game.rom, fileId)) else onOpenGame(game.rom.id)
+            },
+            open = onOpenGame,
+            openCollection = onOpenCollection,
+            openDownloads = onOpenDownloads,
+            openSave = { item ->
+                if (item.entry.sync == io.github.bandoracer.rommio.domain.playdata.SaveSyncStatus.CONFLICT && item.entry.isCurrentResume) {
+                    launchFlow.chooseConflict(target(item.rom, item.playableFileId)) { onOpenGame(item.rom.id) }
+                } else {
+                    onOpenGame(item.rom.id)
+                }
+            },
+            startOptions = { game ->
+                val fileId = game.playableFileId
+                if (fileId != null) launchFlow.startOptions(target(game.rom, fileId)) else onOpenGame(game.rom.id)
+            },
+        )
     }
-}
-
-/** The chip under a game in progress whose resume point is in conflict ("Two resume points"). */
-internal fun PlayUiState.conflictChip(romId: Int): String? = conflicts[romId]?.let { count ->
-    io.github.bandoracer.rommio.domain.playdata.SaveConflict.chipTitle(io.github.bandoracer.rommio.domain.playdata.SaveConflictKind.RESUME, count)
+    if (RommioTheme.isRiso) {
+        RisoPlayLayout(page, actions)
+    } else {
+        AuroraPlayLayout(page, actions)
+    }
 }
 
 /** The Play toolbar: the Downloads button with its queue count at the trailing edge. */
 @Composable
-internal fun PlayToolbar(state: PlayUiState, actions: PlayActions, gutter: Dp) {
+internal fun PlayToolbar(downloadCount: Int, openDownloads: () -> Unit, gutter: Dp) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -125,21 +121,9 @@ internal fun PlayToolbar(state: PlayUiState, actions: PlayActions, gutter: Dp) {
         ToolbarIconButton(
             icon = Icons.Outlined.Download,
             contentDescription = "Downloads",
-            onClick = actions.openDownloads,
-            badgeCount = state.downloadCount,
+            onClick = openDownloads,
+            badgeCount = downloadCount,
             modifier = Modifier.testTag("play.downloads"),
         )
     }
-}
-
-/** "Online · synced 2 min ago · 12 games on this device". */
-internal fun PlayUiState.statusLine(): String {
-    var first = if (offlineState.isOffline) "Offline" else "Online"
-    offlineState.lastFullSyncAtEpochMs?.let { first += " · synced ${PlayFormat.relative(it)}" }
-    return "$first · ${PlayFormat.games(storageSummary.installedGameCount)} on this device"
-}
-
-/** "Played 2 hours ago · 1 h 05 min on this device", or null when never played here. */
-internal fun InProgressGame.playedLine(): String? = lastPlayedAtEpochMs?.let {
-    "Played ${PlayFormat.relative(it)} · ${io.github.bandoracer.rommio.ui.component.formatPlayTime(playedMs)} on this device"
 }

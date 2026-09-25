@@ -18,19 +18,25 @@ enum TypeRole: String, CaseIterable, Sendable {
     }
 }
 
-/// The active theme: a token set resolved for light or dark. Themes are
+/// The active base theme: a token set resolved for light or dark. Themes are
 /// presentation only; they never change navigation, strings or selectors.
-struct RommioTheme: Sendable {
+///
+/// Cheap to copy and compare (two references and a flag): it changes only with the
+/// appearance setting. The light a page takes from a game (Aurora) is not part of
+/// it: it is the separate `PageLight` (`@Environment(\.pageLight)`), read only by
+/// views that draw in the page's light. `ground`, `tint` and `accent1…3` here are
+/// the theme's own (unlit) values: Riso never lights a page, and anything Aurora
+/// draws in the page's light reads the page light instead.
+struct RommioTheme: Equatable, Sendable {
     let tokens: ThemeTokenSet
     let isDark: Bool
-    /// Aurora: the light of the game a page is about (its cover's palette). It
-    /// replaces the page ground, the lights and the tint below the page. Riso
-    /// ignores it.
-    private(set) var light: PageLight?
+    /// The colours of this theme and scheme, resolved once.
+    let palette: ThemePalette
 
     init(tokens: ThemeTokenSet, isDark: Bool) {
         self.tokens = tokens
         self.isDark = isDark
+        palette = ThemePalette.resolved(tokens, dark: isDark)
     }
 
     init(_ theme: AppearanceTheme, dark: Bool) {
@@ -39,33 +45,17 @@ struct RommioTheme: Sendable {
 
     static let aurora = RommioTheme(.aurora, dark: false)
 
+    static func == (lhs: RommioTheme, rhs: RommioTheme) -> Bool {
+        lhs.isDark == rhs.isDark && lhs.tokens == rhs.tokens
+    }
+
     var appearance: AppearanceTheme { AppearanceTheme(rawValue: tokens.key) ?? .aurora }
     var isRiso: Bool { tokens.key == ThemeTokens.riso.key }
-    /// Changes whenever anything a view draws with changes.
-    var identity: String { tokens.key + (isDark ? ".dark" : ".light") + (light.map { "." + $0.lights.tint.hex } ?? "") }
+    /// Changes whenever anything the base theme draws with changes.
+    var identity: String { tokens.key + (isDark ? ".dark" : ".light") }
 
-    /// This theme lit by a game (Aurora only; Riso prints on plain paper).
-    func lit(by light: PageLight?) -> RommioTheme {
-        var copy = self
-        copy.light = isGlass ? light : nil
-        return copy
-    }
-
-    /// The page's lights: the game's when lit, otherwise the theme's own.
-    var lights: AuroraLights {
-        if let light { return light.lights }
-        let c = colors
-        func hsl(_ x: ThemeRGBA) -> ArtHSL { ArtColorMath.hsl(ArtRGB(red: x.red, green: x.green, blue: x.blue)) }
-        func rgb(_ x: ThemeRGBA) -> ArtRGB { ArtRGB(red: x.red, green: x.green, blue: x.blue) }
-        return AuroraLights(l1: rgb(c.accent1), l2: rgb(c.accent2), l3: rgb(c.accent3),
-                            k1: AuroraLights.mark(hsl(c.tint), dark: isDark), k2: AuroraLights.mark(hsl(c.accent2), dark: isDark),
-                            k3: AuroraLights.mark(hsl(c.accent3), dark: isDark), tint: rgb(c.tint), ground: rgb(c.ground))
-    }
-
-    /// Vivid marks in the page's light (dots, rules, bars, glows).
-    var mark1: Color { lights.k1.themeColor.color }
-    var mark2: Color { lights.k2.themeColor.color }
-    var mark3: Color { lights.k3.themeColor.color }
+    /// The page light when no game lights the page: the theme's own ground, tint and lights.
+    var unlitLight: PageLight { palette.unlit }
 
     var colors: ThemeColorTokens { tokens.colors(dark: isDark) }
     var type: ThemeTypeTokens { tokens.type }
@@ -77,48 +67,39 @@ struct RommioTheme: Sendable {
     /// Aurora draws surfaces as glass over the page light; Riso prints on paper.
     var isGlass: Bool { material.surfaceIsGlass }
 
-    // MARK: Colours
+    // MARK: Colours (unlit)
 
-    var ground: Color { light?.lights.ground.themeColor.color ?? colors.ground.color }
-    var groundRaised: Color { colors.groundRaised.color }
-    var surface: Color { colors.surface.color }
-    var surfaceStrong: Color { colors.surfaceStrong.color }
-    var ink: Color { colors.ink.color }
-    var inkSecondary: Color { colors.inkSecondary.color }
-    var inkTertiary: Color { colors.inkTertiary.color }
-    var hairline: Color { colors.hairline.color }
-    var keyline: Color { colors.keyline.color }
-    var tint: Color { light?.lights.tint.themeColor.color ?? colors.tint.color }
-    var buttonFill: Color { colors.buttonFill.color }
-    var buttonInk: Color { colors.buttonInk.color }
-    var ok: Color { colors.ok.color }
-    var wait: Color { colors.wait.color }
-    var live: Color { colors.live.color }
-    var bad: Color { colors.bad.color }
+    var ground: Color { palette.ground }
+    var groundRaised: Color { palette.groundRaised }
+    var surface: Color { palette.surface }
+    var surfaceStrong: Color { palette.surfaceStrong }
+    var ink: Color { palette.ink }
+    var inkSecondary: Color { palette.inkSecondary }
+    var inkTertiary: Color { palette.inkTertiary }
+    var hairline: Color { palette.hairline }
+    var keyline: Color { palette.keyline }
+    var tint: Color { palette.tint }
+    var buttonFill: Color { palette.buttonFill }
+    var buttonInk: Color { palette.buttonInk }
+    var ok: Color { palette.ok }
+    var wait: Color { palette.wait }
+    var live: Color { palette.live }
+    var bad: Color { palette.bad }
     /// Error and destructive text (`bad` stays for fills, chips and glyph washes).
-    var badText: Color { colors.badText.color }
-    /// The tint for text and meaningful glyphs (docs/theme-layouts.md §1.2a): a lit
-    /// page's tint stepped until it reads at 4.5:1; unlit pages use the token, which
-    /// already passes. This is also the system tint (bar buttons, list buttons).
-    var readableTint: Color { readableTintRGB.themeColor.color }
-    var readableTintRGB: ArtRGB {
-        let token = colors.tint
-        guard let light else { return ArtRGB(red: token.red, green: token.green, blue: token.blue) }
-        return ReadableTint.resolve(tint: light.lights.tint, ground: light.lights.ground, dark: isDark)
-    }
-    var accent1: Color { light?.lights.l1.themeColor.color ?? colors.accent1.color }
-    var accent2: Color { light?.lights.l2.themeColor.color ?? colors.accent2.color }
-    var accent3: Color { light?.lights.l3.themeColor.color ?? colors.accent3.color }
-    var accent4: Color { colors.accent4.color }
-    var onAccent: Color { colors.onAccent.color }
-    var scrim: Color { colors.scrim.color }
+    var badText: Color { palette.badText }
+    var accent1: Color { palette.accent1 }
+    var accent2: Color { palette.accent2 }
+    var accent3: Color { palette.accent3 }
+    var accent4: Color { palette.accent4 }
+    var onAccent: Color { palette.onAccent }
+    var scrim: Color { palette.scrim }
 
     // MARK: Component colours derived from tokens
 
     /// Glass rims and keylines, and ink on vivid marks (avatar, app mark): the
     /// light set's raised ground (white), whatever the scheme.
-    var glassRim: Color { tokens.light.groundRaised.color }
-    var markInk: Color { tokens.light.groundRaised.color }
+    var glassRim: Color { palette.glassRim }
+    var markInk: Color { palette.glassRim }
     /// Text on a `bad` fill (badges): ink on Riso's pink and on Aurora's pale dark
     /// red; white on Aurora's deep light red.
     var onBad: Color { isRiso || isDark ? onAccent : markInk }
@@ -150,6 +131,55 @@ struct RommioTheme: Sendable {
         let token = self.role(role)
         let font = Font.custom(token.postScriptName, size: size ?? token.size, relativeTo: role.textStyle)
         return token.tabular ? font.monospacedDigit() : font
+    }
+}
+
+/// A theme's colours for one scheme, resolved from the tokens once and shared.
+final class ThemePalette: Sendable {
+    let ground, groundRaised, surface, surfaceStrong: Color
+    let ink, inkSecondary, inkTertiary, hairline, keyline: Color
+    let tint, buttonFill, buttonInk: Color
+    let ok, wait, live, bad, badText: Color
+    let accent1, accent2, accent3, accent4, onAccent, scrim: Color
+    let glassRim: Color
+    /// The page light when no game lights the page.
+    let unlit: PageLight
+
+    init(_ tokens: ThemeTokenSet, dark: Bool) {
+        let c = tokens.colors(dark: dark)
+        ground = c.ground.color
+        groundRaised = c.groundRaised.color
+        surface = c.surface.color
+        surfaceStrong = c.surfaceStrong.color
+        ink = c.ink.color
+        inkSecondary = c.inkSecondary.color
+        inkTertiary = c.inkTertiary.color
+        hairline = c.hairline.color
+        keyline = c.keyline.color
+        tint = c.tint.color
+        buttonFill = c.buttonFill.color
+        buttonInk = c.buttonInk.color
+        ok = c.ok.color
+        wait = c.wait.color
+        live = c.live.color
+        bad = c.bad.color
+        badText = c.badText.color
+        accent1 = c.accent1.color
+        accent2 = c.accent2.color
+        accent3 = c.accent3.color
+        accent4 = c.accent4.color
+        onAccent = c.onAccent.color
+        scrim = c.scrim.color
+        glassRim = tokens.light.groundRaised.color
+        unlit = PageLight(unlit: c, key: tokens.key, dark: dark)
+    }
+
+    private static let all: [String: ThemePalette] = Dictionary(uniqueKeysWithValues: ThemeTokens.all.flatMap { set in
+        [false, true].map { dark in ("\(set.key).\(dark)", ThemePalette(set, dark: dark)) }
+    })
+
+    static func resolved(_ tokens: ThemeTokenSet, dark: Bool) -> ThemePalette {
+        all["\(tokens.key).\(dark)"] ?? ThemePalette(tokens, dark: dark)
     }
 }
 

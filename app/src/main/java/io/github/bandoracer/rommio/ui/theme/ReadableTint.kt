@@ -37,6 +37,25 @@ object ReadableTint {
     /** WCAG 2 contrast ratio of two `0xRRGGBB` colours. */
     fun contrast(a: Int, b: Int): Double = contrast(channels(a), channels(b))
 
+    /**
+     * [color] stepped in HSL lightness by 0.01 (darker on a light [face], lighter on a dark one)
+     * until it reaches [minimum] contrast against [face]: player legends in a console's colour
+     * (docs/player-controls.md, Look; iOS `legibleLegend`). `0xRRGGBB` colours.
+     */
+    fun legibleOn(color: Int, face: Int, minimum: Double = 3.0): Int {
+        val f = channels(face)
+        val lighten = luminance(f) < 0.2
+        val (h, l0, s) = rgbToHls(channels(color))
+        var l = l0
+        var candidate = channels(color)
+        repeat(100) {
+            if (contrast(candidate, f) >= minimum) return pack(quantise(candidate))
+            l = (l + if (lighten) 0.01 else -0.01).coerceIn(0.0, 1.0)
+            candidate = hlsToRgb(h, l, s)
+        }
+        return pack(quantise(candidate))
+    }
+
     private fun contrast(a: DoubleArray, b: DoubleArray): Double {
         val la = luminance(a)
         val lb = luminance(b)

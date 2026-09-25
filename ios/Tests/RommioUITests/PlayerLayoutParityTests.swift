@@ -40,11 +40,15 @@ final class PlayerLayoutParityTests: XCTestCase {
 
         XCTAssertFalse(snapshot.isPortrait)
         XCTAssertEqual(snapshot.primaryControlsPlacement, .sideRails)
-        XCTAssertEqual(snapshot.menuPlacement, .landscapeLowerLeading)
+        // docs/player-controls.md: Menu bottom centre, under the game; Select and Start at the rails' feet.
+        XCTAssertEqual(snapshot.menuPlacement, .bottomCenter)
         XCTAssertEqual(snapshot.systemPlacement, .sideRails)
         XCTAssertTrue(snapshot.showsGameplayTouchControls)
         XCTAssertEqual(snapshot.viewportFrame.midX, 466, accuracy: 1)
-        XCTAssertLessThan(snapshot.menuCenter!.x + 24, snapshot.viewportFrame.minX)
+        XCTAssertEqual(snapshot.menuCenter!.x, snapshot.viewportFrame.midX, accuracy: 1)
+        XCTAssertGreaterThan(snapshot.menuCenter!.y - 22, snapshot.viewportFrame.maxY)
+        XCTAssertLessThan(snapshot.systemFrame!.minX, snapshot.viewportFrame.minX)
+        XCTAssertGreaterThan(snapshot.systemFrame!.maxX, snapshot.viewportFrame.maxX)
         XCTAssertNotNil(snapshot.leftRailInset)
         XCTAssertNotNil(snapshot.rightRailInset)
         XCTAssertGreaterThanOrEqual(snapshot.leftRailInset ?? 0, 59)
@@ -104,34 +108,34 @@ final class PlayerLayoutParityTests: XCTestCase {
         XCTAssertNotNil(snapshot.touchScreenFrame)
     }
 
+    /// Every touch family on a phone, both orientations, three sizes and both hands:
+    /// every placed control (as `PlayerControlsOverlay` draws it) stays on the display,
+    /// off the game and off the other controls, with 44 pt or larger targets.
     func testEveryTouchFamilyKeepsAllControlsOutsideVideoInBothOrientations() throws {
         let resolver = PlatformControlProfileResolver()
         for profile in resolver.supportedProfiles() where profile.supportTier == .touchSupported {
-            let controls = try XCTUnwrap(ExpansionControls.controls(for: profile.familyID), profile.familyID)
+            let plan = try XCTUnwrap(PlayerControlPlan(family: profile.familyID), profile.familyID)
             for size in [CGSize(width: 420, height: 912), CGSize(width: 912, height: 420), CGSize(width: 375, height: 667), CGSize(width: 667, height: 375)] {
                 let portrait = size.height > size.width
                 let insets = PlayerViewportSafeAreaInsets(top: portrait ? 62 : 0, bottom: 21, left: portrait ? 0 : 62, right: portrait ? 0 : 62)
-                for scale in [0.92, 1.0, 1.3] {
-                    let deck = PlayerControlDeckLayout(size: size, insets: insets, deckHeight: ExpansionControls.deckHeight(controls), scale: scale, aspectRatio: profile.preferredViewportAspectRatio, utilityCount: controls.filter(\.center).count + 1)
-                    let viewport = resolvePlayerViewportLayout(containerSize: size, safeAreaInsets: insets, aspectRatio: profile.preferredViewportAspectRatio,
-                        topAlignedInPortrait: true, controlDeckHeight: ExpansionControls.deckHeight(controls), controlScale: scale, utilityCount: controls.filter(\.center).count + 1).frame
+                let dual = ["nds", "3ds"].contains(profile.familyID)
+                for scale in [0.8, 1.0, 1.3] {
                     for mirror in [false, true] {
-                        var targets: [CGRect] = []
-                        let utility = controls.filter(\.center)
-                        let menuIndex = utility.count / 2
-                        for control in controls {
-                            let index = utility.firstIndex { $0.id == control.id } ?? 0
-                            let x = control.center ? deck.utilityX(index: index < menuIndex ? index : index + 1, count: utility.count + 1, width: size.width) : (control.left != mirror ? deck.leftOrigin : deck.rightOrigin) + control.x * deck.scale
-                            let y = control.center ? deck.utilityY : deck.railTop + control.y * deck.scale
-                            let diameter = control.center ? 48 : control.size * deck.scale
-                            targets.append(CGRect(x: x - diameter / 2, y: y - diameter / 2, width: diameter, height: diameter))
-                        }
-                        targets.append(CGRect(x: deck.utilityX(index: menuIndex, count: utility.count + 1, width: size.width) - 24, y: deck.utilityY - 22, width: 48, height: 44))
+                        let layout = resolvePlayerStageLayout(containerSize: size, safeAreaInsets: insets, aspectRatio: profile.preferredViewportAspectRatio,
+                            topAlignedInPortrait: true, controlScale: scale, reserveTouchSpace: true,
+                            stage: PlayerStageContext(dualScreen: dual, threeDS: profile.familyID == "3ds"), controls: plan, mirrored: mirror)
+                        let label = "\(profile.familyID) \(size) \(scale) mirrored=\(mirror)"
+                        let controls = try XCTUnwrap(layout.controls, label)
+                        let targets = controls.controls.map(\.frame) + [controls.menuFrame]
                         for (i, target) in targets.enumerated() {
-                            XCTAssertTrue(CGRect(origin: .zero, size: size).contains(target), "Clipped \(profile.familyID) \(size) \(scale)")
-                            XCTAssertGreaterThanOrEqual(target.width, 44, "Small target \(profile.familyID)")
-                            XCTAssertFalse(viewport.intersects(target), "Game obscured \(profile.familyID)")
-                            for other in targets.dropFirst(i + 1) { XCTAssertFalse(target.insetBy(dx: 0.1, dy: 0.1).intersects(other.insetBy(dx: 0.1, dy: 0.1)), "Overlapping targets \(profile.familyID)") }
+                            XCTAssertTrue(CGRect(origin: .zero, size: size).insetBy(dx: -0.5, dy: -0.5).contains(target), "Clipped \(label) \(target)")
+                            XCTAssertGreaterThanOrEqual(target.height + 2 * PlayerControlMetrics.hitGrowth, 58, "Small target \(label)")
+                            for screen in layout.screens {
+                                XCTAssertFalse(screen.frame.insetBy(dx: 0.5, dy: 0.5).intersects(target), "Game obscured \(label) \(target)")
+                            }
+                            for other in targets.dropFirst(i + 1) {
+                                XCTAssertFalse(target.insetBy(dx: 0.5, dy: 0.5).intersects(other), "Overlapping targets \(label) \(target) \(other)")
+                            }
                         }
                     }
                 }
@@ -158,56 +162,42 @@ final class PlayerLayoutParityTests: XCTestCase {
             guard let controls = ExpansionControls.controls(for: profile.familyID) else { continue }
             families.insert(profile.familyID)
             let dual = ["nds", "3ds"].contains(profile.familyID)
-            let hasSticks = controls.contains { $0.stick != nil }
-            let utility = controls.filter(\.center)
-            let menuIndex = utility.count / 2
+            _ = controls
             for pose in poses {
                 let stage = PlayerStageContext(fold: pose.fold, foldIsActive: pose.active, dualScreen: dual,
                                                threeDS: profile.familyID == "3ds", isPhoneFormFactor: true)
+                // PlayStation with and without its Analog controls.
+                for analog in profile.familyID == "psx" ? [false, true] : [false] {
                 for scale in [0.92, 1.0, 1.3] {
-                    let layout = resolvePlayerStageLayout(
-                        containerSize: pose.size, safeAreaInsets: pose.insets, aspectRatio: profile.preferredViewportAspectRatio,
-                        topAlignedInPortrait: true, controlDeckHeight: ExpansionControls.deckHeight(controls), controlScale: scale,
-                        reserveTouchSpace: true, utilityCount: utility.count + 1, stage: stage)
-                    let deck = layout.deck
-                    let label = "\(profile.familyID) \(pose.name) scale=\(scale)"
-                    XCTAssertEqual(layout.screens.count, dual ? 2 : 1, label)
+                    let label = "\(profile.familyID)\(analog ? " analog" : "") \(pose.name) scale=\(scale)"
                     for mirror in [false, true] {
-                        var targets: [CGRect] = []
-                        if controls.contains(where: { [4, 5, 6, 7].contains($0.key ?? -1) }) {
-                            let dpadSize = 144 * deck.scale
-                            let center = CGPoint(x: (mirror ? deck.rightOrigin : deck.leftOrigin) + 74 * deck.scale,
-                                                 y: deck.railTop + 122 * deck.scale)
-                            targets.append(CGRect(x: center.x - dpadSize / 2, y: center.y - dpadSize / 2, width: dpadSize, height: dpadSize))
-                            if hasSticks {
-                                // Analog sticks sit under the clusters, so the whole rail
-                                // rests on the bottom of the display instead.
-                                let railBottom = deck.railTop + CGFloat(ExpansionControls.deckHeight(controls)) * deck.scale
-                                XCTAssertGreaterThanOrEqual(railBottom, pose.size.height * 0.8, "Rail not low: \(label)")
+                        let planned = resolvePlayerStageLayout(
+                            containerSize: pose.size, safeAreaInsets: pose.insets, aspectRatio: profile.preferredViewportAspectRatio,
+                            topAlignedInPortrait: true, controlScale: scale, reserveTouchSpace: true, stage: stage,
+                            controls: PlayerControlPlan(family: profile.familyID, analogControls: analog), mirrored: mirror)
+                        XCTAssertEqual(planned.screens.count, dual ? 2 : 1, label)
+                        let placed = try XCTUnwrap(planned.controls, label)
+                        let targets = placed.controls.map(\.frame) + [placed.menuFrame]
+                        if let pad = placed.dpad {
+                            if placed.controls.contains(where: { $0.kind == .stick }) {
+                                // A rail with a stick is a tall stack (a stick under a cluster, or
+                                // a small d-pad beside the primary stick): it rests on the bottom
+                                // of the display instead.
+                                let lowest = placed.controls.filter { $0.kind == .stick || $0.kind == .dpad }.map(\.frame.maxY).max() ?? 0
+                                XCTAssertGreaterThanOrEqual(lowest, pose.size.height * 0.75, "Rail not low: \(label)")
                             } else {
                                 // The D-pad sits in the lower part of the display.
-                                XCTAssertGreaterThanOrEqual(center.y, pose.size.height * 0.5, "Cluster too high: \(label)")
+                                XCTAssertGreaterThanOrEqual(pad.center.y, pose.size.height * 0.5, "Cluster too high: \(label)")
                                 if pose.size.width > pose.size.height, !dual, scale <= 1 {
-                                    XCTAssertGreaterThanOrEqual(center.y, pose.size.height * 0.64, "Cluster not low: \(label)")
+                                    XCTAssertGreaterThanOrEqual(pad.center.y, pose.size.height * 0.64, "Cluster not low: \(label)")
                                 }
                             }
                         }
-                        for control in controls where ![4, 5, 6, 7].contains(control.key ?? -1) {
-                            let index = utility.firstIndex { $0.id == control.id } ?? 0
-                            let x = control.center
-                                ? deck.utilityX(index: index < menuIndex ? index : index + 1, count: utility.count + 1, width: pose.size.width)
-                                : (control.left != mirror ? deck.leftOrigin : deck.rightOrigin) + control.x * deck.scale
-                            let y = control.center ? deck.utilityY : deck.railTop + control.y * deck.scale
-                            let diameter = control.center ? 48 : control.size * deck.scale
-                            targets.append(CGRect(x: x - diameter / 2, y: y - diameter / 2, width: diameter, height: diameter))
-                        }
-                        targets.append(CGRect(x: deck.utilityX(index: menuIndex, count: utility.count + 1, width: pose.size.width) - 24,
-                                              y: deck.utilityY - 22, width: 48, height: 44))
                         let display = CGRect(origin: .zero, size: pose.size).insetBy(dx: -0.5, dy: -0.5)
                         for (i, target) in targets.enumerated() {
                             XCTAssertTrue(display.contains(target), "Clipped \(label) \(target)")
                             XCTAssertGreaterThanOrEqual(target.width, 44, "Small target \(label)")
-                            for screen in layout.screens {
+                            for screen in planned.screens {
                                 XCTAssertFalse(screen.frame.insetBy(dx: 0.5, dy: 0.5).intersects(target), "Game obscured \(label) \(target) \(screen.frame)")
                             }
                             for other in targets.dropFirst(i + 1) {
@@ -215,6 +205,7 @@ final class PlayerLayoutParityTests: XCTestCase {
                             }
                         }
                     }
+                }
                 }
             }
         }

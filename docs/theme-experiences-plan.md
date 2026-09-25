@@ -337,6 +337,19 @@ Phases 5, 1 and 2 are implemented on iOS; Android is reported separately.
   Play's context menu, and before the player when a launch would ask), Pause
   as a floating inspector on wide windows, §4 formatting, readable tint and
   `badText`, Riso's paper top edge, Resume from Stats.
+- **Performance and stability** (2026-09-24): the phone crash ("Thread stack
+  size exceeded") and slow navigation are fixed at the cause. The theme is two
+  references and a flag (the generated `ThemeTokenSet` is a final class; it was a
+  several-KB value copied into every themed view); the page light is a separate
+  `\.pageLight` value read only by lit views, available from memory on a page's
+  first frame (covers shown in Aurora prepare their light in the background), and
+  only the page field crossfades when it arrives. Pages are small section views
+  with lazy lists and content built by `DerivedContent` off the render path,
+  published only on change; list rows push with a button instead of a
+  `NavigationLink`; no `AnyView`. `StackBudgetTests` holds every page and sheet to
+  256 KB (worst now 225 KB, from 1,752 KB), Simulator builds run with the phone's
+  1 MB stack, and a device-capable navigation pass measures push transitions
+  (see [ios-player-ui-validation.md](ios-player-ui-validation.md)).
 - **Backup and recovery differs by platform** (documented, not a gap): both
   have **Recovery** (the same section title); iOS's other section is
   **Progress backup** (create and restore a backup of game saves, resume points

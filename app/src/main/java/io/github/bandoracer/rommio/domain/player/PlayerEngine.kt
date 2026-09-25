@@ -91,7 +91,15 @@ data class PlatformRuntimeFamily(
     val supportTier: EmbeddedSupportTier,
     val defaultRuntimeId: String,
     val runtimeOptions: List<RuntimeProfile>,
-)
+) {
+    /** The core a game of this family launches with (the default runtime, else the first). */
+    val defaultProfile: RuntimeProfile?
+        get() = runtimeOptions.firstOrNull { it.runtimeId == defaultRuntimeId } ?: runtimeOptions.firstOrNull()
+
+    /** Whether [profile] opens files of this type (no extension, or no list, opens anything). */
+    fun opens(profile: RuntimeProfile, fileExtension: String?): Boolean =
+        profile.supportedExtensions.isEmpty() || fileExtension == null || fileExtension in profile.supportedExtensions
+}
 
 data class CoreResolution(
     val capability: PlayerCapability,
@@ -146,10 +154,23 @@ data class PlayerRumbleSignal(
 )
 
 interface CoreResolver {
+    /** Where a game stands on this device. Reads the disk (BIOS, installed core): call it off the main thread. */
     fun resolve(platformSlug: String, fileExtension: String?): CoreResolution
     fun prepareCore(profile: RuntimeProfile, expected: CoreArtifactIdentity): InstalledCore
     fun platformSupport(platformSlug: String): PlatformRuntimeFamily?
     fun supportedPlatforms(): List<PlatformRuntimeFamily>
+
+    /**
+     * A game's support tier from its platform and file type alone, without reading the disk: the
+     * family's tier, or UNSUPPORTED exactly when [resolve] reports UNSUPPORTED (no family, no core,
+     * or a file type its core does not open). BIOS and core installation never change the tier, so
+     * lists read this per game instead of resolving each one.
+     */
+    fun supportTier(platformSlug: String, fileExtension: String?): EmbeddedSupportTier {
+        val family = platformSupport(platformSlug) ?: return EmbeddedSupportTier.UNSUPPORTED
+        val profile = family.defaultProfile ?: return EmbeddedSupportTier.UNSUPPORTED
+        return if (family.opens(profile, fileExtension)) family.supportTier else EmbeddedSupportTier.UNSUPPORTED
+    }
 }
 
 interface PlayerEngine {
@@ -175,6 +196,17 @@ interface PlayerEngine {
     suspend fun effectiveVariables(): Map<String, String>
     suspend fun dispatchDigital(keyCode: Int, pressed: Boolean, port: Int = 0)
     suspend fun dispatchMotion(source: PlayerMotionSource, x: Float, y: Float, port: Int = 0)
+
+    /**
+     * A touch control's press or release, queued for the core at once and in call order, with no
+     * coroutine in between (docs/player-controls.md, "Immediate, ordered input"). Main thread;
+     * the same rules as [dispatchDigital] (presses are dropped while paused, releases never are).
+     */
+    fun sendDigital(keyCode: Int, pressed: Boolean, port: Int = 0)
+
+    /** A touch stick's position, queued at once and in call order ([sendDigital]'s rules). */
+    fun sendMotion(source: PlayerMotionSource, x: Float, y: Float, port: Int = 0)
+
     suspend fun updateInputConfiguration(configuration: PlayerInputConfiguration)
     suspend fun availableControllerTypes(port: Int = 0): List<PlayerControllerDescriptor>
     suspend fun setControllerType(port: Int, controllerTypeId: Int)

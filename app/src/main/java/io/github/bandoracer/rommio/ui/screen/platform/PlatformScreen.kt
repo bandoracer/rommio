@@ -17,46 +17,41 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.SportsEsports
 import androidx.compose.material.icons.outlined.SwapVert
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.bandoracer.rommio.AppContainer
-import io.github.bandoracer.rommio.model.RomDto
 import io.github.bandoracer.rommio.ui.component.DisplayText
-import io.github.bandoracer.rommio.ui.component.DotLeader
 import io.github.bandoracer.rommio.ui.component.EmptyState
 import io.github.bandoracer.rommio.ui.component.GameCover
 import io.github.bandoracer.rommio.ui.component.GlassSurface
-import io.github.bandoracer.rommio.ui.component.PageArtSubject
+import io.github.bandoracer.rommio.ui.component.LitPage
 import io.github.bandoracer.rommio.ui.component.PageFieldStyle
 import io.github.bandoracer.rommio.ui.component.PageHeader
-import io.github.bandoracer.rommio.ui.component.PlayFormat
 import io.github.bandoracer.rommio.ui.component.PrintRule
 import io.github.bandoracer.rommio.ui.component.RoleText
 import io.github.bandoracer.rommio.ui.component.RuleWeight
@@ -65,12 +60,8 @@ import io.github.bandoracer.rommio.ui.component.SegmentedChoice
 import io.github.bandoracer.rommio.ui.component.StatusChip
 import io.github.bandoracer.rommio.ui.component.SupportTierBadge
 import io.github.bandoracer.rommio.ui.component.Tone
-import io.github.bandoracer.rommio.ui.component.formatPlayTime
 import io.github.bandoracer.rommio.ui.component.isRegularWidth
-import io.github.bandoracer.rommio.ui.component.supportTierLabel
-import io.github.bandoracer.rommio.ui.screen.collectAsStateWithLifecycleCompat
 import io.github.bandoracer.rommio.ui.theme.RommioTheme
-import io.github.bandoracer.rommio.util.resolveRemoteAssetUrl
 import java.net.URLDecoder
 
 /**
@@ -78,54 +69,46 @@ import java.net.URLDecoder
  * knows about each. Aurora: a summary card and a cover grid lit by the most recently played game.
  * Riso: a platform opener with the most played covers, then an A–Z index. Reached from Library;
  * the detail column when split.
+ *
+ * The page is built by [PlatformViewModel] ([PlatformPage]); the games are lazy (a grid row or an
+ * index entry is built only when it scrolls into view), so a platform with thousands of games
+ * opens as fast as one with ten.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlatformScreen(
     container: AppContainer,
     platformId: Int,
     platformName: String,
-    imageBaseUrl: String?,
-    onRomSelected: (RomDto) -> Unit,
+    @Suppress("UNUSED_PARAMETER") imageBaseUrl: String?,
+    onOpenGame: (romId: Int) -> Unit,
 ) {
+    val routeName = remember(platformName) { runCatching { URLDecoder.decode(platformName, Charsets.UTF_8.name()) }.getOrDefault(platformName) }
     val viewModel: PlatformViewModel = viewModel(
         key = "platform-$platformId",
         factory = viewModelFactory {
-            initializer { PlatformViewModel(container.repository, platformId, container.playActivity) }
+            initializer { PlatformViewModel(container.repository, platformId, container.playActivity, createSavedStateHandle(), routeName) }
         },
     )
-    val state by viewModel.uiState.collectAsStateWithLifecycleCompat()
-    var filterKey by rememberSaveable { mutableStateOf(PlatformFilter.ALL.name) }
-    var orderKey by rememberSaveable { mutableStateOf(PlatformOrder.ALPHABETICAL.name) }
-    val content = PlatformContent(
-        state = state,
-        name = state.platform?.name ?: runCatching { URLDecoder.decode(platformName, Charsets.UTF_8.name()) }.getOrDefault(platformName),
-        filter = PlatformFilter.valueOf(filterKey),
-        order = PlatformOrder.valueOf(orderKey),
-        onFilter = { filterKey = it.name },
-        onToggleOrder = { orderKey = if (orderKey == PlatformOrder.ALPHABETICAL.name) PlatformOrder.RECENTLY_PLAYED.name else PlatformOrder.ALPHABETICAL.name },
-        open = { onRomSelected(it.rom) },
-        cover = { resolveRemoteAssetUrl(imageBaseUrl, it.rom.urlCover) },
-    )
-    io.github.bandoracer.rommio.ui.component.RefreshBox(
-        refreshing = state.isRefreshing,
-        onRefresh = viewModel::refresh,
-        modifier = Modifier.fillMaxSize().testTag("screen.platform"),
-    ) {
-        if (RommioTheme.isRiso) RisoPlatformLayout(content) else AuroraPlatformLayout(content)
+    val page by viewModel.page.collectAsStateWithLifecycle()
+    val actions = remember(viewModel, onOpenGame) {
+        PlatformActions(open = onOpenGame, setFilter = viewModel::setFilter, toggleOrder = viewModel::toggleOrder)
+    }
+    LitPage(if (RommioTheme.isRiso) null else page.leadCoverUrl, if (RommioTheme.isRiso) PageFieldStyle.QUIET else PageFieldStyle.PAGE) {
+        io.github.bandoracer.rommio.ui.component.RefreshBox(
+            refreshing = page.isRefreshing,
+            onRefresh = viewModel::refresh,
+            modifier = Modifier.fillMaxSize().testTag("screen.platform"),
+        ) {
+            if (RommioTheme.isRiso) RisoPlatformLayout(page, actions) else AuroraPlatformLayout(page, actions)
+        }
     }
 }
 
-/** The page's content and the choices both layouts share. */
-class PlatformContent(
-    val state: PlatformUiState,
-    val name: String,
-    val filter: PlatformFilter,
-    val order: PlatformOrder,
-    val onFilter: (PlatformFilter) -> Unit,
-    val onToggleOrder: () -> Unit,
-    val open: (PlatformGame) -> Unit,
-    val cover: (PlatformGame) -> String?,
+/** What the Platform layouts can do. */
+class PlatformActions(
+    val open: (romId: Int) -> Unit,
+    val setFilter: (PlatformFilter) -> Unit,
+    val toggleOrder: () -> Unit,
 )
 
 private fun emptyTitle(filter: PlatformFilter) = if (filter == PlatformFilter.ALL) "No games yet" else "Nothing here yet"
@@ -139,52 +122,72 @@ private fun emptyMessage(filter: PlatformFilter) = when (filter) {
 // ---- Aurora ----------------------------------------------------------------------------------
 
 @Composable
-private fun AuroraPlatformLayout(content: PlatformContent) {
+private fun AuroraPlatformLayout(page: PlatformPage, actions: PlatformActions) {
     val theme = RommioTheme.current
-    val state = content.state
-    val games = state.filtered(content.filter, content.order)
-    val lead = state.filtered(PlatformFilter.ALL, PlatformOrder.RECENTLY_PLAYED).firstOrNull()
-    PageArtSubject(lead?.let(content.cover), PageFieldStyle.PAGE)
     val regular = isRegularWidth()
+    val gutter = theme.spacing.gutter
+    val section = theme.spacing.section
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-        Column(
-            Modifier
-                .widthIn(max = 980.dp)
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = theme.spacing.gutter)
-                .padding(top = 4.dp, bottom = 40.dp),
-            verticalArrangement = Arrangement.spacedBy(theme.spacing.section),
-        ) {
-            PageHeader(title = content.name)
-            GlassSurface(contentPadding = PaddingValues(18.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Figure(java.text.NumberFormat.getIntegerInstance().format(state.totalCount), if (state.totalCount == 1) "game" else "games")
-                    Figure(state.installedCount.toString(), "on this device")
-                    Box(Modifier.weight(1f))
-                    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SupportTierBadge(state.tier)
-                        if (state.playedCount > 0) StatusChip("${state.playedCount} played", tone = Tone.OK)
+        BoxWithConstraints(Modifier.widthIn(max = 980.dp).fillMaxSize()) {
+            // The adaptive grid's columns (min cell width, 14 dp gaps) for the content width.
+            val minCell = if (regular) 128.dp else 104.dp
+            val columns = maxOf(1, ((maxWidth - gutter * 2 + 14.dp) / (minCell + 14.dp)).toInt())
+            val rows = remember(page.games, columns) { page.games.chunked(columns) }
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = gutter, end = gutter, top = 4.dp, bottom = 40.dp),
+            ) {
+                item(key = "header", contentType = "header") { PageHeader(title = page.name) }
+                item(key = "summary", contentType = "summary") { AuroraSummary(page, Modifier.padding(top = section)) }
+                item(key = "filters", contentType = "filters") {
+                    Column(Modifier.padding(top = section), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        SegmentedChoice(PlatformFilter.entries, page.filter, { it.title }, actions.setFilter, Modifier.testTag("platform.filter"))
+                        OrderToggle(page.orderLabel, actions.toggleOrder, riso = false)
+                    }
+                }
+                if (page.games.isEmpty()) {
+                    item(key = "empty", contentType = "empty") {
+                        EmptyState(
+                            title = if (page.isLoading) "Loading games" else emptyTitle(page.filter),
+                            message = if (page.isLoading) "" else page.errorMessage ?: emptyMessage(page.filter),
+                            icon = Icons.Outlined.SportsEsports,
+                            modifier = Modifier.padding(top = section),
+                        )
+                    }
+                } else {
+                    item(key = "gamesHeader", contentType = "sectionHeader") {
+                        SectionHeader(
+                            title = if (page.filter == PlatformFilter.ALL) "Games" else page.filter.title,
+                            meta = page.games.size.toString(),
+                            modifier = Modifier.padding(top = section),
+                        )
+                    }
+                    // One lazy item per grid row: 14 dp under the header, 20 dp between rows.
+                    itemsIndexed(rows, key = { _, row -> "row/${row.first().id}" }, contentType = { _, _ -> "gridRow" }) { index, row ->
+                        GridRow(row, columns, actions.open, Modifier.padding(top = if (index == 0) 14.dp else 20.dp))
+                    }
+                }
+                page.staleMessage?.let { message ->
+                    item(key = "stale", contentType = "stale") {
+                        RoleText(message, theme.type.caption, color = theme.colors.inkSecondary, modifier = Modifier.padding(top = section))
                     }
                 }
             }
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                SegmentedChoice(PlatformFilter.entries, content.filter, { it.title }, content.onFilter, Modifier.testTag("platform.filter"))
-                OrderToggle(content, riso = false)
+        }
+    }
+}
+
+@Composable
+private fun AuroraSummary(page: PlatformPage, modifier: Modifier = Modifier) {
+    GlassSurface(modifier, contentPadding = PaddingValues(18.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.CenterVertically) {
+            Figure(page.totalCountText, if (page.totalIsOne) "game" else "games")
+            Figure(page.installedCount.toString(), "on this device")
+            Box(Modifier.weight(1f))
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SupportTierBadge(page.tier)
+                if (page.playedCount > 0) StatusChip("${page.playedCount} played", tone = Tone.OK)
             }
-            if (games.isEmpty()) {
-                EmptyState(
-                    title = if (state.isLoading) "Loading games" else emptyTitle(content.filter),
-                    message = if (state.isLoading) "" else state.errorMessage ?: emptyMessage(content.filter),
-                    icon = Icons.Outlined.SportsEsports,
-                )
-            } else {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    SectionHeader(title = if (content.filter == PlatformFilter.ALL) "Games" else content.filter.title, meta = games.size.toString())
-                    AdaptiveGrid(games, minCell = if (regular) 128.dp else 104.dp) { game -> GridTile(game, content) }
-                }
-            }
-            state.staleMessage?.let { RoleText(it, theme.type.caption, color = theme.colors.inkSecondary) }
         }
     }
 }
@@ -199,16 +202,12 @@ private fun Figure(value: String, label: String) {
 }
 
 @Composable
-private fun OrderToggle(content: PlatformContent, riso: Boolean) {
+private fun OrderToggle(label: String, onToggle: () -> Unit, riso: Boolean) {
     val theme = RommioTheme.current
-    val label = when (content.order) {
-        PlatformOrder.ALPHABETICAL -> "A–Z"
-        PlatformOrder.RECENTLY_PLAYED -> "Recently played"
-    }
     Row(
         Modifier
             .heightIn(min = if (riso) 44.dp else 32.dp)
-            .clickable(role = Role.Button, onClickLabel = "Change order", onClick = content.onToggleOrder)
+            .clickable(role = Role.Button, onClickLabel = "Change order", onClick = onToggle)
             .testTag("platform.order"),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -223,36 +222,29 @@ private fun OrderToggle(content: PlatformContent, riso: Boolean) {
     }
 }
 
-/** An adaptive grid (min cell width, 14 dp gaps, 20 dp rows) laid out in a column. */
+/** A row of the adaptive grid (14 dp gaps; empty cells keep the columns). */
 @Composable
-private fun <T> AdaptiveGrid(items: List<T>, minCell: androidx.compose.ui.unit.Dp, cell: @Composable (T) -> Unit) {
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val columns = maxOf(1, ((maxWidth + 14.dp) / (minCell + 14.dp)).toInt())
-        Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            items.chunked(columns).forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    row.forEach { Box(Modifier.weight(1f)) { cell(it) } }
-                    repeat(columns - row.size) { Box(Modifier.weight(1f)) }
-                }
-            }
-        }
+private fun GridRow(row: List<PlatformGameItem>, columns: Int, open: (Int) -> Unit, modifier: Modifier) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        row.forEach { Box(Modifier.weight(1f)) { GridTile(it, open) } }
+        repeat(columns - row.size) { Box(Modifier.weight(1f)) }
     }
 }
 
 /** A cover with its title and when it was last played; a check when it's on this device. */
 @Composable
-private fun GridTile(game: PlatformGame, content: PlatformContent) {
+private fun GridTile(game: PlatformGameItem, open: (Int) -> Unit) {
     val theme = RommioTheme.current
     Column(
         Modifier
             .fillMaxWidth()
-            .clickable(role = Role.Button, onClickLabel = "Open ${game.rom.displayName}") { content.open(game) }
+            .clickable(role = Role.Button, onClickLabel = "Open ${game.title}") { open(game.id) }
             .semantics(mergeDescendants = true) {}
-            .testTag("platform.game.${game.rom.id}"),
+            .testTag("platform.game.${game.id}"),
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         Box {
-            GameCover(content.cover(game), game.rom.displayName, Modifier.fillMaxWidth())
+            GameCover(game.coverUrl, game.title, Modifier.fillMaxWidth())
             if (game.installed) {
                 Box(
                     Modifier
@@ -268,14 +260,8 @@ private fun GridTile(game: PlatformGame, content: PlatformContent) {
             }
         }
         Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-            RoleText(game.rom.displayName, theme.type.bodyEmphasis, size = 14f, color = theme.colors.ink, maxLines = 2)
-            RoleText(
-                game.lastPlayedAtEpochMs?.let { PlayFormat.relative(it) } ?: if (game.installed) "On this device" else "On your server",
-                theme.type.caption,
-                size = 12f,
-                color = theme.colors.inkSecondary,
-                maxLines = 1,
-            )
+            RoleText(game.title, theme.type.bodyEmphasis, size = 14f, color = theme.colors.ink, maxLines = 2)
+            RoleText(game.caption, theme.type.caption, size = 12f, color = theme.colors.inkSecondary, maxLines = 1)
         }
     }
 }
@@ -283,116 +269,136 @@ private fun GridTile(game: PlatformGame, content: PlatformContent) {
 // ---- Riso ------------------------------------------------------------------------------------
 
 @Composable
-private fun RisoPlatformLayout(content: PlatformContent) {
+private fun RisoPlatformLayout(page: PlatformPage, actions: PlatformActions) {
     val theme = RommioTheme.current
     val c = theme.colors
-    val state = content.state
-    val games = state.filtered(content.filter, content.order)
-    PageArtSubject(null, PageFieldStyle.QUIET)
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-        Column(
-            Modifier
-                .widthIn(max = 760.dp)
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = theme.spacing.gutter)
-                .padding(top = 4.dp, bottom = 40.dp),
+        LazyColumn(
+            Modifier.widthIn(max = 760.dp).fillMaxSize(),
+            contentPadding = PaddingValues(start = theme.spacing.gutter, end = theme.spacing.gutter, top = 4.dp, bottom = 40.dp),
         ) {
-            Opener(content)
-            Plates(content)
-            Row(Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                SegmentedChoice(PlatformFilter.entries, content.filter, { it.title }, content.onFilter, Modifier.weight(1f).testTag("platform.filter"))
-                OrderToggle(content, riso = true)
+            item(key = "opener", contentType = "opener") { Opener(page) }
+            if (page.plates.isNotEmpty()) {
+                item(key = "plates", contentType = "plates") { Plates(page, actions.open) }
             }
-            RoleText(
-                "Bold: on this device. Not downloaded entries are set lighter.",
-                theme.type.caption,
-                size = 12.5f,
-                italic = true,
-                color = c.inkSecondary,
-                modifier = Modifier.padding(vertical = 6.dp),
-            )
-            PrintRule(weight = RuleWeight.KEYLINE)
+            item(key = "filters", contentType = "filters") {
+                Row(Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    SegmentedChoice(PlatformFilter.entries, page.filter, { it.title }, actions.setFilter, Modifier.weight(1f).testTag("platform.filter"))
+                    OrderToggle(page.orderLabel, actions.toggleOrder, riso = true)
+                }
+            }
+            item(key = "key", contentType = "key") {
+                Column {
+                    RoleText(
+                        "Bold: on this device. Not downloaded entries are set lighter.",
+                        theme.type.caption,
+                        size = 12.5f,
+                        italic = true,
+                        color = c.inkSecondary,
+                        modifier = Modifier.padding(vertical = 6.dp),
+                    )
+                    PrintRule(weight = RuleWeight.KEYLINE)
+                }
+            }
             when {
-                games.isEmpty() -> EmptyState(
-                    title = if (state.isLoading) "Loading games" else "Nothing here yet",
-                    message = if (state.isLoading) "" else state.errorMessage ?: "Try another filter, or pull to refresh.",
-                )
-                content.order == PlatformOrder.ALPHABETICAL -> letterGroups(games).forEach { (letter, group) ->
+                page.games.isEmpty() -> item(key = "empty", contentType = "empty") {
+                    EmptyState(
+                        title = if (page.isLoading) "Loading games" else "Nothing here yet",
+                        message = if (page.isLoading) "" else page.errorMessage ?: "Try another filter, or pull to refresh.",
+                    )
+                }
+                page.order == PlatformOrder.ALPHABETICAL -> page.letters.forEach { group -> letterGroup(group, actions.open) }
+                else -> itemsIndexed(page.games, key = { _, game -> "game/${game.id}" }, contentType = { _, _ -> "entry" }) { _, game ->
                     Column {
-                        Row {
-                            RoleText(
-                                letter,
-                                theme.type.statValue,
-                                size = 30f,
-                                color = c.accent2,
-                                modifier = Modifier.width(30.dp).padding(top = 8.dp).clearAndSetSemantics {},
-                            )
-                            Column(Modifier.weight(1f)) {
-                                group.forEachIndexed { index, game ->
-                                    if (index > 0) PrintRule(weight = RuleWeight.HAIRLINE)
-                                    Entry(game, content)
-                                }
-                            }
-                        }
+                        Entry(game, actions.open)
                         PrintRule(weight = RuleWeight.HAIRLINE)
                     }
                 }
-                else -> games.forEach { game ->
-                    Entry(game, content)
-                    PrintRule(weight = RuleWeight.HAIRLINE)
+            }
+            page.staleMessage?.let { message ->
+                item(key = "stale", contentType = "stale") {
+                    RoleText(message, theme.type.caption, color = c.inkSecondary, modifier = Modifier.padding(top = 16.dp))
                 }
             }
-            state.staleMessage?.let { RoleText(it, theme.type.caption, color = c.inkSecondary, modifier = Modifier.padding(top = 16.dp)) }
+        }
+    }
+}
+
+/**
+ * One letter of the A–Z index as lazy items: each entry is its own item (the letter sits beside
+ * the first), hairlines between the entries and a hairline across the page after the letter.
+ */
+private fun LazyListScope.letterGroup(group: PlatformLetter, open: (Int) -> Unit) {
+    itemsIndexed(group.games, key = { _, game -> "game/${game.id}" }, contentType = { _, _ -> "letterEntry" }) { index, game ->
+        LetterEntry(if (index == 0) group.letter else null, first = index == 0, game, open)
+    }
+    item(key = "letterRule/${group.letter}", contentType = "letterRule") { PrintRule(weight = RuleWeight.HAIRLINE) }
+}
+
+@Composable
+private fun LetterEntry(letter: String?, first: Boolean, game: PlatformGameItem, open: (Int) -> Unit) {
+    val theme = RommioTheme.current
+    Row {
+        Box(Modifier.width(30.dp)) {
+            if (letter != null) {
+                RoleText(
+                    letter,
+                    theme.type.statValue,
+                    size = 30f,
+                    color = theme.colors.accent2,
+                    modifier = Modifier.width(30.dp).padding(top = 8.dp).clearAndSetSemantics {},
+                )
+            }
+        }
+        Column(Modifier.weight(1f)) {
+            if (!first) PrintRule(weight = RuleWeight.HAIRLINE)
+            Entry(game, open)
         }
     }
 }
 
 @Composable
-private fun Opener(content: PlatformContent) {
+private fun Opener(page: PlatformPage) {
     val theme = RommioTheme.current
     val c = theme.colors
-    val state = content.state
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Column {
             Row(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
                 RoleText("Platform", theme.type.label, size = 10.5f, color = c.ink, modifier = Modifier.weight(1f))
-                RoleText(supportTierLabel(state.tier), theme.type.label, size = 10.5f, color = c.inkSecondary)
+                RoleText(page.tierLabel, theme.type.label, size = 10.5f, color = c.inkSecondary)
             }
             PrintRule(weight = RuleWeight.HEAVY)
         }
-        DisplayText(content.name, size = 56f, maxLines = 2, modifier = Modifier.padding(top = 4.dp))
+        DisplayText(page.name, size = 56f, maxLines = 2, modifier = Modifier.padding(top = 4.dp))
         RoleText(
-            "${java.text.NumberFormat.getIntegerInstance().format(state.totalCount)} games on your server, ${state.installedCount} on this device.",
+            "${page.totalCountText} games on your server, ${page.installedCount} on this device.",
             theme.type.body,
             size = 16.5f,
             color = c.ink,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            SupportTierBadge(state.tier)
-            if (state.playedCount > 0) StatusChip("${state.playedCount} played", tone = Tone.OK)
+            SupportTierBadge(page.tier)
+            if (page.playedCount > 0) StatusChip("${page.playedCount} played", tone = Tone.OK)
         }
     }
 }
 
 /** The most played covers, printed (or the first on this device). */
 @Composable
-private fun Plates(content: PlatformContent) {
+private fun Plates(page: PlatformPage, open: (Int) -> Unit) {
     val theme = RommioTheme.current
     val c = theme.colors
-    val played = content.state.games.filter { it.playedMs > 0 }.sortedByDescending { it.playedMs }
-    val picks = (played.ifEmpty { content.state.games.filter { it.installed } }).take(4)
-    if (picks.isEmpty()) return
+    val picks = page.plates
     Column(Modifier.padding(top = 18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             picks.forEach { game ->
                 Column(
-                    Modifier.weight(1f).clickable(role = Role.Button, onClickLabel = "Open ${game.rom.displayName}") { content.open(game) },
+                    Modifier.weight(1f).clickable(role = Role.Button, onClickLabel = "Open ${game.title}") { open(game.id) },
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
-                    GameCover(content.cover(game), game.rom.displayName, Modifier.fillMaxWidth().aspectRatio(3f / 4f).padding(bottom = 4.dp), aspect = null)
-                    RoleText(game.rom.displayName, theme.type.bodyEmphasis, size = 12.5f, color = c.ink, maxLines = 2)
-                    RoleText(if (game.playedMs > 0) formatPlayTime(game.playedMs) else "On this device", theme.type.label, size = 9.5f, color = c.inkSecondary)
+                    GameCover(game.coverUrl, game.title, Modifier.fillMaxWidth().aspectRatio(3f / 4f).padding(bottom = 4.dp), aspect = null)
+                    RoleText(game.title, theme.type.bodyEmphasis, size = 12.5f, color = c.ink, maxLines = 2)
+                    RoleText(game.plateCaption, theme.type.label, size = 9.5f, color = c.inkSecondary)
                 }
             }
             repeat(4 - picks.size) { Box(Modifier.weight(1f)) }
@@ -400,7 +406,7 @@ private fun Plates(content: PlatformContent) {
         Column {
             PrintRule(weight = RuleWeight.FINE)
             RoleText(
-                if (played.isEmpty()) "On this device" else "Most played on this platform",
+                if (page.platesArePlayed) "Most played on this platform" else "On this device",
                 theme.type.caption,
                 size = 12.5f,
                 italic = true,
@@ -413,15 +419,15 @@ private fun Plates(content: PlatformContent) {
 
 /** An A–Z entry: title (bold when downloaded), leaders, playtime / "Ready", a "not downloaded" glyph box. */
 @Composable
-private fun Entry(game: PlatformGame, content: PlatformContent) {
+private fun Entry(game: PlatformGameItem, open: (Int) -> Unit) {
     val theme = RommioTheme.current
     val c = theme.colors
     Row(
         Modifier
             .fillMaxWidth()
             .heightIn(min = 44.dp)
-            .clickable(role = Role.Button, onClickLabel = "Open ${game.rom.displayName}") { content.open(game) }
-            .testTag("platform.game.${game.rom.id}"),
+            .clickable(role = Role.Button, onClickLabel = "Open ${game.title}") { open(game.id) }
+            .testTag("platform.game.${game.id}"),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -429,7 +435,7 @@ private fun Entry(game: PlatformGame, content: PlatformContent) {
             modifier = Modifier.weight(1f),
             start = {
                 RoleText(
-                    game.rom.displayName,
+                    game.title,
                     if (game.installed) theme.type.bodyEmphasis else theme.type.body,
                     size = 16.5f,
                     color = if (game.installed) c.ink else c.inkSecondary,
@@ -437,13 +443,7 @@ private fun Entry(game: PlatformGame, content: PlatformContent) {
                 )
             },
             end = {
-                RoleText(
-                    if (game.playedMs > 0) formatPlayTime(game.playedMs) else if (game.installed) "Ready" else " ",
-                    theme.type.numeral,
-                    size = 11.5f,
-                    color = c.ink,
-                    maxLines = 1,
-                )
+                RoleText(game.figure, theme.type.numeral, size = 11.5f, color = c.ink, maxLines = 1)
             },
         )
         Box(Modifier.width(34.dp), contentAlignment = Alignment.CenterEnd) {
@@ -457,16 +457,4 @@ private fun Entry(game: PlatformGame, content: PlatformContent) {
             }
         }
     }
-}
-
-private fun letterGroups(games: List<PlatformGame>): List<Pair<String, List<PlatformGame>>> {
-    val order = mutableListOf<String>()
-    val groups = mutableMapOf<String, MutableList<PlatformGame>>()
-    for (game in games) {
-        val first = game.rom.displayName.firstOrNull()?.uppercaseChar()
-        val letter = if (first != null && first.isLetter()) first.toString() else "#"
-        if (letter !in groups) order += letter
-        groups.getOrPut(letter) { mutableListOf() } += game
-    }
-    return order.map { it to groups.getValue(it) }
 }

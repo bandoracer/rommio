@@ -57,12 +57,12 @@ class ReadableTintTest {
                     value.colors.ground.toArgb() and 0xFFFFFF,
                     dark,
                 )
-                assertEquals("$theme dark=$dark", expected, value.tintText.toArgb() and 0xFFFFFF)
+                assertEquals("$theme dark=$dark", expected, value.unlit.tintText.toArgb() and 0xFFFFFF)
             }
         }
         // Unlit Aurora's token already passes, so the text colour is the token itself.
         val aurora = RommioThemeValue.of(AppearanceTheme.AURORA, dark = false)
-        assertEquals(aurora.colors.tint, aurora.tintText)
+        assertEquals(aurora.colors.tint, aurora.unlit.tintText)
     }
 
     private fun hex(value: String): Int = value.removePrefix("#").toInt(16)

@@ -170,6 +170,11 @@ android {
     }
 }
 
+// Immutable model types the Compose compiler may compare by value (so unchanged sections skip).
+composeCompiler {
+    stabilityConfigurationFile = layout.projectDirectory.file("compose-stability.conf")
+}
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.09.03")
 

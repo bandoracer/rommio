@@ -34,6 +34,10 @@ data class PlayerUiState(
     val installation: DownloadedRomEntity? = null,
     val stateRecovery: GameStateRecovery = GameStateRecovery(),
     val controls: PlayerControlsState? = null,
+    /** PlayStation's per-game Analog controls (sticks and L3/R3 shown). */
+    val analogControls: Boolean = false,
+    /** The game's touch-stick tuning. */
+    val stickTuning: io.github.bandoracer.rommio.domain.input.PlayerStickTuning = io.github.bandoracer.rommio.domain.input.PlayerStickTuning(),
     val syncPresentation: GameSyncPresentation = GameSyncPresentation(),
     val resumeConflict: ResumeConflict? = null,
     val pendingLaunchTarget: PlayerLaunchTarget? = null,
@@ -70,6 +74,16 @@ class PlayerViewModel(
     private var launchJob: Job? = null
 
     init {
+        viewModelScope.launch {
+            controlsRepository.observeAnalogControls(romId).collect { analog ->
+                _uiState.update { it.copy(analogControls = analog) }
+            }
+        }
+        viewModelScope.launch {
+            controlsRepository.observeStickTuning(romId).collect { tuning ->
+                _uiState.update { it.copy(stickTuning = tuning) }
+            }
+        }
         syncJob = viewModelScope.launch {
             repository.observeGameSyncPresentation(romId, fileId).collect { presentation ->
                 _uiState.update { current ->
@@ -316,6 +330,25 @@ class PlayerViewModel(
     fun setConsoleColorsEnabled(enabled: Boolean) {
         viewModelScope.launch {
             controlsRepository.setConsoleColorsEnabled(enabled)
+        }
+    }
+
+    fun setHapticsEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            controlsRepository.setHapticsEnabled(enabled)
+        }
+    }
+
+    fun setAnalogControls(enabled: Boolean) {
+        viewModelScope.launch {
+            controlsRepository.setAnalogControls(romId, enabled)
+        }
+    }
+
+    /** Saves this game's stick tuning; the default tuning (Reset) returns it to the console profile. */
+    fun setStickTuning(tuning: io.github.bandoracer.rommio.domain.input.PlayerStickTuning) {
+        viewModelScope.launch {
+            controlsRepository.setStickTuning(romId, tuning)
         }
     }
 

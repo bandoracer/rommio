@@ -216,7 +216,9 @@ struct PlayerShapeTokens: Sendable {
     let controlOpacity: CGFloat
 }
 
-struct ThemeTokenSet: Sendable {
+/// One theme's tokens. A final class: views pass the theme around constantly, so it
+/// travels as one immutable, shared reference instead of a copy of every token.
+final class ThemeTokenSet: Sendable, Equatable {
     let key: String
     let name: String
     let summary: String
@@ -229,6 +231,24 @@ struct ThemeTokenSet: Sendable {
     let playerLight: PlayerColorTokens
     let playerDark: PlayerColorTokens
     let playerShape: PlayerShapeTokens
+
+    init(key: String, name: String, summary: String, light: ThemeColorTokens, dark: ThemeColorTokens, type: ThemeTypeTokens, radius: ThemeRadiusTokens, spacing: ThemeSpacingTokens, material: ThemeMaterialTokens, playerLight: PlayerColorTokens, playerDark: PlayerColorTokens, playerShape: PlayerShapeTokens) {
+        self.key = key
+        self.name = name
+        self.summary = summary
+        self.light = light
+        self.dark = dark
+        self.type = type
+        self.radius = radius
+        self.spacing = spacing
+        self.material = material
+        self.playerLight = playerLight
+        self.playerDark = playerDark
+        self.playerShape = playerShape
+    }
+
+    /// Themes are identified by their key.
+    static func == (lhs: ThemeTokenSet, rhs: ThemeTokenSet) -> Bool { lhs === rhs || lhs.key == rhs.key }
 
     func colors(dark: Bool) -> ThemeColorTokens { dark ? self.dark : light }
     func player(dark: Bool) -> PlayerColorTokens { dark ? playerDark : playerLight }

@@ -6,10 +6,12 @@ import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.drawable.BitmapDrawable
+import android.os.Process
 import android.util.LruCache
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
@@ -18,14 +20,18 @@ import coil.imageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import coil.size.Scale
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
 
 /**
  * Cover art treatments, computed off the main thread and cached:
@@ -56,9 +62,38 @@ object CoverArt {
 
     fun cachedPalette(url: String): List<Int>? = palettes.get(url)
 
-    suspend fun palette(context: Context, url: String): List<Int>? {
+    /**
+     * Palettes warmed ahead of need are worked out one at a time on a background-priority thread,
+     * so a grid of covers scrolling by never competes with the UI and render threads for the CPU.
+     */
+    private val warming: CoroutineDispatcher = Executors.newSingleThreadExecutor { runnable ->
+        Thread({
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+            runnable.run()
+        }, "cover-palettes").apply { isDaemon = true }
+    }.asCoroutineDispatcher()
+
+    /**
+     * Riso prints are worked out two at a time, so a list printing the covers it scrolls into view
+     * leaves the rest of the CPU to the UI and render threads.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val printing: CoroutineDispatcher = Dispatchers.Default.limitedParallelism(2)
+
+    /**
+     * Works out a cover's palette in the background when it is not in memory yet (Aurora calls it
+     * whenever a cover is shown), so a page about that game opens lit on its first frame.
+     */
+    fun warmPalette(context: Context, url: String) {
+        if (palettes.get(url) != null || inFlight.containsKey("palette:$url")) return
+        val app = context.applicationContext
+        scope.launch(warming) { palette(app, url, warming) }
+    }
+
+    /** A cover's palette: from memory, the palette file, or worked out on [dispatcher]. */
+    suspend fun palette(context: Context, url: String, dispatcher: CoroutineDispatcher = Dispatchers.Default): List<Int>? {
         palettes.get(url)?.let { return it }
-        return dedupe("palette:$url") {
+        return dedupe("palette:$url", dispatcher) {
             readPaletteFile(context, url)?.let { return@dedupe it.also { palettes.put(url, it) } }
             val bitmap = load(context, url, CoverPalette.DECODE_SIZE, CoverPalette.DECODE_SIZE, Scale.FIT) ?: return@dedupe null
             val pixels = IntArray(bitmap.width * bitmap.height)
@@ -105,7 +140,7 @@ object CoverArt {
     suspend fun print(context: Context, url: String, width: Int, height: Int, inks: RisoInks): ImageBitmap? {
         val key = printKey(url, width, height, inks)
         prints.get(key)?.let { return it }
-        return dedupe("print:$key") {
+        return dedupe("print:$key", printing) {
             val source = load(context, url, width, height, Scale.FILL) ?: return@dedupe null
             val cropped = centerCrop(source, width, height)
             val pixels = IntArray(width * height)
@@ -121,9 +156,9 @@ object CoverArt {
      * scrolled away) never cancels work another caller is waiting for.
      */
     @Suppress("UNCHECKED_CAST")
-    private suspend fun <T> dedupe(key: String, block: suspend () -> T?): T? {
+    private suspend fun <T> dedupe(key: String, dispatcher: CoroutineDispatcher = Dispatchers.Default, block: suspend () -> T?): T? {
         val deferred = inFlight.computeIfAbsent(key) {
-            scope.async {
+            scope.async(dispatcher) {
                 try {
                     block()
                 } catch (error: Throwable) {
@@ -193,12 +228,17 @@ object CoverArt {
     }
 }
 
-/** The cover's five-colour palette, once read (null while loading or without art). */
+/**
+ * The cover's five-colour palette (null while loading or without art). Synchronous when the
+ * palette is in memory, so a page opens with its light on the first frame; otherwise it is read
+ * (disk cache) or worked out once, off the main thread.
+ */
 @Composable
 fun rememberCoverPalette(url: String?): List<Int>? {
     val context = LocalContext.current
-    val palette by produceState(initialValue = url?.let(CoverArt::cachedPalette), url) {
-        value = url?.let { CoverArt.palette(context.applicationContext, it) }
+    val state = remember(url) { mutableStateOf(url?.let(CoverArt::cachedPalette)) }
+    if (url != null && state.value == null) {
+        LaunchedEffect(url) { state.value = CoverArt.palette(context.applicationContext, url) }
     }
-    return palette
+    return state.value
 }

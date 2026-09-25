@@ -31,7 +31,8 @@ public struct PlayerControlsRepository: Sendable {
                        auto_hide_touch_on_controller,
                        rumble_to_device_enabled,
                        oled_black_mode_enabled,
-                       console_colors_enabled
+                       console_colors_enabled,
+                       haptics_enabled
                 FROM player_control_preferences
                 WHERE id = 1
                 """)
@@ -43,7 +44,8 @@ public struct PlayerControlsRepository: Sendable {
                 autoHideTouchOnController: row["auto_hide_touch_on_controller"],
                 rumbleToDeviceEnabled: row["rumble_to_device_enabled"],
                 oledBlackModeEnabled: row["oled_black_mode_enabled"],
-                consoleColorsEnabled: row["console_colors_enabled"]
+                consoleColorsEnabled: row["console_colors_enabled"],
+                hapticsEnabled: row["haptics_enabled"]
             )
         }
     }
@@ -183,6 +185,53 @@ public struct PlayerControlsRepository: Sendable {
         try await updatePreferences { $0.consoleColorsEnabled = enabled }
     }
 
+    public func setHapticsEnabled(_ enabled: Bool) async throws {
+        try await updatePreferences { $0.hapticsEnabled = enabled }
+    }
+
+    /// One game's touch-control settings: PlayStation's Analog controls (off until turned
+    /// on for that game) and the touch-stick tuning (the console profile until changed).
+    /// Device-local.
+    public func gameControls(romID: Int) async throws -> PlayerGameControls {
+        try database.read { db in
+            guard let row = try Row.fetchOne(db, sql: """
+                SELECT analog_controls, stick_sensitivity, stick_dead_zone, stick_centre
+                FROM player_game_controls WHERE rom_id = ?
+                """, arguments: [romID])
+            else {
+                return PlayerGameControls()
+            }
+            let sensitivity: String = row["stick_sensitivity"]
+            let deadZone: String = row["stick_dead_zone"]
+            let centre: String = row["stick_centre"]
+            return PlayerGameControls(
+                analogControls: row["analog_controls"],
+                stick: PlayerStickTuning(
+                    sensitivity: PlayerStickTuning.Sensitivity(rawValue: sensitivity) ?? .normal,
+                    deadZone: PlayerStickTuning.DeadZone(rawValue: deadZone) ?? .normal,
+                    centre: PlayerStickTuning.Centre(rawValue: centre) ?? .floating))
+        }
+    }
+
+    public func saveGameControls(_ value: PlayerGameControls, romID: Int) async throws {
+        try database.write { db in
+            try db.execute(
+                sql: """
+                INSERT INTO player_game_controls (rom_id, analog_controls, stick_sensitivity, stick_dead_zone, stick_centre, updated_at_epoch_ms)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(rom_id) DO UPDATE SET
+                    analog_controls = excluded.analog_controls,
+                    stick_sensitivity = excluded.stick_sensitivity,
+                    stick_dead_zone = excluded.stick_dead_zone,
+                    stick_centre = excluded.stick_centre,
+                    updated_at_epoch_ms = excluded.updated_at_epoch_ms
+                """,
+                arguments: [romID, value.analogControls, value.stick.sensitivity.rawValue, value.stick.deadZone.rawValue,
+                            value.stick.centre.rawValue, Int64(Date().timeIntervalSince1970 * 1000)]
+            )
+        }
+    }
+
     public func resolveInputMode(
         profile: PlatformControlProfile,
         preferences: PlayerControlsPreferences,
@@ -293,14 +342,16 @@ public struct PlayerControlsRepository: Sendable {
                     rumble_to_device_enabled,
                     oled_black_mode_enabled,
                     console_colors_enabled,
+                    haptics_enabled,
                     updated_at_epoch_ms
-                ) VALUES (1, ?, ?, ?, ?, ?, ?)
+                ) VALUES (1, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     touch_controls_enabled = excluded.touch_controls_enabled,
                     auto_hide_touch_on_controller = excluded.auto_hide_touch_on_controller,
                     rumble_to_device_enabled = excluded.rumble_to_device_enabled,
                     oled_black_mode_enabled = excluded.oled_black_mode_enabled,
                     console_colors_enabled = excluded.console_colors_enabled,
+                    haptics_enabled = excluded.haptics_enabled,
                     updated_at_epoch_ms = excluded.updated_at_epoch_ms
                 """,
                 arguments: [
@@ -309,6 +360,7 @@ public struct PlayerControlsRepository: Sendable {
                     value.rumbleToDeviceEnabled,
                     value.oledBlackModeEnabled,
                     value.consoleColorsEnabled,
+                    value.hapticsEnabled,
                     Int64(Date().timeIntervalSince1970 * 1000),
                 ]
             )

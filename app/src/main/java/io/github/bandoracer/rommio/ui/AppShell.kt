@@ -58,8 +58,8 @@ import io.github.bandoracer.rommio.ui.component.LocalPageArt
 import io.github.bandoracer.rommio.ui.component.PageArtState
 import io.github.bandoracer.rommio.ui.component.PageField
 import io.github.bandoracer.rommio.ui.component.PageFieldStyle
-import io.github.bandoracer.rommio.ui.component.rememberAuroraLights
-import io.github.bandoracer.rommio.ui.theme.ProvideLitTheme
+import io.github.bandoracer.rommio.ui.component.rememberPageLight
+import io.github.bandoracer.rommio.ui.theme.ProvidePageLight
 import io.github.bandoracer.rommio.ui.navigation.NavRoutes
 import io.github.bandoracer.rommio.ui.navigation.ShellStartRoute
 import io.github.bandoracer.rommio.ui.navigation.TopLevelDestinations
@@ -101,29 +101,23 @@ fun AppShell(
     val backStackEntry by navController.currentBackStackEntryAsState()
     val destination = backStackEntry?.destination
     val isTopLevel = destination?.route == null || destination.route in TopLevelRoutes
-    // The page's subject game lights the page (Aurora, docs/theme-layouts.md §1.2): ground, tint,
-    // lights and marks below it, and the field behind it.
+    // The page's subject game (Aurora, docs/theme-layouts.md §1.2): pages declare it; the shell
+    // lights the field behind the pages and the bars with it. Each page lights its own content
+    // (LitPage), so a change of light here never recomposes a page.
     val pageArt = remember { PageArtState() }
-    val subject = pageArt.subject
-    val pageLights = rememberAuroraLights(subject?.coverUrl)
 
     val regular = io.github.bandoracer.rommio.ui.component.isRegularWidth()
     // Starting a game from any page: the Conflict sheet and the Launch choice come first when needed.
     val launchFlow = io.github.bandoracer.rommio.ui.screen.rememberLaunchFlow(container, onOpenPlayer)
 
-    ProvideLitTheme(pageLights) {
     val theme = RommioTheme.current
     val c = theme.colors
     // Glass surfaces blur the field under them (§1.6, API 31+).
     val backdrop = if (theme.isGlass) io.github.bandoracer.rommio.ui.component.rememberGlassBackdrop() else null
+    ProvideShellLight(pageArt) {
     androidx.compose.runtime.CompositionLocalProvider(io.github.bandoracer.rommio.ui.component.LocalGlassBackdrop provides backdrop) {
     Box(modifier = Modifier.fillMaxSize()) {
-        PageField(
-            modifier = Modifier.fillMaxSize(),
-            style = subject?.style ?: PageFieldStyle.QUIET,
-            coverUrl = subject?.coverUrl,
-            backdrop = backdrop,
-        )
+        ShellField(pageArt, backdrop)
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             containerColor = Color.Transparent,
@@ -137,7 +131,7 @@ fun AppShell(
                     TopAppBar(
                         colors = TopAppBarDefaults.topAppBarColors(
                             containerColor = Color.Transparent,
-                            scrolledContainerColor = c.ground,
+                            scrolledContainerColor = RommioTheme.light.ground,
                             titleContentColor = c.ink,
                             navigationIconContentColor = c.ink,
                             actionIconContentColor = c.ink,
@@ -159,6 +153,7 @@ fun AppShell(
             },
             bottomBar = {
                 if (isTopLevel && !regular) {
+                    val tint = RommioTheme.light.tint
                     Column {
                         Box(Modifier.fillMaxWidth().height(theme.strokeWidth).background(theme.strokeColor))
                         NavigationBar(
@@ -177,7 +172,7 @@ fun AppShell(
                                         selectedTextColor = c.ink,
                                         unselectedIconColor = c.inkSecondary,
                                         unselectedTextColor = c.inkSecondary,
-                                        indicatorColor = c.tint.copy(alpha = if (theme.isDark) 0.28f else 0.2f),
+                                        indicatorColor = tint.copy(alpha = if (theme.isDark) 0.28f else 0.2f),
                                     ),
                                     icon = { Icon(item.icon, contentDescription = null) },
                                     label = { Text(item.label, style = theme.type.label.style) },
@@ -296,7 +291,7 @@ fun AppShell(
                             platformId = entry.arguments?.getInt("platformId") ?: 0,
                             platformName = entry.arguments?.getString("platformName").orEmpty(),
                             imageBaseUrl = imageBaseUrl,
-                            onRomSelected = { rom -> openGame(rom.id) },
+                            onOpenGame = openGame,
                         )
                     }
                     composable(
@@ -313,7 +308,7 @@ fun AppShell(
                             collectionId = entry.arguments?.getString("collectionId").orEmpty(),
                             collectionName = entry.arguments?.getString("collectionName").orEmpty(),
                             imageBaseUrl = imageBaseUrl,
-                            onRomSelected = { rom -> openGame(rom.id) },
+                            onOpenGame = openGame,
                         )
                     }
                     composable(
@@ -335,6 +330,7 @@ fun AppShell(
         // Regular width: the tabs move to a rail at the start (Material's adaptive navigation);
         // same destinations, order and test tags as the bottom bar.
         if (isTopLevel && regular) {
+            val tint = RommioTheme.light.tint
             Row(Modifier.fillMaxHeight()) {
                 NavigationRail(
                     modifier = Modifier.width(RailWidth).fillMaxHeight(),
@@ -354,7 +350,7 @@ fun AppShell(
                                 selectedTextColor = c.ink,
                                 unselectedIconColor = c.inkSecondary,
                                 unselectedTextColor = c.inkSecondary,
-                                indicatorColor = c.tint.copy(alpha = if (theme.isDark) 0.28f else 0.2f),
+                                indicatorColor = tint.copy(alpha = if (theme.isDark) 0.28f else 0.2f),
                             ),
                             icon = { Icon(item.icon, contentDescription = null) },
                             label = { Text(item.label, style = theme.type.label.style) },
@@ -371,6 +367,28 @@ fun AppShell(
 }
 
 private val RailWidth = 88.dp
+
+/**
+ * The shell's light: the declared subject's (docs/theme-layouts.md §1.2). Only its readers — the
+ * field, the bars, the launch sheets, and pages without a light of their own — see a change.
+ */
+@Composable
+private fun ProvideShellLight(pageArt: PageArtState, content: @Composable () -> Unit) {
+    val light = rememberPageLight(pageArt.subject?.coverUrl)
+    ProvidePageLight(light, content)
+}
+
+/** The field behind every page, lit by the declared subject (it crossfades on its own layer). */
+@Composable
+private fun ShellField(pageArt: PageArtState, backdrop: io.github.bandoracer.rommio.ui.component.GlassBackdrop?) {
+    val subject = pageArt.subject
+    PageField(
+        modifier = Modifier.fillMaxSize(),
+        style = subject?.style ?: PageFieldStyle.QUIET,
+        coverUrl = subject?.coverUrl,
+        backdrop = backdrop,
+    )
+}
 
 private fun NavHostController.navigateToTab(route: String) {
     navigate(route) {

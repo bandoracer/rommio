@@ -10,6 +10,8 @@ public enum PlayerPrimaryControlsPlacement: String, Hashable, Sendable {
 
 public enum PlayerMenuPlacement: String, Hashable, Sendable {
     case utilityRow
+    /// Landscape on a phone: Menu bottom centre, under the game.
+    case bottomCenter
     case portraitTopLeading
     case portraitTopTrailing
     case landscapeLowerLeading
@@ -73,31 +75,31 @@ public func resolvePlayerOverlaySnapshot(
     controlsState: PlayerControlsState,
     stage: PlayerStageContext = PlayerStageContext()
 ) -> PlayerOverlaySnapshot {
-    let controls = ExpansionControls.controls(for: controlsState.platformProfile.familyID) ?? []
-    let visible = controlsState.showTouchControls && controlsState.platformProfile.supportTier == .touchSupported
-    let height = ExpansionControls.deckHeight(controls)
-    let scale = controlsState.touchLayout?.globalScale ?? 1
-    let utility = visible ? controls.filter(\.center) : []
+    let family = controlsState.platformProfile.familyID
+    let plan = PlayerControlPlan(family: family)
+    let visible = controlsState.showTouchControls && controlsState.platformProfile.supportTier == .touchSupported && plan != nil
+    let controls = ExpansionControls.controls(for: family) ?? []
     let stageLayout = resolvePlayerStageLayout(containerSize: containerSize, safeAreaInsets: safeAreaInsets,
         aspectRatio: controlsState.platformProfile.preferredViewportAspectRatio,
         topAlignedInPortrait: controlsState.platformProfile.supportTier == .touchSupported,
-        controlDeckHeight: height, controlScale: scale, reserveTouchSpace: visible, utilityCount: utility.count + 1,
-        stage: stage)
+        controlDeckHeight: ExpansionControls.deckHeight(controls), controlScale: controlsState.touchLayout?.globalScale ?? 1,
+        reserveTouchSpace: visible, utilityCount: 1, stage: stage,
+        controls: plan, mirrored: controlsState.touchLayout?.leftHanded ?? false)
     let deck = stageLayout.deck
     let viewport = stageLayout.viewport
-    let menuIndex = utility.count / 2
-    let menuX = deck.utilityX(index: menuIndex, count: utility.count + 1, width: containerSize.width)
-    let systemTargets = utility.indices.map { index in
-        CGRect(x: deck.utilityX(index: index < menuIndex ? index : index + 1, count: utility.count + 1, width: containerSize.width) - 24,
-               y: deck.utilityY - 24, width: 48, height: 48)
-    }
+    let layout = stageLayout.controls
+    let menuCenter = layout?.menuCenter ?? CGPoint(x: deck.utilityX(index: 0, count: 1, width: containerSize.width), y: deck.utilityY)
+    let systems = visible ? (layout?.controls.filter { $0.kind == .system } ?? []) : []
+    let menuUnderGame = menuCenter.y - PlayerControlMetrics.menuDiameter / 2 > viewport.frame.maxY && abs(menuCenter.x - viewport.frame.midX) < 1
+    let side: PlayerMenuPlacement = menuCenter.x < containerSize.width / 2 ? .landscapeLowerLeading : .landscapeLowerTrailing
+    let menuPlacement: PlayerMenuPlacement = deck.usesUtilityRow ? .utilityRow : (visible && menuUnderGame ? .bottomCenter : side)
     var snapshot = PlayerOverlaySnapshot(viewportFrame: viewport.frame, isPortrait: viewport.isPortrait,
         primaryControlsPlacement: visible ? (deck.isPortrait ? .bottomBand : .sideRails) : .hiddenControllerFirst,
-        menuPlacement: deck.usesUtilityRow ? .utilityRow : (menuX < containerSize.width / 2 ? .landscapeLowerLeading : .landscapeLowerTrailing),
-        systemPlacement: utility.isEmpty ? .none : (deck.usesUtilityRow ? .utilityRow : .sideRails),
-        showsGameplayTouchControls: visible, showsPointerOverlay: ["nds", "3ds"].contains(controlsState.platformProfile.familyID) && visible,
-        menuCenter: CGPoint(x: deck.utilityX(index: menuIndex, count: utility.count + 1, width: containerSize.width), y: deck.utilityY),
-        systemFrame: systemTargets.isEmpty ? nil : systemTargets.reduce(CGRect.null) { $0.union($1) },
+        menuPlacement: menuPlacement,
+        systemPlacement: systems.isEmpty ? .none : (deck.usesUtilityRow ? .utilityRow : .sideRails),
+        showsGameplayTouchControls: visible, showsPointerOverlay: ["nds", "3ds"].contains(family) && visible,
+        menuCenter: menuCenter,
+        systemFrame: systems.isEmpty ? nil : systems.reduce(CGRect.null) { $0.union($1.frame) },
         leftRailInset: visible ? deck.leftOrigin : nil,
         rightRailInset: visible ? containerSize.width - deck.rightOrigin - deck.railWidth : nil)
     snapshot.touchScreenFrame = stageLayout.touchScreen?.frame

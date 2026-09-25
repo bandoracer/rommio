@@ -28,7 +28,22 @@ class PackagedCoreArtifacts(
         this(library.coresDirectory(), artifacts, { context.assets.open(it) })
 
     private val adapter = Moshi.Builder().add(KotlinJsonAdapterFactory()).build().adapter(PackagedCoreManifest::class.java)
+
+    /**
+     * Validated manifests by runtime and library name (null: this APK ships none). The APK's assets
+     * cannot change while the app runs, so each manifest is read and checked once, not on every
+     * resolution of a game or of Settings › Cores and BIOS. A manifest that fails its checks is not
+     * remembered: it fails again on the next read.
+     */
+    private val manifests = HashMap<Pair<String, String>, PackagedCoreManifest?>()
+
     @Synchronized fun find(profile: RuntimeProfile, abi: AndroidCoreAbi): PackagedCoreArtifact? {
+        val key = profile.runtimeId to profile.libraryFileName
+        val manifest = if (manifests.containsKey(key)) manifests[key] else readManifest(profile).also { manifests[key] = it }
+        return manifest?.let { PackagedCoreArtifact(it, it.artifacts.single { file -> file.abi == abi.folderName }) }
+    }
+
+    private fun readManifest(profile: RuntimeProfile): PackagedCoreManifest? {
         if (profile.runtimeId !in setOf("fceumm", "gambatte", "mgba", "snes9x", "melonds_ds", "genesis_plus_gx", "pcsx_rearmed", "mupen64plus_next_gles3", "ppsspp", "stella", "prosystem", "handy")) return null
         val bytes = try {
             openAsset("cores/${profile.runtimeId}/manifest.json").use { input ->
@@ -56,7 +71,7 @@ class PackagedCoreArtifacts(
             check(it.sha256.matches(hash) && it.sizeBytes in 1..CoreBinary.MAX_BYTES &&
                 it.assetPath == "cores/${profile.runtimeId}/${it.abi}/${profile.libraryFileName}") { "Invalid packaged core artifact." }
         }
-        return PackagedCoreArtifact(manifest, manifest.artifacts.single { it.abi == abi.folderName })
+        return manifest
     }
 
     /** Private memory IDs are granted only to exact bytes declared by the trusted APK. */

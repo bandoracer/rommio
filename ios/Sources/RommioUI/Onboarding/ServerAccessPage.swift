@@ -6,6 +6,7 @@ import RommioPlayerKit
 /// Connect: the server address, saved servers, access options and the setup code.
 struct ServerAccessStepView: View {
     @Environment(\.rommioTheme) private var theme
+    @Environment(\.pageLight) private var light
     @Bindable var model: RommioAppModel
     @State private var showsAccessProfile = false
     @State private var showsOneTouchSetup = false
@@ -88,7 +89,7 @@ struct ServerAccessStepView: View {
                     showsOneTouchSetup = true
                 } label: {
                     Label("Scan it", systemImage: "qrcode.viewfinder")
-                        .foregroundStyle(theme.readableTint)
+                        .foregroundStyle(light.readableTint)
                 }
                 .buttonStyle(.plain)
                 .disabled(model.isBusy)

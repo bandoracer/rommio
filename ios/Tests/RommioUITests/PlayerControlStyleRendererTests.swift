@@ -31,14 +31,18 @@ final class PlayerControlStyleRendererTests: XCTestCase {
         XCTAssertEqual(PlayerControlRole.resolve(label: "Analog stick", stick: true, trigger: false), .stick)
     }
 
-    func testFaceGeometryIsUnchangedByStyle() {
-        let bounds = CGRect(x: 0, y: 0, width: 48, height: 48)
-        XCTAssertEqual(PlayerControlAppearance.faceRect(in: bounds, role: .face).width, 48 * 0.78, accuracy: 0.001)
-        let pill = PlayerControlAppearance.faceRect(in: bounds, role: .system)
-        XCTAssertEqual(pill.width, 48 * 0.94, accuracy: 0.001)
-        XCTAssertEqual(pill.height, 48 * 0.94 * 0.72, accuracy: 0.001)
-        XCTAssertEqual(pill.midY, bounds.midY, accuracy: 0.001)
-        XCTAssertEqual(PlayerControlAppearance.faceRect(in: bounds, role: .stick).width, 48, accuracy: 0.001)
+    /// docs/player-controls.md, Look: legends at `playerLegend`, 22 pt on two-button
+    /// (64 pt) faces and about 20 pt on diamond (56 pt) faces; pills keep the token size.
+    func testLegendsFollowTheSpecSizes() {
+        let aurora = renderer(.aurora, dark: true)
+        let face = aurora.appearance(label: "A")
+        XCTAssertEqual(face.legendSize(for: 64), 22, accuracy: 0.01)
+        XCTAssertEqual(face.legendSize(for: 56), 20, accuracy: 0.3)
+        let start = aurora.appearance(label: "Start")
+        XCTAssertEqual(start.legendSize(for: 34), ThemeTokens.aurora.type.playerLabel.size, accuracy: 0.01)
+        // Pressed Aurora controls dip to 94%; Riso keeps its size and lightens.
+        XCTAssertEqual(face.pressedScale, 0.94)
+        XCTAssertEqual(renderer(.riso).appearance(label: "A").pressedScale, 1)
     }
 
     func testRisoPrintsFlatInkShapesWithTheOffsetPlate() {
@@ -107,13 +111,38 @@ final class PlayerControlStyleRendererTests: XCTestCase {
         XCTAssertTrue(dpad.frosted)
         XCTAssertEqual(dpad.glyphs, .chevrons)
         XCTAssertEqual(aurora.opacity(user: 0.6), 0.6)
+        XCTAssertEqual(aurora.opacity(user: 0.3, role: .face), 0.5, "Faces never fade below 0.5")
+        XCTAssertEqual(aurora.opacity(user: 0.3, role: .shoulder), 0.3)
+        // The glass edge: a keyline, a top rim and a soft shadow.
+        XCTAssertNotNil(face.rim)
+        XCTAssertNotNil(face.shadow)
+        XCTAssertEqual(face.strokeWidth, 0.5)
     }
 
     func testConsoleColoursKeepWorkingInBothThemes() {
-        // Aurora washes glass with the console's colours.
-        let aurora = renderer(.aurora, dark: true, console: true)
-        XCTAssertNotEqual(aurora.appearance(label: "A").fill, aurora.appearance(label: "X").fill)
-        XCTAssertTrue(aurora.appearance(label: "A").frosted)
+        // Aurora keeps the frosted face and colours the legend and a 2 pt ring (never a wash).
+        for dark in [false, true] {
+            let aurora = renderer(.aurora, dark: dark, console: true)
+            let a = aurora.appearance(label: "A"), x = aurora.appearance(label: "X"), b = aurora.appearance(label: "B")
+            let player = dark ? ThemeTokens.aurora.playerDark : ThemeTokens.aurora.playerLight
+            XCTAssertEqual(a.fill, player.controlFill.color, "The face stays frosted")
+            XCTAssertEqual(a.fill, x.fill)
+            XCTAssertTrue(a.frosted)
+            XCTAssertNotNil(a.ring)
+            XCTAssertNotEqual(a.ring, x.ring)
+            XCTAssertNotEqual(a.ink, x.ink)
+            // Legends keep 3:1 against the face, even SNES's yellow B on a light face, and
+            // even at the lowest face opacity (0.5) over the player ground.
+            let face = effectiveControlFill(player)
+            let ground = ArtRGB(red: player.ground.red, green: player.ground.green, blue: player.ground.blue)
+            for legend in [a.ink, x.ink, b.ink] {
+                let rgba = legend.rgba
+                let ink = ArtRGB(red: rgba.red, green: rgba.green, blue: rgba.blue)
+                XCTAssertGreaterThanOrEqual(ReadableTint.contrast(ink, face), 3.5, "dark=\(dark)")
+                // The legend stays at full ink while the face fades.
+                XCTAssertGreaterThanOrEqual(ReadableTint.contrast(ink, ReadableTint.mix(face, over: ground, alpha: 0.5)), 3, "dark=\(dark) at 0.5")
+            }
+        }
 
         // Riso prints each console colour in its nearest ink.
         let riso = renderer(.riso, console: true)

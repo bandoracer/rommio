@@ -17,8 +17,7 @@ struct CoverPlaceholder: View {
                     .foregroundStyle(theme.ink.opacity(0.7))
                     .accessibilityHidden(true)
             } else {
-                LinearGradient(colors: [theme.accent1.opacity(0.9), theme.accent2.opacity(0.9), theme.accent3.opacity(0.95)],
-                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                LitPlaceholderField()
                 Text(initials)
                     .themeText(.headline)
                     .foregroundStyle(theme.onAccent.opacity(0.7))
@@ -30,6 +29,16 @@ struct CoverPlaceholder: View {
     private var initials: String {
         let words = title.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).prefix(2)
         return words.compactMap(\.first).map(String.init).joined().uppercased()
+    }
+}
+
+/// Aurora's stand-in art: the page's three lights.
+private struct LitPlaceholderField: View {
+    @Environment(\.pageLight) private var light
+
+    var body: some View {
+        LinearGradient(colors: [light.accent1.opacity(0.9), light.accent2.opacity(0.9), light.accent3.opacity(0.95)],
+                       startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 }
 

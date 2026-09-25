@@ -40,6 +40,8 @@ import io.github.bandoracer.rommio.domain.playdata.SaveConflict
 import io.github.bandoracer.rommio.domain.playdata.SaveConflictKind
 import io.github.bandoracer.rommio.domain.playdata.SaveEntry
 import io.github.bandoracer.rommio.domain.playdata.SaveSyncStatus
+import io.github.bandoracer.rommio.ui.theme.LitMaterialTheme
+import androidx.compose.ui.graphics.Color
 import io.github.bandoracer.rommio.ui.theme.RommioTheme
 import java.io.File
 
@@ -67,7 +69,8 @@ fun ResumeConflictSheet(
     val c = theme.colors
     val conflict = SaveConflict(kind, heads)
     var selected by rememberSaveable(heads.map { it.key.checkpointId }) { mutableStateOf(0) }
-    ModalBottomSheet(
+    // A stock sheet: its drag handle and scrim take the page's lit scheme.
+    LitMaterialTheme { ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = c.groundRaised,
@@ -128,7 +131,7 @@ fun ResumeConflictSheet(
             }
             TextAction("Not now", onClick = onDismiss, modifier = Modifier.align(Alignment.CenterHorizontally).testTag("conflict.dismiss"))
         }
-    }
+    } }
 }
 
 @Composable
@@ -173,10 +176,11 @@ private fun ConflictChoice(
             .background(c.ground)
             .border(if (selected) 2.5.dp else 1.5.dp, c.ink)
     } else {
+        val mark = if (selected) RommioTheme.light.mark1 else Color.Unspecified
         modifier
-            .then(if (selected) Modifier.dropShadow(theme.mark1.copy(alpha = 0.55f), radius, 14.dp, 12.dp) else Modifier)
+            .then(if (selected) Modifier.dropShadow(mark.copy(alpha = 0.55f), radius, 14.dp, 12.dp) else Modifier)
             .themedSurface(theme, cornerRadius = radius)
-            .then(if (selected) Modifier.border(2.dp, theme.mark1, shape) else Modifier)
+            .then(if (selected) Modifier.border(2.dp, mark, shape) else Modifier)
     }
     Column(
         outer
@@ -246,7 +250,7 @@ internal fun RadioMark(selected: Boolean) {
                 .size(20.dp)
                 .clip(CircleShape)
                 .then(
-                    if (selected) Modifier.background(theme.mark1).padding(6.dp).clip(CircleShape).background(OverArt.rim)
+                    if (selected) Modifier.background(RommioTheme.light.mark1).padding(6.dp).clip(CircleShape).background(OverArt.rim)
                     else Modifier.border(1.5.dp, c.inkTertiary, CircleShape),
                 ),
         )

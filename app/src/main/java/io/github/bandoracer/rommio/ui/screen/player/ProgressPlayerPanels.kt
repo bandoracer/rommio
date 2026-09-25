@@ -187,7 +187,7 @@ internal fun ProgressPlayerGate(owner: ApplicationProgressSession, state: Applic
                 onClick = { action { owner.exitWithoutLatestProgress().await() } })
         }
         if (busy) {
-            LinearProgressIndicator(Modifier.fillMaxWidth(), color = io.github.bandoracer.rommio.ui.theme.RommioTheme.current.mark1)
+            LinearProgressIndicator(Modifier.fillMaxWidth(), color = io.github.bandoracer.rommio.ui.theme.RommioTheme.light.mark1)
         }
     }
     discardSession?.let { sessionId ->

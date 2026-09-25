@@ -10,6 +10,7 @@ import RommioFoundation
 /// the theme's variant.
 struct ConflictSheet: View {
     @Environment(\.rommioTheme) private var theme
+    @Environment(\.pageLight) private var light
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let item: ConflictItem
@@ -24,7 +25,7 @@ struct ConflictSheet: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                heading
+                ConflictHeading(item: item, noun: otherNoun)
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top),
                                          count: horizontalSizeClass == .regular ? min(3, max(2, choices.count)) : 2),
                           alignment: .leading, spacing: 12) {
@@ -59,7 +60,7 @@ struct ConflictSheet: View {
                     }
                     Button("Not now") { dismiss() }
                         .themeText(.bodyEmphasis)
-                        .foregroundStyle(theme.readableTint)
+                        .foregroundStyle(light.readableTint)
                         .frame(minHeight: 44)
                         .accessibilityIdentifier("conflict.dismiss")
                 }
@@ -82,11 +83,19 @@ struct ConflictSheet: View {
         }
     }
 
-    @ViewBuilder
-    private var heading: some View {
+}
+
+/// The game, the conflict and the question.
+private struct ConflictHeading: View {
+    @Environment(\.rommioTheme) private var theme
+    let item: ConflictItem
+    let noun: String
+
+    var body: some View {
+        let choices = item.conflict.choices
         VStack(alignment: .leading, spacing: 10) {
             if theme.isRiso {
-                Kicker(label: "Conflict", detail: "\(choices.count) \(otherNoun)\(choices.count == 1 || item.conflict.kind == .gameSave ? "" : "s")", fill: .pink)
+                Kicker(label: "Conflict", detail: "\(choices.count) \(noun)\(choices.count == 1 || item.conflict.kind == .gameSave ? "" : "s")", fill: .pink)
                 DisplayText(text: item.rom.displayName, role: .display, size: 44, lineLimit: 3)
                 PrintRule(weight: .keyline)
                 Text(item.prompt).themeText(.body, size: 17).italic().foregroundStyle(theme.ink).fixedSize(horizontal: false, vertical: true)
@@ -103,6 +112,7 @@ struct ConflictSheet: View {
 /// One head to choose: its frame, the device with a radio, and when.
 private struct ConflictChoiceCard: View {
     @Environment(\.rommioTheme) private var theme
+    @Environment(\.pageLight) private var light
     let choice: ProgressConflict.Choice
     let item: ConflictItem
     let selected: Bool
@@ -126,7 +136,7 @@ private struct ConflictChoiceCard: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                     Spacer(minLength: 4)
-                    radio
+                    ChoiceRadio(selected: selected)
                 }
                 Text(detail)
                     .themeText(theme.isRiso ? .body : .caption, size: theme.isRiso ? 14 : 12.5)
@@ -146,7 +156,7 @@ private struct ConflictChoiceCard: View {
             .overlay {
                 if theme.isGlass {
                     RoundedRectangle(cornerRadius: theme.radius.card, style: .continuous)
-                        .strokeBorder(selected ? theme.mark1 : theme.glassRim.opacity(theme.isDark ? 0.08 : 0.6), lineWidth: selected ? 2 : 0.5)
+                        .strokeBorder(selected ? light.mark1 : theme.glassRim.opacity(theme.isDark ? 0.08 : 0.6), lineWidth: selected ? 2 : 0.5)
                 } else {
                     Rectangle().strokeBorder(theme.ink, lineWidth: selected ? 2.5 : 1.5)
                 }
@@ -157,7 +167,7 @@ private struct ConflictChoiceCard: View {
                         .offset(x: theme.material.misregistration * 2, y: theme.material.misregistration * 2)
                 }
             }
-            .shadow(color: theme.isGlass && selected ? theme.mark1.opacity(0.55) : .clear, radius: 14, y: 12)
+            .shadow(color: theme.isGlass && selected ? light.mark1.opacity(0.55) : .clear, radius: 14, y: 12)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -172,7 +182,6 @@ private struct ConflictChoiceCard: View {
             .joined(separator: " · ")
     }
 
-    private var radio: some View { ChoiceRadio(selected: selected) }
 }
 
 extension String {

@@ -110,7 +110,7 @@ struct ProgressPlayerPanel: View {
                 .themedRow()
             }
             .themeText(.body, size: 15)
-            .tint(theme.readableTint)
+            .tint(theme.unlitLight.readableTint)
             .themedList()
             .accessibilityIdentifier("player.states.list")
             .navigationTitle("Save states")

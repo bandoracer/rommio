@@ -5,6 +5,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -25,6 +26,8 @@ data class PlayerControlStyle(
     val contentColor: Color,
     /** Riso's off-register plate behind the control; transparent in Aurora. */
     val plateColor: Color = Color.Transparent,
+    /** Aurora console colours: a 2 dp ring in the console's colour (transparent otherwise). */
+    val ring: Color = Color.Transparent,
 )
 
 /** What a drawn control is, which decides its shape in each player style. */
@@ -63,21 +66,31 @@ data class PlayerStyle(
     /** Riso d-pad: second (blue) plate and the yellow pivot. */
     val dpadAltFill: Color,
     val pivot: Color,
+    /** The dark player palette (dark appearance or OLED black). */
+    val dark: Boolean = true,
 ) {
     val isInk: Boolean get() = !frosted
     val shoulderIsTab: Boolean get() = shape.shoulder == PlayerShoulderStyle.TAB
     val dpadIsTwoPlate: Boolean get() = shape.dpad == PlayerDpadStyle.TWO_PLATE_CROSS
     val tertiaryIsOutlined: Boolean get() = shape.tertiary == PlayerTertiaryStyle.OUTLINED_CAPSULE
 
-    /** Alpha of a control for the user's opacity setting (Riso prints at full ink at the default). */
-    fun controlAlpha(opacity: Float): Float = if (frosted) {
-        opacity.coerceIn(0.2f, 1f)
-    } else {
-        (opacity / DEFAULT_OPACITY).coerceIn(0.2f, 1f)
+    /**
+     * Alpha of a control for the user's opacity setting (docs/player-controls.md, Look): Aurora
+     * only, and never below 0.5 for face buttons; Riso always prints at full ink (its
+     * `controlOpacity` token is 1: it never prints over a game screen).
+     */
+    fun controlAlpha(opacity: Float, face: Boolean = false): Float = when {
+        !frosted || shape.controlOpacity >= 1f -> 1f
+        face -> opacity.coerceIn(MINIMUM_FACE_OPACITY, 1f)
+        else -> opacity.coerceIn(0.2f, 1f)
     }
+
+    /** Pressed controls dip to this (Aurora, for 60 ms); Riso presses into its plate instead. */
+    val pressedScale: Float get() = if (frosted) 0.94f else 1f
 
     companion object {
         const val DEFAULT_OPACITY = 0.72f
+        const val MINIMUM_FACE_OPACITY = 0.5f
     }
 }
 
@@ -187,7 +200,7 @@ fun resolvePlayerVisualTheme(
     val dark = theme.isDark || oledBlackMode
     val faceStyles = if (consoleColorsEnabled && familyId != null) {
         consoleFaceColors(familyId).mapKeys { it.key.uppercase() }.mapValues { (_, color) ->
-            if (ink) inkStyle(color, if (color.luminance() > 0.4f) Color(0xFF1B1B1B) else Color(0xFFF2F0EA)) else coloredStyle(color, player, dark)
+            if (ink) risoConsoleStyle(color, player) else coloredStyle(color, faceDefault, player)
         }
     } else {
         emptyMap()
@@ -212,6 +225,7 @@ fun resolvePlayerVisualTheme(
         dpad = dpad,
         dpadAltFill = player.dpadAltFill,
         pivot = player.pivot,
+        dark = dark,
     )
     return PlayerVisualTheme(
         canvasColor = canvasColor,
@@ -229,15 +243,69 @@ fun resolvePlayerVisualTheme(
     )
 }
 
-private fun coloredStyle(color: Color, player: PlayerColorTokens, dark: Boolean): PlayerControlStyle {
-    val content = if (dark) color else lerp(color, Color.Black, 0.35f)
+/**
+ * Aurora console colours (docs/player-controls.md, Look): the frosted face stays as it is; the
+ * colour paints the legend and a 2 dp ring, never a wash that hides the button. The legend keeps
+ * 3:1 against the face ([legibleLegend]).
+ */
+private fun coloredStyle(color: Color, face: PlayerControlStyle, player: PlayerColorTokens): PlayerControlStyle = face.copy(
+    contentColor = legibleLegend(color, player),
+    ring = color,
+)
+
+/**
+ * Riso prints a console's button colour in the nearest of its four inks by hue (pink, blue,
+ * yellow, green), flat, with the pink plate off register behind it (blue behind pink faces), as
+ * iOS `inkStyle` (docs/theme-layouts.md "Player").
+ */
+private fun risoConsoleStyle(color: Color, player: PlayerColorTokens): PlayerControlStyle {
+    val ink = nearestInk(color, player)
     return PlayerControlStyle(
-        fillColor = if (dark) player.controlFill else color.copy(alpha = 0.18f).compositeOver(player.ground).copy(alpha = 0.85f),
-        pressedFillColor = color.copy(alpha = .38f),
-        borderColor = color.copy(alpha = .55f),
-        pressedBorderColor = player.controlInk.copy(alpha = 0.75f),
-        contentColor = content,
+        fillColor = ink,
+        pressedFillColor = lerp(ink, Color.White, 0.35f),
+        borderColor = Color.Transparent,
+        pressedBorderColor = Color.Transparent,
+        contentColor = player.faceInk,
+        plateColor = if (ink == player.dpadFill) player.dpadAltFill else player.offsetPlate,
     )
+}
+
+/** The Riso ink (pink, blue, yellow, green) whose hue is closest to [color]. */
+internal fun nearestInk(color: Color, player: PlayerColorTokens): Color {
+    val green = io.github.bandoracer.rommio.ui.theme.ThemeTokens.forKey(io.github.bandoracer.rommio.model.AppearanceTheme.RISO.key).colors(true).accent4
+    fun hue(c: Color): Float {
+        val max = maxOf(c.red, c.green, c.blue)
+        val min = minOf(c.red, c.green, c.blue)
+        val d = max - min
+        if (d <= 0f) return 0f
+        val h = when (max) {
+            c.red -> ((c.green - c.blue) / d) % 6f
+            c.green -> (c.blue - c.red) / d + 2f
+            else -> (c.red - c.green) / d + 4f
+        } * 60f
+        return if (h < 0f) h + 360f else h
+    }
+    val target = hue(color)
+    fun distance(ink: Color): Float {
+        val d = kotlin.math.abs(hue(ink) - target) % 360f
+        return minOf(d, 360f - d)
+    }
+    return listOf(player.dpadFill, player.dpadAltFill, player.faceFill, green).minBy(::distance)
+}
+
+/** The frosted face as seen: the control fill over the player ground. */
+internal fun effectiveControlFill(player: PlayerColorTokens): Color = player.controlFill.compositeOver(player.ground)
+
+/**
+ * A console colour stepped in lightness (darker on a light face, lighter on a dark one) until it
+ * reads at 3.5:1 against the frosted face (as iOS `legibleLegend`). Legends and rings are drawn at
+ * full ink over a face faded by the opacity setting, so a legend keeps 3:1 even at the lowest face
+ * opacity (0.5).
+ */
+internal fun legibleLegend(color: Color, player: PlayerColorTokens, minimum: Double = 3.5): Color {
+    val face = effectiveControlFill(player).toArgb() and 0xFFFFFF
+    val legible = io.github.bandoracer.rommio.ui.theme.ReadableTint.legibleOn(color.toArgb() and 0xFFFFFF, face, minimum)
+    return Color(0xFF000000.toInt() or legible)
 }
 
 private fun consoleFaceColors(familyId: String): Map<String, Color> {

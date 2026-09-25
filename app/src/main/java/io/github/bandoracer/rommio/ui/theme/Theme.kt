@@ -34,8 +34,6 @@ import androidx.core.view.WindowCompat
 import io.github.bandoracer.rommio.model.AppearancePreferences
 import io.github.bandoracer.rommio.model.AppearanceScheme
 import io.github.bandoracer.rommio.model.AppearanceTheme
-import io.github.bandoracer.rommio.ui.art.AuroraLight
-import io.github.bandoracer.rommio.ui.art.AuroraLights
 import java.util.Locale
 
 /**
@@ -99,62 +97,27 @@ data class RommioSpacing(
 )
 
 /**
- * The active theme: tokens for the chosen theme and scheme, as Compose values. Provided through
- * [LocalRommioTheme] and read with the [RommioTheme] accessor, like `MaterialTheme`.
+ * The base theme: tokens for the chosen theme and scheme, as Compose values. It changes only with
+ * the appearance setting, so it is provided through a static [LocalRommioTheme] and read with the
+ * [RommioTheme] accessor, like `MaterialTheme`. A page's light (Aurora) is separate: [PageLight],
+ * provided through [LocalPageLight] and read with [RommioTheme.light] by the lit-colour readers only.
+ * Values are cached per theme and scheme and compared by those two keys.
  */
 @Immutable
 class RommioThemeValue private constructor(
     val theme: AppearanceTheme,
     val tokens: ThemeTokenSet,
     val isDark: Boolean,
-    /**
-     * Aurora: the light of the game the page is about (docs/theme-layouts.md §1.2). A lit page
-     * replaces, below it, `ground` with the lit ground, `tint` with the lit tint and
-     * `accent1..3` with the lights l1..l3, and takes the marks k1..k3. Riso never lights a page.
-     */
-    val light: AuroraLights? = null,
 ) {
-    /** The unlit colour roles of this theme and scheme. */
-    val baseColors: ThemeColorTokens = tokens.colors(isDark)
-    val colors: ThemeColorTokens = light?.let { lit ->
-        baseColors.copy(
-            ground = lit.ground.opaque(),
-            tint = lit.tint.opaque(),
-            accent1 = lit.l1.opaque(),
-            accent2 = lit.l2.opaque(),
-            accent3 = lit.l3.opaque(),
-        )
-    } ?: baseColors
+    /** The colour roles of this theme and scheme (unlit; a lit page's are [PageLight.colors]). */
+    val colors: ThemeColorTokens = tokens.colors(isDark)
 
     /** Aurora draws surfaces as glass over the page light; Riso prints on paper. */
     val isGlass: Boolean get() = tokens.material.surfaceIsGlass
 
-    /**
-     * The page's lights: the game's when lit, otherwise the theme's own (accent1..3 as lights,
-     * marks from `tint`, `accent2`, `accent3` with the mark rule).
-     */
-    val lights: AuroraLights = light ?: AuroraLights(
-        l1 = baseColors.accent1.rgb(), l2 = baseColors.accent2.rgb(), l3 = baseColors.accent3.rgb(),
-        k1 = AuroraLight.mark(AuroraLight.toHsl(baseColors.tint.rgb()), isDark),
-        k2 = AuroraLight.mark(AuroraLight.toHsl(baseColors.accent2.rgb()), isDark),
-        k3 = AuroraLight.mark(AuroraLight.toHsl(baseColors.accent3.rgb()), isDark),
-        tint = baseColors.tint.rgb(),
-        ground = baseColors.ground.rgb(),
-    )
+    /** This theme's own light (no game): the page light outside lit pages. */
+    val unlit: PageLight by lazy(LazyThreadSafetyMode.PUBLICATION) { PageLight(this, null) }
 
-    /**
-     * The tint for text and meaningful glyphs (text actions, links, tint pills, selected labels):
-     * [ReadableTint.readableTint] of the page's tint on its ground (docs/theme-layouts.md §1.2a).
-     * Fills, marks, glows and bars keep [ThemeColorTokens.tint].
-     */
-    val tintText: Color = Color(
-        0xFF000000.toInt() or ReadableTint.readableTint(colors.tint.rgb(), colors.ground.rgb(), isDark),
-    )
-
-    /** Vivid marks in the page's light (dots, rules, bars, glows). Never text. */
-    val mark1: Color = lights.k1.opaque()
-    val mark2: Color = lights.k2.opaque()
-    val mark3: Color = lights.k3.opaque()
     val type: RommioTypography = typographyOf(tokens.type)
     val radius: RommioRadii = tokens.radius.let {
         RommioRadii(it.card.dp, it.cover.dp, it.row.dp, it.button.dp, it.chip.dp, it.sheet.dp, it.field.dp)
@@ -173,9 +136,8 @@ class RommioThemeValue private constructor(
     val strokeWidth: Dp = material.strokeWidth.dp
     val strokeColor: Color = if (material.surfaceIsGlass) colors.hairline else colors.keyline
 
-    /** Opaque versions of the translucent roles, for Material components that need solid fills. */
+    /** Opaque version of the translucent surface, for Material components that need solid fills. */
     val solidSurface: Color = colors.surface.compositeOver(colors.groundRaised)
-    val solidSurfaceStrong: Color = colors.surfaceStrong.compositeOver(colors.ground)
 
     val materialColorScheme: ColorScheme = colorSchemeOf(colors, isDark)
     val materialTypography: Typography = materialTypographyOf(type)
@@ -187,30 +149,16 @@ class RommioThemeValue private constructor(
         extraLarge = radius.sheetShape,
     )
 
-    /** This theme lit by a game (Aurora only; Riso prints on plain paper). Null unlights it. */
-    fun lit(light: AuroraLights?): RommioThemeValue {
-        val effective = light.takeIf { isGlass }
-        if (effective == this.light) return this
-        return if (effective == null) of(theme, isDark) else litCache(theme, isDark, effective)
-    }
-
     override fun equals(other: Any?): Boolean =
-        other is RommioThemeValue && other.theme == theme && other.isDark == isDark && other.light == light
+        other is RommioThemeValue && other.theme == theme && other.isDark == isDark
 
-    override fun hashCode(): Int = (theme.hashCode() * 31 + isDark.hashCode()) * 31 + (light?.hashCode() ?: 0)
+    override fun hashCode(): Int = theme.hashCode() * 31 + isDark.hashCode()
 
     companion object {
         private val cache = HashMap<Pair<AppearanceTheme, Boolean>, RommioThemeValue>()
-        private val litValues = object : java.util.LinkedHashMap<Triple<AppearanceTheme, Boolean, AuroraLights>, RommioThemeValue>(16, 0.75f, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Triple<AppearanceTheme, Boolean, AuroraLights>, RommioThemeValue>?): Boolean = size > 24
-        }
 
         fun of(theme: AppearanceTheme, dark: Boolean): RommioThemeValue = synchronized(cache) {
             cache.getOrPut(theme to dark) { RommioThemeValue(theme, ThemeTokens.forKey(theme.key), dark) }
-        }
-
-        private fun litCache(theme: AppearanceTheme, dark: Boolean, light: AuroraLights): RommioThemeValue = synchronized(litValues) {
-            litValues.getOrPut(Triple(theme, dark, light)) { RommioThemeValue(theme, ThemeTokens.forKey(theme.key), dark, light) }
         }
 
         /** Used where no theme has been provided (tests, previews): Aurora dark. */
@@ -236,29 +184,13 @@ object RommioTheme {
         @Composable @ReadOnlyComposable get() = LocalRommioTheme.current.isDark
     val isRiso: Boolean
         @Composable @ReadOnlyComposable get() = LocalRommioTheme.current.isRiso
-}
 
-private fun Int.opaque(): Color = Color(0xFF000000.toInt() or (this and 0xFFFFFF))
-
-private fun Color.rgb(): Int = toArgb() and 0xFFFFFF
-
-/**
- * Lights everything inside with a game's light (Aurora; ignored by Riso): the lit colour roles for
- * Rommio components and the matching Material scheme for stock components.
- */
-@Composable
-fun ProvideLitTheme(light: AuroraLights?, content: @Composable () -> Unit) {
-    val base = LocalRommioTheme.current
-    val value = remember(base, light) { base.lit(light) }
-    if (value === base) {
-        content()
-        return
-    }
-    CompositionLocalProvider(LocalRommioTheme provides value) {
-        MaterialTheme(colorScheme = value.materialColorScheme, typography = value.materialTypography, shapes = value.materialShapes) {
-            CompositionLocalProvider(LocalContentColor provides value.colors.ink, content = content)
-        }
-    }
+    /**
+     * The page's light: lit ground, tint, lights, marks and readable tint. Reading it subscribes the
+     * caller to light changes, so read it only where lit colours are drawn.
+     */
+    val light: PageLight
+        @Composable @ReadOnlyComposable get() = currentPageLight
 }
 
 fun AppearanceScheme.resolveDark(systemDark: Boolean): Boolean = when (this) {
@@ -370,7 +302,7 @@ private fun onColorFor(background: Color, ink: Color, paper: Color): Color =
  * A complete Material 3 scheme derived from the theme tokens so stock components match in both
  * schemes. Translucent roles are composited over the page ground so Material gets solid colours.
  */
-private fun colorSchemeOf(c: ThemeColorTokens, dark: Boolean): ColorScheme {
+internal fun colorSchemeOf(c: ThemeColorTokens, dark: Boolean): ColorScheme {
     val darkInk = if (dark) c.ground else c.ink
     val lightInk = if (dark) c.ink else c.groundRaised
     val tintContainer = c.tint.copy(alpha = if (dark) 0.24f else 0.16f).compositeOver(c.ground)

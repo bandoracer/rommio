@@ -13,10 +13,18 @@ private struct ThemeSurfaceModifier: ViewModifier {
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: radius ?? theme.radius.card, style: .continuous)
         if theme.isGlass {
+            // The shadow is cast by the card's shape, never by its rows: `.shadow` on the
+            // content re-renders a blurred copy of every row, label and chip on each frame
+            // of a push or scroll (the cause of Aurora's hitches on long settings pages).
             content
-                .background { GlassFill(shape: shape, strong: strong) }
+                .background {
+                    ZStack {
+                        SurfaceShadow(shape: shape, color: .black.opacity(theme.isDark ? 0.34 : 0.07),
+                                      radius: theme.isDark ? 20 : 18, y: theme.isDark ? 12 : 9)
+                        GlassFill(shape: shape, strong: strong)
+                    }
+                }
                 .overlay { GlassEdge(shape: shape) }
-                .shadow(color: .black.opacity(theme.isDark ? 0.34 : 0.07), radius: theme.isDark ? 20 : 18, y: theme.isDark ? 12 : 9)
         } else {
             content
                 .background(shape.fill(strong ? theme.surfaceStrong : theme.surface))
@@ -42,6 +50,28 @@ struct GlassFill<S: Shape>: View {
                 shape.fill(fill)
             }
         }
+    }
+}
+
+/// A card's drop shadow drawn from its shape alone and cut out inside the shape, so
+/// translucent glass above it still shows the page rather than a dark fill.
+struct SurfaceShadow<S: Shape>: View {
+    let shape: S
+    let color: Color
+    let radius: CGFloat
+    let y: CGFloat
+
+    var body: some View {
+        shape.fill(Color.black)
+            .shadow(color: color, radius: radius, y: y)
+            .mask {
+                Rectangle()
+                    .padding(-(radius * 2 + abs(y)))
+                    .overlay { shape.fill(Color.black).blendMode(.destinationOut) }
+                    .compositingGroup()
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 
@@ -123,11 +153,20 @@ private struct ThemedTopEdgeModifier: ViewModifier {
                 .toolbarBackground(theme.ground, for: .navigationBar)
                 #endif
         } else {
-            content
-                #if os(iOS)
-                .toolbarBackground(theme.ground.opacity(0.94), for: .navigationBar)
-                #endif
+            content.modifier(LitBarBackground())
         }
+    }
+}
+
+/// Aurora's bars frost to the page's (lit) ground.
+private struct LitBarBackground: ViewModifier {
+    @Environment(\.pageLight) private var light
+
+    func body(content: Content) -> some View {
+        content
+            #if os(iOS)
+            .toolbarBackground(light.ground.opacity(0.94), for: .navigationBar)
+            #endif
     }
 }
 
@@ -236,7 +275,7 @@ struct ThemedGroup<Content: View>: View {
             Group(subviews: content()) { rows in
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                        if index > 0 { separator }
+                        if index > 0 { GroupSeparator(inset: inset) }
                         row
                             .padding(.horizontal, theme.isGlass ? 16 : 0)
                             .padding(.vertical, theme.isGlass ? 9 : 11)
@@ -257,8 +296,56 @@ struct ThemedGroup<Content: View>: View {
         }
     }
 
-    @ViewBuilder
-    private var separator: some View {
+}
+
+/// `ThemedGroup` for unbounded lists: the same header, surface, separators and row
+/// metrics, with rows built lazily as they scroll into view.
+struct ThemedLazyGroup<Item: Identifiable, Row: View>: View {
+    @Environment(\.rommioTheme) private var theme
+    var title: String?
+    var detail: String?
+    var footer: String?
+    var inset: CGFloat = 16
+    let items: [Item]
+    @ViewBuilder let row: (Item) -> Row
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: theme.isGlass ? 8 : 0) {
+            if let title {
+                SectionHeader(title: title, detail: detail)
+                    .padding(.horizontal, theme.isGlass ? 6 : 0)
+            }
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    VStack(alignment: .leading, spacing: 0) {
+                        if index > 0 { GroupSeparator(inset: inset) }
+                        row(item)
+                            .padding(.horizontal, theme.isGlass ? 16 : 0)
+                            .padding(.vertical, theme.isGlass ? 9 : 11)
+                            .frame(minHeight: theme.spacing.rowHeight, alignment: .leading)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .modifier(GroupSurface())
+            if let footer {
+                Text(footer)
+                    .themeText(.caption)
+                    .foregroundStyle(theme.inkSecondary)
+                    .padding(.horizontal, theme.isGlass ? 6 : 0)
+                    .padding(.top, theme.isGlass ? 0 : 8)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+/// The rule between a group's rows.
+struct GroupSeparator: View {
+    @Environment(\.rommioTheme) private var theme
+    let inset: CGFloat
+
+    var body: some View {
         Rectangle()
             .fill(theme.hairline)
             .frame(height: theme.isGlass ? 0.5 : 1)
@@ -298,6 +385,57 @@ struct RowButtonStyle: ButtonStyle {
     }
 }
 
+// MARK: Navigation
+
+/// Pushes a page on the current tab's navigation stack. Rows and tiles push with a
+/// plain button and this rather than a `NavigationLink`: a value link builds a far
+/// deeper view graph (about 200 KB more main-thread stack under a lazy grid, in
+/// `StackBudgetTests`), and lists of games multiply it.
+struct AppNavigator: Equatable, @unchecked Sendable {
+    private let path: Binding<NavigationPath>?
+
+    init(path: Binding<NavigationPath>?) {
+        self.path = path
+    }
+
+    /// Pushes a destination the stack registers (`AppDestination`, `SettingsDestination`).
+    func open<Value: Hashable>(_ value: Value) {
+        path?.wrappedValue.append(value)
+    }
+
+    /// Navigators always point at their stack's own path state.
+    static func == (lhs: AppNavigator, rhs: AppNavigator) -> Bool { (lhs.path == nil) == (rhs.path == nil) }
+}
+
+private struct AppNavigatorKey: EnvironmentKey {
+    static let defaultValue = AppNavigator(path: nil)
+}
+
+extension EnvironmentValues {
+    var appNavigator: AppNavigator {
+        get { self[AppNavigatorKey.self] }
+        set { self[AppNavigatorKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// Pages below push onto this path (apply to the `NavigationStack`).
+    func appNavigator(_ path: Binding<NavigationPath>) -> some View {
+        environment(\.appNavigator, AppNavigator(path: path))
+    }
+}
+
+/// A button that pushes a destination (see `AppNavigator`).
+struct PushButton<Value: Hashable, Label: View>: View {
+    @Environment(\.appNavigator) private var navigator
+    let value: Value
+    @ViewBuilder let label: () -> Label
+
+    var body: some View {
+        Button { navigator.open(value) } label: { label() }
+    }
+}
+
 /// A navigation row: title, subtitle, optional leading and trailing views, and a chevron.
 struct NavigationRow<Value: Hashable, Leading: View, Trailing: View>: View {
     @Environment(\.rommioTheme) private var theme
@@ -308,7 +446,7 @@ struct NavigationRow<Value: Hashable, Leading: View, Trailing: View>: View {
     @ViewBuilder var trailing: () -> Trailing
 
     var body: some View {
-        NavigationLink(value: value) {
+        PushButton(value: value) {
             ListRow(title: title, subtitle: subtitle, leading: leading) {
                 HStack(spacing: 8) {
                     trailing()

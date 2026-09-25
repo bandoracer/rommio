@@ -13,6 +13,10 @@ struct SearchHit: Identifiable, Hashable {
     let installed: Bool
     let inProgress: Bool
     var id: Int { rom.id }
+    /// Keys for lazy lists that show the same game in two places (results, and games in
+    /// progress before typing): each list keeps its own rows.
+    var resultKey: String { "result.\(rom.id)" }
+    var progressKey: String { "progress.\(rom.id)" }
 
     /// "SNES · on this device · played 2 hours ago".
     var detail: String {
@@ -50,7 +54,9 @@ struct SearchRelated: Identifiable, Hashable {
     }
 }
 
-struct SearchContent {
+/// Everything the Search layouts draw, ranked once per change of the query or
+/// the library (`SearchContent.build`).
+struct SearchContent: Equatable {
     var query = ""
     var hits: [SearchHit] = []
     var related: [SearchRelated] = []
@@ -59,51 +65,14 @@ struct SearchContent {
     var platforms: [PlatformDTO] = []
     var isSearching: Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
-}
 
-struct SearchActions {
-    let open: (AppDestination) -> Void
-    let resume: (RomDTO) -> Void
-}
-
-/// Search the cached library: the best match first, recently played first
-/// within a match; platforms and collections that match follow. Aurora leads
-/// with a lit best match; Riso sets an index lookup with "see also" entries.
-struct SearchPage: View {
-    @Environment(\.rommioTheme) private var theme
-    let model: RommioAppModel
-    let feature: SearchFeatureModel
-    @State private var path = NavigationPath()
-
-    var body: some View {
-        @Bindable var feature = feature
-        NavigationStack(path: $path) {
-            Group {
-                if theme.isRiso {
-                    RisoSearchLayout(content: content, actions: actions)
-                } else {
-                    AuroraSearchLayout(content: content, actions: actions)
-                }
-            }
-            .scrollDismissesKeyboard(.immediately)
-            .navigationTitle("Search")
-            .modifier(SearchFieldPlacement(query: $feature.query))
-            .appDestinations(model)
-            .accessibilityIdentifier("shell.searchList")
-            .task {
-                await feature.refresh(recentlyPlayed: model.playFeature.snapshot.continuePlaying, stats: model.statsFeature.stats)
-            }
-        }
-    }
-
-    private var actions: SearchActions {
-        SearchActions(open: { path.append($0) }, resume: { rom in Task { await model.quickResume(rom: rom) } })
-    }
-
-    private var content: SearchContent {
-        let installed = Set(model.downloadsFeature.records.filter { $0.status == .completed }.map(\.romID))
+    /// Search from the feature models: results for the query, then related platforms and collections.
+    @MainActor
+    static func build(_ model: RommioAppModel) -> SearchContent {
+        let feature = model.searchFeature
+        let installed = model.installedRomIDs
         let progress = Set(feature.recent.map(\.id))
-        let played = Dictionary(uniqueKeysWithValues: model.statsFeature.stats.games.map { ($0.romID, $0.lastPlayedAt) })
+        let played = Dictionary(model.statsFeature.stats.games.map { ($0.romID, $0.lastPlayedAt) }, uniquingKeysWith: { first, _ in first })
         func hit(_ rom: RomDTO) -> SearchHit {
             SearchHit(rom: rom, artworkURL: model.artworkURL(path: rom.urlCover), lastPlayedAt: played[rom.id],
                       installed: installed.contains(rom.id), inProgress: progress.contains(rom.id))
@@ -126,10 +95,61 @@ struct SearchPage: View {
     }
 }
 
+struct SearchActions: PageActions {
+    let open: (AppDestination) -> Void
+    let resume: (RomDTO) -> Void
+}
+
+/// Search the cached library: the best match first, recently played first
+/// within a match; platforms and collections that match follow. Aurora leads
+/// with a lit best match; Riso sets an index lookup with "see also" entries.
+struct SearchPage: View {
+    @Environment(\.rommioTheme) private var theme
+    let model: RommioAppModel
+    let feature: SearchFeatureModel
+    @State private var path = NavigationPath()
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            SearchLayout(content: model.searchContent.value, actions: actions, riso: theme.isRiso)
+                .scrollDismissesKeyboard(.immediately)
+                .navigationTitle("Search")
+                .modifier(SearchFieldPlacement(feature: feature))
+                .appDestinations(model)
+                .accessibilityIdentifier("shell.searchList")
+                .task {
+                    await feature.refresh(recentlyPlayed: model.playFeature.snapshot.continuePlaying, stats: model.statsFeature.stats)
+                }
+        }
+        .appNavigator($path)
+    }
+
+    private var actions: SearchActions {
+        let model = model
+        let path = $path
+        return SearchActions(open: { path.wrappedValue.append($0) }, resume: { rom in Task { await model.quickResume(rom: rom) } })
+    }
+}
+
+private struct SearchLayout: View {
+    let content: SearchContent
+    let actions: SearchActions
+    let riso: Bool
+
+    var body: some View {
+        if riso {
+            RisoSearchLayout(content: content, actions: actions)
+        } else {
+            AuroraSearchLayout(content: content, actions: actions)
+        }
+    }
+}
+
 /// Text with the query marked: a wash of the page's light (Aurora) or a yellow
 /// highlighter (Riso).
 struct HighlightedText: View {
     @Environment(\.rommioTheme) private var theme
+    @Environment(\.pageLight) private var light
     let text: String
     let query: String
 
@@ -140,7 +160,7 @@ struct HighlightedText: View {
     private var attributed: AttributedString {
         var string = AttributedString(text)
         guard !query.isEmpty, let range = string.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) else { return string }
-        string[range].backgroundColor = theme.isRiso ? theme.accent3 : theme.mark1.opacity(0.26)
+        string[range].backgroundColor = theme.isRiso ? theme.accent3 : light.mark1.opacity(0.26)
         if theme.isRiso { string[range].foregroundColor = theme.onAccent }
         return string
     }
@@ -148,100 +168,177 @@ struct HighlightedText: View {
 
 // MARK: Aurora
 
-private struct AuroraSearchLayout: View {
-    @Environment(\.rommioTheme) private var theme
+struct AuroraSearchLayout: View {
     let content: SearchContent
     let actions: SearchActions
 
     var body: some View {
         ThemedScrollPage(style: content.hits.first == nil ? .quiet : .page, maxWidth: 900) {
             if content.isSearching {
-                AnyView(results)
+                if let best = content.hits.first {
+                    AuroraSearchRankNote()
+                    AuroraBestMatch(best: best, query: content.trimmedQuery, actions: actions)
+                }
+                if content.hits.count > 1 {
+                    AuroraSearchHits(hits: Array(content.hits.dropFirst()), query: content.trimmedQuery, actions: actions)
+                }
+                if !content.related.isEmpty {
+                    AuroraSearchRelated(related: content.related, actions: actions)
+                }
+                if content.hits.isEmpty && content.related.isEmpty {
+                    SearchNoResults(query: content.trimmedQuery)
+                }
             } else {
-                AnyView(suggestions)
+                AuroraSearchSuggestions(inProgress: content.inProgress, libraryCount: content.libraryCount, actions: actions)
             }
         }
         .litBy(content.isSearching ? content.hits.first?.artworkURL : nil)
     }
+}
 
-    @ViewBuilder
-    private var results: some View {
-        if let best = content.hits.first {
-            Label("Ranked by recent play, then title", systemImage: "sparkles")
-                .themeText(.caption, size: 12.5)
-                .foregroundStyle(theme.inkSecondary)
-            Button { actions.open(.game(best.rom)) } label: {
-                HStack(alignment: .center, spacing: 16) {
-                    GameCover(url: best.artworkURL, title: best.rom.displayName, maxPointSize: 180)
-                        .frame(width: 104, height: 138)
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Best match").themeText(.section).foregroundStyle(theme.ink)
-                        if let played = best.lastPlayedAt {
-                            Text("Played \(PlayFormat.inline(played))").themeText(.section, size: 10.5).foregroundStyle(theme.inkSecondary)
-                        }
-                        HighlightedText(text: best.rom.displayName, query: content.trimmedQuery)
-                            .themeText(.headline)
-                            .foregroundStyle(theme.ink)
-                            .lineLimit(3)
-                        Text(best.rom.platformAndYear).themeText(.secondary).foregroundStyle(theme.inkSecondary)
-                        if best.inProgress {
-                            Button { actions.resume(best.rom) } label: { Label("Resume", systemImage: "play.fill") }
-                                .buttonStyle(PrimaryButtonStyle(fullWidth: false, large: false))
-                                .accessibilityIdentifier("search.resume.\(best.rom.id)")
-                        }
+private struct SearchNoResults: View {
+    let query: String
+
+    var body: some View {
+        EmptyStateView(title: "No results for “\(query)”", systemImage: "magnifyingglass",
+                       message: "Search looks through the games Rommio has loaded from your server. Browse a platform in the Library to load more.")
+    }
+}
+
+private struct AuroraSearchRankNote: View {
+    @Environment(\.rommioTheme) private var theme
+
+    var body: some View {
+        Label("Ranked by recent play, then title", systemImage: "sparkles")
+            .themeText(.caption, size: 12.5)
+            .foregroundStyle(theme.inkSecondary)
+    }
+}
+
+private struct AuroraBestMatch: View {
+    @Environment(\.rommioTheme) private var theme
+    let best: SearchHit
+    let query: String
+    let actions: SearchActions
+
+    var body: some View {
+        // The whole card opens the game, and Resume is its own control. They are siblings,
+        // not a button inside a button (SwiftUI doesn't route taps reliably through nested
+        // buttons: the card stopped opening once the game had a Resume button).
+        HStack(alignment: .center, spacing: 16) {
+            GameCover(url: best.artworkURL, title: best.rom.displayName, maxPointSize: 180)
+                .frame(width: 104, height: 138)
+                .allowsHitTesting(false)
+            VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Best match").themeText(.section).foregroundStyle(theme.ink)
+                    if let played = best.lastPlayedAt {
+                        Text("Played \(PlayFormat.inline(played))").themeText(.section, size: 10.5).foregroundStyle(theme.inkSecondary)
                     }
-                    Spacer(minLength: 0)
+                    HighlightedText(text: best.rom.displayName, query: query)
+                        .themeText(.headline)
+                        .foregroundStyle(theme.ink)
+                        .lineLimit(3)
+                    Text(best.rom.platformAndYear).themeText(.secondary).foregroundStyle(theme.inkSecondary)
                 }
-                .padding(14)
-                .background { RoundedRectangle(cornerRadius: theme.radius.card, style: .continuous).strokeBorder(theme.mark1.opacity(0.7), lineWidth: 1) }
-                .themeSurface()
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                if best.inProgress {
+                    Button { actions.resume(best.rom) } label: { Label("Resume", systemImage: "play.fill") }
+                        .buttonStyle(PrimaryButtonStyle(fullWidth: false, large: false))
+                        .accessibilityIdentifier("search.resume.\(best.rom.id)")
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .background {
+            Button { actions.open(.game(best.rom)) } label: {
+                RoundedRectangle(cornerRadius: theme.radius.card, style: .continuous)
+                    .fill(.clear)
+                    .contentShape(RoundedRectangle(cornerRadius: theme.radius.card, style: .continuous))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Best match: \(best.rom.displayName), \(best.rom.platformAndYear)")
             .accessibilityIdentifier("search.bestMatch")
         }
-        if content.hits.count > 1 {
-            ThemedGroup(title: "Games", detail: "\(content.hits.count - 1)", inset: 68) {
-                ForEach(content.hits.dropFirst()) { hit in
-                    Button { actions.open(.game(hit.rom)) } label: {
-                        HStack(spacing: 12) {
-                            GameCover(url: hit.artworkURL, title: hit.rom.displayName, cornerRadius: 8, maxPointSize: 64, shadow: false)
-                                .frame(width: 40, height: 52)
-                            VStack(alignment: .leading, spacing: 2) {
-                                HighlightedText(text: hit.rom.displayName, query: content.trimmedQuery)
-                                    .themeText(.bodyEmphasis, size: 16).foregroundStyle(theme.ink).lineLimit(2)
-                                Text(hit.detail).themeText(.secondary, size: 13).foregroundStyle(theme.inkSecondary).lineLimit(1)
-                            }
-                            Spacer(minLength: 8)
-                            Chevron()
-                        }
-                    }
-                    .buttonStyle(RowButtonStyle())
-                    .accessibilityIdentifier("search.result.\(hit.rom.id)")
-                }
+        .background { LitCardOutline() }
+        .themeSurface()
+    }
+}
+
+/// The best match's outline in the page's light.
+private struct LitCardOutline: View {
+    @Environment(\.rommioTheme) private var theme
+    @Environment(\.pageLight) private var light
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: theme.radius.card, style: .continuous).strokeBorder(light.mark1.opacity(0.7), lineWidth: 1)
+    }
+}
+
+private struct AuroraSearchHits: View {
+    let hits: [SearchHit]
+    let query: String
+    let actions: SearchActions
+
+    var body: some View {
+        ThemedLazyGroup(title: "Games", detail: "\(hits.count)", inset: 68, items: hits) { hit in
+            Button { actions.open(.game(hit.rom)) } label: {
+                AuroraSearchHitRow(hit: hit, query: query)
             }
-        }
-        if !content.related.isEmpty {
-            ThemedGroup(title: "Platforms and collections", detail: "\(content.related.count)") {
-                ForEach(content.related) { item in
-                    NavigationLink(value: item.destination) {
-                        ListRow(title: item.title, subtitle: "\(item.kindTitle) · \(PlayFormat.games(item.count))", trailing: { Chevron() })
-                    }
-                    .buttonStyle(RowButtonStyle())
-                    .accessibilityIdentifier("search.related.\(item.id)")
-                }
-            }
-        }
-        if content.hits.isEmpty && content.related.isEmpty {
-            EmptyStateView(title: "No results for “\(content.trimmedQuery)”", systemImage: "magnifyingglass",
-                           message: "Search looks through the games Rommio has loaded from your server. Browse a platform in the Library to load more.")
+            .buttonStyle(RowButtonStyle())
+            .accessibilityIdentifier("search.result.\(hit.rom.id)")
         }
     }
+}
 
-    @ViewBuilder
-    private var suggestions: some View {
-        if !content.inProgress.isEmpty {
+private struct AuroraSearchHitRow: View {
+    @Environment(\.rommioTheme) private var theme
+    let hit: SearchHit
+    let query: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            GameCover(url: hit.artworkURL, title: hit.rom.displayName, cornerRadius: 8, maxPointSize: 64, shadow: false)
+                .frame(width: 40, height: 52)
+            VStack(alignment: .leading, spacing: 2) {
+                HighlightedText(text: hit.rom.displayName, query: query)
+                    .themeText(.bodyEmphasis, size: 16).foregroundStyle(theme.ink).lineLimit(2)
+                Text(hit.detail).themeText(.secondary, size: 13).foregroundStyle(theme.inkSecondary).lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Chevron()
+        }
+    }
+}
+
+private struct AuroraSearchRelated: View {
+    let related: [SearchRelated]
+    let actions: SearchActions
+
+    var body: some View {
+        ThemedGroup(title: "Platforms and collections", detail: "\(related.count)") {
+            ForEach(related) { item in
+                Button { actions.open(item.destination) } label: {
+                    ListRow(title: item.title, subtitle: "\(item.kindTitle) · \(PlayFormat.games(item.count))", trailing: { Chevron() })
+                }
+                .buttonStyle(RowButtonStyle())
+                .accessibilityIdentifier("search.related.\(item.id)")
+            }
+        }
+    }
+}
+
+private struct AuroraSearchSuggestions: View {
+    let inProgress: [SearchHit]
+    let libraryCount: Int
+    let actions: SearchActions
+
+    var body: some View {
+        if !inProgress.isEmpty {
             Shelf(title: "Continue playing") {
-                ForEach(content.inProgress) { hit in
+                ForEach(inProgress) { hit in
                     Button { actions.open(.game(hit.rom)) } label: {
                         GameTile(rom: hit.rom, artworkURL: hit.artworkURL, width: 116)
                     }
@@ -250,22 +347,55 @@ private struct AuroraSearchLayout: View {
             }
         }
         EmptyStateView(title: "Search your library", systemImage: "magnifyingglass",
-                       message: content.libraryCount == 0 ? "Games appear here once your library has loaded."
-                                                         : "Find any of \(PlayFormat.games(content.libraryCount)) by title or platform.")
+                       message: libraryCount == 0 ? "Games appear here once your library has loaded."
+                                                  : "Find any of \(PlayFormat.games(libraryCount)) by title or platform.")
     }
 }
 
 // MARK: Riso
 
-private struct RisoSearchLayout: View {
+struct RisoSearchLayout: View {
     @Environment(\.rommioTheme) private var theme
     let content: SearchContent
     let actions: SearchActions
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                if content.isSearching { AnyView(results) } else { AnyView(suggestions) }
+            LazyVStack(alignment: .leading, spacing: 0) {
+                if content.isSearching {
+                    RisoSearchCount(count: content.hits.count, query: content.trimmedQuery)
+                    if !content.related.isEmpty {
+                        RisoSeeAlso(related: Array(content.related.prefix(6)), actions: actions)
+                    }
+                    if !content.hits.isEmpty {
+                        SectionHeader(title: "Games", detail: "\(content.hits.count)")
+                        ForEach(Array(content.hits.enumerated()), id: \.element.resultKey) { index, hit in
+                            RisoSearchEntry(hit: hit, query: content.trimmedQuery, actions: actions)
+                                .accessibilityIdentifier(index == 0 ? "search.bestMatch" : "search.result.\(hit.rom.id)")
+                        }
+                    }
+                    if !content.related.isEmpty {
+                        SectionHeader(title: "Platforms and collections").padding(.top, 26)
+                        ForEach(content.related) { item in
+                            RisoRelatedEntry(item: item, actions: actions)
+                        }
+                    }
+                    if content.hits.isEmpty && content.related.isEmpty {
+                        SearchNoResults(query: content.trimmedQuery)
+                    }
+                } else {
+                    RisoSearchPrompt(libraryCount: content.libraryCount)
+                    if !content.inProgress.isEmpty {
+                        SectionHeader(title: "Continue playing", detail: "\(content.inProgress.count)")
+                        ForEach(content.inProgress, id: \.progressKey) { RisoSearchEntry(hit: $0, query: content.trimmedQuery, actions: actions) }
+                    }
+                    if !content.platforms.isEmpty {
+                        SectionHeader(title: "Platforms", detail: "\(content.platforms.count)").padding(.top, 26)
+                        ForEach(content.platforms) { platform in
+                            RisoPlatformLookup(platform: platform, actions: actions)
+                        }
+                    }
+                }
             }
             .padding(.horizontal, theme.spacing.gutter)
             .padding(.bottom, 40)
@@ -274,74 +404,65 @@ private struct RisoSearchLayout: View {
         }
         .themedPage()
     }
+}
 
-    @ViewBuilder
-    private var results: some View {
-        (Text("\(content.hits.count) \(content.hits.count == 1 ? "entry" : "entries")").bold()
-            + Text(" for “\(content.trimmedQuery)”. ")
+private struct RisoSearchCount: View {
+    @Environment(\.rommioTheme) private var theme
+    let count: Int
+    let query: String
+
+    var body: some View {
+        (Text("\(count) \(count == 1 ? "entry" : "entries")").bold()
+            + Text(" for “\(query)”. ")
             + Text("Ranked by what you've played, then by title.").italic())
             .themeText(.body, size: 16)
             .foregroundStyle(theme.ink)
             .padding(.bottom, 12)
-        if !content.related.isEmpty {
-            HStack(alignment: .top, spacing: 10) {
-                Text("See also").themeText(.label, size: 9.5).foregroundStyle(theme.inkSecondary).padding(.top, 10)
-                FlowRow(spacing: 6) {
-                    ForEach(content.related.prefix(6)) { item in
-                        Button { actions.open(item.destination) } label: {
-                            Text(item.title)
-                                .themeText(.body, size: 14.5)
-                                .italic()
-                                .foregroundStyle(theme.ink)
-                                .padding(.horizontal, 10)
-                                .frame(minHeight: 36)
-                                .overlay { Rectangle().strokeBorder(theme.ink, lineWidth: 1.5) }
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("search.related.\(item.id)")
-                    }
-                }
-            }
-            .padding(.bottom, 18)
-        }
-        if !content.hits.isEmpty {
-            SectionHeader(title: "Games", detail: "\(content.hits.count)")
-            ForEach(Array(content.hits.enumerated()), id: \.element.id) { index, hit in
-                entry(hit)
-                    .accessibilityIdentifier(index == 0 ? "search.bestMatch" : "search.result.\(hit.rom.id)")
-            }
-        }
-        if !content.related.isEmpty {
-            SectionHeader(title: "Platforms and collections").padding(.top, 26)
-            ForEach(content.related) { item in
-                Button { actions.open(item.destination) } label: {
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Text(item.kindTitle).themeText(.label, size: 9.5).foregroundStyle(theme.inkSecondary).frame(width: 84, alignment: .leading)
-                        Text(item.title).themeText(.bodyEmphasis, size: 16).foregroundStyle(theme.ink).lineLimit(1).layoutPriority(1)
-                        DotLeader()
-                        Text(PlayFormat.games(item.count)).themeText(.numeral, size: 11.5).foregroundStyle(theme.ink).fixedSize()
-                    }
-                    .frame(minHeight: 44)
-                    .overlay(alignment: .bottom) { Rectangle().fill(theme.hairline).frame(height: 1) }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(RowButtonStyle())
-            }
-        }
-        if content.hits.isEmpty && content.related.isEmpty {
-            EmptyStateView(title: "No results for “\(content.trimmedQuery)”", systemImage: "magnifyingglass",
-                           message: "Search looks through the games Rommio has loaded from your server. Browse a platform in the Library to load more.")
-        }
     }
+}
 
-    private func entry(_ hit: SearchHit) -> some View {
+private struct RisoSeeAlso: View {
+    @Environment(\.rommioTheme) private var theme
+    let related: [SearchRelated]
+    let actions: SearchActions
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text("See also").themeText(.label, size: 9.5).foregroundStyle(theme.inkSecondary).padding(.top, 10)
+            FlowRow(spacing: 6) {
+                ForEach(related) { item in
+                    Button { actions.open(item.destination) } label: {
+                        Text(item.title)
+                            .themeText(.body, size: 14.5)
+                            .italic()
+                            .foregroundStyle(theme.ink)
+                            .padding(.horizontal, 10)
+                            .frame(minHeight: 36)
+                            .overlay { Rectangle().strokeBorder(theme.ink, lineWidth: 1.5) }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("search.related.\(item.id)")
+                }
+            }
+        }
+        .padding(.bottom, 18)
+    }
+}
+
+private struct RisoSearchEntry: View {
+    @Environment(\.rommioTheme) private var theme
+    let hit: SearchHit
+    let query: String
+    let actions: SearchActions
+
+    var body: some View {
         HStack(alignment: .center, spacing: 12) {
             Button { actions.open(.game(hit.rom)) } label: {
                 HStack(alignment: .center, spacing: 12) {
                     GameCover(url: hit.artworkURL, title: hit.rom.displayName, maxPointSize: 80)
                         .frame(width: 44, height: 58)
                     VStack(alignment: .leading, spacing: 3) {
-                        HighlightedText(text: hit.rom.displayName, query: content.trimmedQuery)
+                        HighlightedText(text: hit.rom.displayName, query: query)
                             .themeText(.headline, size: 24)
                             .foregroundStyle(theme.ink)
                             .lineLimit(2)
@@ -364,35 +485,60 @@ private struct RisoSearchLayout: View {
         .padding(.vertical, 10)
         .overlay(alignment: .bottom) { Rectangle().fill(theme.hairline).frame(height: 1) }
     }
+}
 
-    @ViewBuilder
-    private var suggestions: some View {
-        Text(content.libraryCount == 0 ? "Games appear here once your library has loaded."
-                                        : "Look up any of \(PlayFormat.games(content.libraryCount)) by title or platform.")
+private struct RisoRelatedEntry: View {
+    @Environment(\.rommioTheme) private var theme
+    let item: SearchRelated
+    let actions: SearchActions
+
+    var body: some View {
+        Button { actions.open(item.destination) } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(item.kindTitle).themeText(.label, size: 9.5).foregroundStyle(theme.inkSecondary).frame(width: 84, alignment: .leading)
+                Text(item.title).themeText(.bodyEmphasis, size: 16).foregroundStyle(theme.ink).lineLimit(1).layoutPriority(1)
+                DotLeader()
+                Text(PlayFormat.games(item.count)).themeText(.numeral, size: 11.5).foregroundStyle(theme.ink).fixedSize()
+            }
+            .frame(minHeight: 44)
+            .overlay(alignment: .bottom) { Rectangle().fill(theme.hairline).frame(height: 1) }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(RowButtonStyle())
+    }
+}
+
+private struct RisoSearchPrompt: View {
+    @Environment(\.rommioTheme) private var theme
+    let libraryCount: Int
+
+    var body: some View {
+        Text(libraryCount == 0 ? "Games appear here once your library has loaded."
+                               : "Look up any of \(PlayFormat.games(libraryCount)) by title or platform.")
             .themeText(.body, size: 16)
             .italic()
             .foregroundStyle(theme.inkSecondary)
             .padding(.bottom, 14)
-        if !content.inProgress.isEmpty {
-            SectionHeader(title: "Continue playing", detail: "\(content.inProgress.count)")
-            ForEach(content.inProgress) { entry($0) }
-        }
-        if !content.platforms.isEmpty {
-            SectionHeader(title: "Platforms", detail: "\(content.platforms.count)").padding(.top, 26)
-            ForEach(content.platforms) { platform in
-                Button { actions.open(.platform(platform)) } label: {
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Text(platform.name).themeText(.bodyEmphasis, size: 16).foregroundStyle(theme.ink).lineLimit(1).layoutPriority(1)
-                        DotLeader()
-                        Text(platform.romCount.formatted()).themeText(.numeral, size: 11.5).foregroundStyle(theme.ink)
-                    }
-                    .frame(minHeight: 44)
-                    .overlay(alignment: .bottom) { Rectangle().fill(theme.hairline).frame(height: 1) }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(RowButtonStyle())
+    }
+}
+
+private struct RisoPlatformLookup: View {
+    @Environment(\.rommioTheme) private var theme
+    let platform: PlatformDTO
+    let actions: SearchActions
+
+    var body: some View {
+        Button { actions.open(.platform(platform)) } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(platform.name).themeText(.bodyEmphasis, size: 16).foregroundStyle(theme.ink).lineLimit(1).layoutPriority(1)
+                DotLeader()
+                Text(platform.romCount.formatted()).themeText(.numeral, size: 11.5).foregroundStyle(theme.ink)
             }
+            .frame(minHeight: 44)
+            .overlay(alignment: .bottom) { Rectangle().fill(theme.hairline).frame(height: 1) }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(RowButtonStyle())
     }
 }
 
@@ -400,14 +546,14 @@ private struct RisoSearchLayout: View {
 /// sidebar-adaptable tab bar the search tab is an ordinary tab, so the field
 /// is placed on the page explicitly rather than left to automatic placement.)
 private struct SearchFieldPlacement: ViewModifier {
-    @Binding var query: String
+    @Bindable var feature: SearchFeatureModel
 
     func body(content: Content) -> some View {
 #if os(iOS)
-        content.searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Games and platforms")
+        content.searchable(text: $feature.query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Games and platforms")
             .background { SearchFieldTagger(identifier: "search.field") }
 #else
-        content.searchable(text: $query, prompt: "Games and platforms")
+        content.searchable(text: $feature.query, prompt: "Games and platforms")
 #endif
     }
 }

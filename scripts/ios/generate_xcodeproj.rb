@@ -107,6 +107,11 @@ app_target.build_configurations.each do |config|
     config.build_settings['LD_RUNPATH_SEARCH_PATHS'] = ['$(inherited)', '@executable_path/Frameworks']
     config.build_settings['CODE_SIGNING_ALLOWED'] = config.name == 'Release' ? 'YES' : 'NO'
     config.build_settings['CODE_SIGNING_REQUIRED'] = config.name == 'Release' ? 'YES' : 'NO'
+    # The Simulator gives the main thread the Mac's 8 MB; an iPhone gives it 1 MB.
+    # Link Simulator builds with the device's limit (LC_MAIN stacksize, which the
+    # Simulator honours) so a view tree that would overflow the phone's stack
+    # crashes in the Simulator too. Device builds keep the system default.
+    config.build_settings['OTHER_LDFLAGS[sdk=iphonesimulator*]'] = ['$(inherited)', '-Wl,-stack_size,0x100000']
     config.build_settings.delete('SDKROOT')
 end
 

@@ -26,6 +26,8 @@ final class PlayerSurfaceController: UIViewController, MTKViewDelegate {
     private let topAlignedInPortraitProvider: @Sendable () -> Bool
 
     private var metalView: MTKView?
+    /// The touch controls' plan, kept while the family stays the same.
+    private var controlPlan: (family: String, plan: PlayerControlPlan?)?
     private var ciContext: CIContext?
     private var commandQueue: MTLCommandQueue?
     private let statusLabel = UILabel()
@@ -154,7 +156,8 @@ final class PlayerSurfaceController: UIViewController, MTKViewDelegate {
             controlScale: configuration.controlScale ?? 1,
             reserveTouchSpace: configuration.reserveTouchSpace,
             utilityCount: configuration.controlUtilityCount ?? 3,
-            stage: configuration.stage ?? PlayerStageContext()
+            stage: configuration.stage ?? PlayerStageContext(),
+            controls: plan(for: configuration.controlFamily, analog: configuration.controlAnalog ?? false)
         )
         // Layout and safe-area insets are UIKit points; Metal draws physical pixels.
         let drawableScaleX = view.drawableSize.width / max(view.bounds.width, 1)
@@ -193,6 +196,14 @@ final class PlayerSurfaceController: UIViewController, MTKViewDelegate {
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
+
+    private func plan(for family: String?, analog: Bool) -> PlayerControlPlan? {
+        guard let family else { return nil }
+        if let controlPlan, controlPlan.family == family, controlPlan.plan?.analogControls ?? analog == analog { return controlPlan.plan }
+        let plan = PlayerControlPlan(family: family, analogControls: analog)
+        controlPlan = (family, plan)
+        return plan
+    }
 
     private func makeImage(from frame: PlayerVideoFrameSnapshot) -> CIImage? {
         if let texture = frame.hardwareTexture {

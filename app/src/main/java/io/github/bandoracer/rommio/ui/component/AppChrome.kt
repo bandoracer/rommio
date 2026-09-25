@@ -152,7 +152,7 @@ fun SectionHeader(
                     text = actionLabel,
                     uppercase = role.uppercase,
                     style = role.style,
-                    color = if (riso) c.ink else theme.tintText,
+                    color = if (riso) c.ink else RommioTheme.light.tintText,
                     textDecoration = if (riso) TextDecoration.Underline else null,
                     maxLines = 1,
                     modifier = Modifier
@@ -437,10 +437,12 @@ fun ToggleRow(
                     uncheckedBorderColor = c.ink,
                 )
             } else {
+                // The switch is on in the page's tint (the row's one lit colour).
+                val tint = RommioTheme.light.tint
                 SwitchDefaults.colors(
-                    checkedTrackColor = c.tint,
+                    checkedTrackColor = tint,
                     checkedThumbColor = Color.White,
-                    checkedBorderColor = c.tint,
+                    checkedBorderColor = tint,
                     uncheckedTrackColor = c.surfaceStrong,
                     uncheckedThumbColor = c.inkTertiary,
                     uncheckedBorderColor = theme.strokeColor,
@@ -485,7 +487,7 @@ fun StatCard(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            icon?.let { Icon(it, contentDescription = null, tint = theme.mark1, modifier = Modifier.size(13.dp)) }
+            icon?.let { Icon(it, contentDescription = null, tint = RommioTheme.light.mark1, modifier = Modifier.size(13.dp)) }
             RoleText(label, theme.type.section, color = c.inkSecondary, maxLines = 1)
         }
         RoleText(value, theme.type.statValue, size = if (large) 34f else 24f, color = c.ink, maxLines = 1)

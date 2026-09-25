@@ -13,7 +13,10 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -38,6 +41,10 @@ import io.github.bandoracer.rommio.domain.playdata.SaveEntry
 import io.github.bandoracer.rommio.domain.playdata.SaveKind
 import io.github.bandoracer.rommio.model.RomMetadata
 import io.github.bandoracer.rommio.ui.component.GlassSurface
+import io.github.bandoracer.rommio.ui.component.LazyCardGroups
+import io.github.bandoracer.rommio.ui.component.drawCardGroups
+import io.github.bandoracer.rommio.ui.component.lazyListGroup
+import io.github.bandoracer.rommio.ui.component.rememberLazyCardGroups
 import io.github.bandoracer.rommio.ui.component.ListDivider
 import io.github.bandoracer.rommio.ui.component.ListGroup
 import io.github.bandoracer.rommio.ui.component.ListRow
@@ -135,7 +142,8 @@ internal fun ScreenshotsRow(paths: List<String>, baseUrl: String?, gutter: andro
 /**
  * Saved progress sheet: every resume point, save state and earlier save for this game with
  * previews, device and sync. Save states can be named here; loading one happens in the player
- * (Pause › Save states), where the current progress is kept in a safety copy first.
+ * (Pause › Save states), where the current progress is kept in a safety copy first. The rows are
+ * lazy (each group's card is drawn behind its rows by the list).
  */
 @Composable
 internal fun SavedProgressSheet(
@@ -149,52 +157,70 @@ internal fun SavedProgressSheet(
 ) {
     val theme = RommioTheme.current
     var renaming by remember { mutableStateOf<SaveEntry?>(null) }
-    Column(
+    val listState = rememberLazyListState()
+    val groups = rememberLazyCardGroups()
+    val gap = 12.dp
+    val rename: (SaveEntry) -> Unit = { renaming = it }
+    LazyColumn(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 12.dp)
+            .drawCardGroups(listState, groups, 20.dp)
             .testTag("game.saves.sheet"),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        state = listState,
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
     ) {
-        RoleText("Saved progress", theme.type.headline, color = theme.colors.ink)
-        RoleText(
-            "To load a save state, start the game and open Save states from the pause menu. Your current progress is kept in a safety copy first.",
-            theme.type.secondary,
-            color = theme.colors.inkSecondary,
-        )
+        // A column with 12 dp between its parts.
+        item(key = "title", contentType = "title") { RoleText("Saved progress", theme.type.headline, color = theme.colors.ink) }
+        item(key = "help", contentType = "help") {
+            RoleText(
+                "To load a save state, start the game and open Save states from the pause menu. Your current progress is kept in a safety copy first.",
+                theme.type.secondary,
+                color = theme.colors.inkSecondary,
+                modifier = Modifier.padding(top = gap),
+            )
+        }
         saves.resume?.let { resume ->
-            SectionHeader(title = "Resume point", modifier = Modifier.padding(top = 4.dp))
-            SaveRows(listOf(resume), coverUrl, gameTitle) { renaming = it }
+            item(key = "resumeHeader", contentType = "sectionHeader") { SectionHeader(title = "Resume point", modifier = Modifier.padding(top = gap).padding(top = 4.dp)) }
+            saveRows(groups, theme.isRiso, "resume", listOf(resume), coverUrl, gameTitle, gap, rename)
             if (canPlay) {
-                PrimaryButton(text = "Resume", onClick = onResume, icon = Icons.Outlined.PlayArrow,
-                    modifier = Modifier.fillMaxWidth().testTag("game.saves.resume"))
+                item(key = "resume", contentType = "resume") {
+                    PrimaryButton(text = "Resume", onClick = onResume, icon = Icons.Outlined.PlayArrow,
+                        modifier = Modifier.padding(top = gap).fillMaxWidth().testTag("game.saves.resume"))
+                }
             }
         }
-        SectionHeader(title = "Save states", modifier = Modifier.padding(top = 4.dp))
+        item(key = "statesHeader", contentType = "sectionHeader") { SectionHeader(title = "Save states", modifier = Modifier.padding(top = gap).padding(top = 4.dp)) }
         if (saves.saveStates.isEmpty()) {
-            RoleText("No save states yet.", theme.type.secondary, color = theme.colors.inkSecondary, modifier = Modifier.padding(horizontal = 4.dp))
+            item(key = "noStates", contentType = "note") {
+                RoleText("No save states yet.", theme.type.secondary, color = theme.colors.inkSecondary, modifier = Modifier.padding(top = gap).padding(horizontal = 4.dp))
+            }
         } else {
-            SaveRows(saves.saveStates, coverUrl, gameTitle) { renaming = it }
+            saveRows(groups, theme.isRiso, "states", saves.saveStates, coverUrl, gameTitle, gap, rename)
         }
         if (saves.history.isNotEmpty()) {
-            SectionHeader(title = "Earlier resume points", meta = saves.history.size.toString(), modifier = Modifier.padding(top = 4.dp))
-            SaveRows(saves.history.take(HISTORY_SHOWN), coverUrl, gameTitle) { renaming = it }
+            item(key = "historyHeader", contentType = "sectionHeader") {
+                SectionHeader(title = "Earlier resume points", meta = saves.history.size.toString(), modifier = Modifier.padding(top = gap).padding(top = 4.dp))
+            }
+            saveRows(groups, theme.isRiso, "history", saves.history.take(HISTORY_SHOWN), coverUrl, gameTitle, gap, rename)
         }
         saves.gameSaveData.firstOrNull()?.let { latest ->
-            SectionHeader(
-                title = "Game-save data",
-                supportingText = "Saved with every capture; a cold boot starts from the latest.",
-                modifier = Modifier.padding(top = 4.dp),
-            )
-            SaveRows(listOf(latest), coverUrl, gameTitle) { renaming = it }
+            item(key = "gameSaveHeader", contentType = "sectionHeader") {
+                SectionHeader(
+                    title = "Game-save data",
+                    supportingText = "Saved with every capture; a cold boot starts from the latest.",
+                    modifier = Modifier.padding(top = gap).padding(top = 4.dp),
+                )
+            }
+            saveRows(groups, theme.isRiso, "gameSave", listOf(latest), coverUrl, gameTitle, gap, rename)
             if (saves.gameSaveData.size > 1) {
-                RoleText("${pluralize(saves.gameSaveData.size - 1, "earlier capture")} kept on this device.", theme.type.caption,
-                    color = theme.colors.inkSecondary, modifier = Modifier.padding(horizontal = 4.dp))
+                item(key = "gameSaveNote", contentType = "note") {
+                    RoleText("${pluralize(saves.gameSaveData.size - 1, "earlier capture")} kept on this device.", theme.type.caption,
+                        color = theme.colors.inkSecondary, modifier = Modifier.padding(top = gap).padding(horizontal = 4.dp))
+                }
             }
         }
-        SecondaryButton(text = "Done", onClick = onClose, modifier = Modifier.fillMaxWidth())
+        item(key = "done", contentType = "done") { SecondaryButton(text = "Done", onClick = onClose, modifier = Modifier.padding(top = gap).fillMaxWidth()) }
     }
     renaming?.let { entry ->
         RenameSaveDialog(current = entry.label, tagPrefix = "game.saves", onDismiss = { renaming = null }, onSave = { text ->
@@ -206,20 +232,37 @@ internal fun SavedProgressSheet(
 
 private const val HISTORY_SHOWN = 20
 
+/** A group of save rows (a card in Aurora), as lazy items. */
+private fun LazyListScope.saveRows(
+    groups: LazyCardGroups,
+    riso: Boolean,
+    key: String,
+    entries: List<SaveEntry>,
+    coverUrl: String?,
+    gameTitle: String,
+    gap: androidx.compose.ui.unit.Dp,
+    onRename: (SaveEntry) -> Unit,
+) {
+    lazyListGroup(
+        groups = groups,
+        riso = riso,
+        key = key,
+        items = entries,
+        itemKey = { it.key.toString() },
+        top = gap,
+        dividerInset = 92.dp,
+    ) { _, entry -> SaveRow(entry, coverUrl, gameTitle, onRename) }
+}
+
 @Composable
-private fun SaveRows(entries: List<SaveEntry>, coverUrl: String?, gameTitle: String, onRename: (SaveEntry) -> Unit) {
-    ListGroup {
-        entries.forEachIndexed { index, entry ->
-            if (index > 0) ListDivider(inset = 92.dp)
-            ListRow(
-                title = entry.title,
-                subtitle = gameSaveDetail(entry),
-                leading = { SavePreview(entry.thumbnailPath, coverUrl, gameTitle) },
-                trailing = if (entry.kind == SaveKind.SAVE_STATE) { {
-                    RenameSaveButton(entry.label, onClick = { onRename(entry) }, modifier = Modifier.testTag("game.saves.rename"))
-                } } else null,
-                modifier = Modifier.testTag("game.saves.row"),
-            )
-        }
-    }
+private fun SaveRow(entry: SaveEntry, coverUrl: String?, gameTitle: String, onRename: (SaveEntry) -> Unit) {
+    ListRow(
+        title = entry.title,
+        subtitle = gameSaveDetail(entry),
+        leading = { SavePreview(entry.thumbnailPath, coverUrl, gameTitle) },
+        trailing = if (entry.kind == SaveKind.SAVE_STATE) { {
+            RenameSaveButton(entry.label, onClick = { onRename(entry) }, modifier = Modifier.testTag("game.saves.rename"))
+        } } else null,
+        modifier = Modifier.testTag("game.saves.row"),
+    )
 }

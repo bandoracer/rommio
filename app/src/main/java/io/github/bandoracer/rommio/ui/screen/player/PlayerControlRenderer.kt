@@ -1,6 +1,7 @@
 package io.github.bandoracer.rommio.ui.screen.player
 
 import io.github.bandoracer.rommio.ui.component.OverArt
+import io.github.bandoracer.rommio.ui.component.drawSoftShadow
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -15,7 +16,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -26,15 +26,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -48,9 +45,9 @@ import java.util.Locale
 import kotlin.math.min
 
 /**
- * The player style renderer. Input views (`ExpansionControlsOverlay`, `TouchControlsOverlay`) own
- * touch handling, hit areas, geometry, test tags and semantics; they hand each control's visual
- * box to these functions, which only draw.
+ * The player style renderer. The touch surface (`PlayerControlsOverlay`) owns touch handling, hit
+ * regions, geometry, test tags and semantics; it hands each control's drawn frame to these
+ * functions, which only draw (docs/player-controls.md, Look).
  *
  * - Aurora (frosted): translucent control fill from the player tokens, a bright top highlight, a
  *   0.5 dp rim and a soft drop shadow; legends in the player's ink; thin chevrons.
@@ -102,25 +99,29 @@ fun PlayerControlGraphic(
     modifier: Modifier = Modifier,
     opacity: Float = PlayerStyle.DEFAULT_OPACITY,
     glyph: PlayerGlyph? = if (kind == PlayerControlKind.MENU) PlayerGlyph.MENU else glyphForLabel(label),
-    stick: Offset = Offset.Zero,
     rightSide: Boolean = false,
 ) {
     val style = visual.style
     val colors = visual.styleFor(kind, label)
     val density = LocalDensity.current
-    BoxWithConstraints(modifier.controlAlpha(style.controlAlpha(opacity)), contentAlignment = Alignment.Center) {
+    // A face fades only its body with the opacity setting: its legend and console ring stay at
+    // full ink, so the legend keeps its contrast even at the lowest face opacity (0.5).
+    val face = kind == PlayerControlKind.FACE
+    val alpha = style.controlAlpha(opacity, face = face)
+    BoxWithConstraints(modifier.controlAlpha(if (face) 1f else alpha), contentAlignment = Alignment.Center) {
         val w = constraints.maxWidth.toFloat()
         val h = constraints.maxHeight.toFloat()
         val pressShift = if (style.isInk && pressed) with(density) { style.plateOffset.toPx() } else 0f
         Canvas(Modifier.fillMaxSize()) {
             val shape = controlShape(kind, style, size)
             if (style.frosted) {
-                drawFrosted(shape, colors, style, pressed)
+                drawFrosted(
+                    shape, colors, style, pressed,
+                    round = kind == PlayerControlKind.FACE || kind == PlayerControlKind.STICK || kind == PlayerControlKind.MENU,
+                    bodyAlpha = if (face) alpha else 1f,
+                )
             } else {
                 drawInk(shape, colors, style, pressed)
-            }
-            if (kind == PlayerControlKind.STICK) {
-                drawStickKnob(style, colors, stick, pressed)
             }
             glyph?.let {
                 translate(pressShift, pressShift) {
@@ -162,9 +163,10 @@ private fun legendFor(kind: PlayerControlKind, label: String, style: PlayerStyle
     return when (kind) {
         PlayerControlKind.FACE -> {
             val text = if (style.legendUppercase) shown.uppercase(Locale.getDefault()) else shown
-            // Token size scaled from a 56 dp reference face (docs/theme-layouts.md "Player"), at least 9;
-            // longer legends ("Start" on a face) still fit the face.
-            val scaled = maxOf(9f, style.legend.fontSize.value * box.value / 56f)
+            // The token size is for a 64 dp two-button face (22 in Aurora; about 20 on a 56 dp
+            // diamond face), at least 9 (docs/player-controls.md, Look; iOS `legendSize`); longer
+            // legends ("Fire" on a face) still fit the face.
+            val scaled = maxOf(9f, style.legend.fontSize.value * (box.value + 24f) / (REFERENCE_FACE + 24f))
             val size = if (text.length <= 2) scaled else min(scaled, box.value * 0.32f)
             Legend(text, style.legend.copy(fontSize = size.sp, lineHeight = size.sp))
         }
@@ -183,20 +185,25 @@ private fun legendFor(kind: PlayerControlKind, label: String, style: PlayerStyle
     }
 }
 
-/** The control's outline inside its box. */
+/** Legend sizes in the tokens are for a face this wide (a two-button face). */
+private const val REFERENCE_FACE = 64f
+
+/**
+ * The control's outline: its whole box (the box is the drawn frame the touch model hit-tests;
+ * Riso's plate prints outside it).
+ */
 private fun DrawScope.controlShape(kind: PlayerControlKind, style: PlayerStyle, box: Size): RoundRect {
     val w = box.width
     val h = box.height
     return when (kind) {
         PlayerControlKind.FACE, PlayerControlKind.STICK -> {
-            val d = min(w, h) - if (style.isInk) style.plateOffset.toPx() else 0f
+            val d = min(w, h)
             val r = d / 2
             RoundRect((w - d) / 2, (h - d) / 2, (w + d) / 2, (h + d) / 2, CornerRadius(r))
         }
         PlayerControlKind.SHOULDER -> {
-            val inset = if (style.isInk) style.plateOffset.toPx() else 0f
-            val right = w - inset
-            val bottom = h - inset
+            val right = w
+            val bottom = h
             val height = bottom
             if (style.shoulderIsTab) {
                 // `.pill.sh`: border-radius 18 18 6 6 on a 36-tall tab.
@@ -235,31 +242,55 @@ private fun RoundRect.path(): Path = Path().apply { addRoundRect(this@path) }
 private fun RoundRect.shift(dx: Float, dy: Float): RoundRect =
     RoundRect(left + dx, top + dy, right + dx, bottom + dy, topLeftCornerRadius, topRightCornerRadius, bottomRightCornerRadius, bottomLeftCornerRadius)
 
-/** Frosted glass: soft shadow outside, fill, top highlight and rim inside. */
-private fun DrawScope.drawFrosted(shape: RoundRect, colors: PlayerControlStyle, style: PlayerStyle, pressed: Boolean) {
+/**
+ * Frosted glass (docs/player-controls.md, Look; §1.6 glass edge): a soft shadow outside, the
+ * `controlFill` (`controlPressed` when held), a console colour's 2 dp ring, a 0.5 dp keyline and a
+ * 1 dp top rim fading by 12 % of the height.
+ */
+private fun DrawScope.drawFrosted(
+    shape: RoundRect,
+    colors: PlayerControlStyle,
+    style: PlayerStyle,
+    pressed: Boolean,
+    round: Boolean = true,
+    /** Fades the body (shadow, fill, keyline, rim) but not the console ring. */
+    bodyAlpha: Float = 1f,
+) {
+    fun Color.body() = if (bodyAlpha >= 1f) this else copy(alpha = alpha * bodyAlpha)
     val path = shape.path()
-    // `--ctl-shadow`: 0 10 26 -12 (light) / 0 12 28 -14 (dark), clipped out of the control.
-    clipPath(path, ClipOp.Difference) {
-        val layers = 8
-        val blur = 26.dp.toPx()
-        val spread = (-12).dp.toPx()
-        val dy = 10.dp.toPx()
-        val step = style.shadow.copy(alpha = style.shadow.alpha / layers)
-        for (i in 0 until layers) {
-            val grow = spread + blur * ((i + 0.5f) / layers - 0.5f)
-            val r = RoundRect(
-                shape.left - grow, shape.top - grow + dy, shape.right + grow, shape.bottom + grow + dy,
-                CornerRadius((shape.topLeftCornerRadius.x + grow).coerceAtLeast(0f)),
-            )
-            if (r.width > 0 && r.height > 0) drawPath(r.path(), step)
-        }
+    // Glass shadow: black 55 % r14 y10 by night, #28143c 28 % r13 y9 by day (iOS `glassShadow`).
+    val dark = style.dark
+    translate(shape.left, shape.top) {
+        drawSoftShadow(
+            color = (if (dark) Color.Black.copy(alpha = 0.55f) else Color(0xFF28143C).copy(alpha = 0.28f)).body(),
+            cornerRadius = (if (round) min(shape.width, shape.height) / 2 else shape.bottomLeftCornerRadius.x).toDp(),
+            offsetY = if (dark) 10.dp else 9.dp,
+            blur = if (dark) 28.dp else 26.dp,
+            size = Size(shape.width, shape.height),
+        )
     }
-    drawPath(path, if (pressed) colors.pressedFillColor else colors.fillColor)
-    clipPath(path) {
-        drawRect(style.highlight, topLeft = Offset(shape.left, shape.top), size = Size(shape.width, 1.dp.toPx()))
+    drawPath(path, (if (pressed) colors.pressedFillColor else colors.fillColor).body())
+    if (colors.ring.alpha > 0f) {
+        val w = 2.dp.toPx()
+        val inner = RoundRect(shape.left + w / 2, shape.top + w / 2, shape.right - w / 2, shape.bottom - w / 2,
+            CornerRadius((shape.topLeftCornerRadius.x - w / 2).coerceAtLeast(0f)))
+        drawPath(inner.path(), colors.ring, style = Stroke(w))
     }
-    val rim = if (pressed) colors.pressedBorderColor else colors.borderColor
-    drawPath(path, rim, style = Stroke(if (pressed) 1.dp.toPx() else 0.75.dp.toPx()))
+    val edge = (if (pressed) colors.pressedBorderColor else colors.borderColor).body()
+    drawPath(path, edge, style = Stroke(if (pressed) 1.dp.toPx() else 0.5.dp.toPx()))
+    val rim = 1.dp.toPx()
+    val rimShape = RoundRect(shape.left + rim / 2, shape.top + rim / 2, shape.right - rim / 2, shape.bottom - rim / 2,
+        shape.topLeftCornerRadius, shape.topRightCornerRadius, shape.bottomRightCornerRadius, shape.bottomLeftCornerRadius)
+    drawPath(
+        rimShape.path(),
+        androidx.compose.ui.graphics.Brush.verticalGradient(
+            0f to style.highlight.body(),
+            0.12f to style.highlight.copy(alpha = 0f),
+            startY = shape.top,
+            endY = shape.bottom,
+        ),
+        style = Stroke(rim),
+    )
 }
 
 /** Flat ink: the off-register plate, then the ink shape (pressed shifts onto the plate). */
@@ -280,16 +311,32 @@ private fun DrawScope.drawInk(shape: RoundRect, colors: PlayerControlStyle, styl
     }
 }
 
-private fun DrawScope.drawStickKnob(style: PlayerStyle, colors: PlayerControlStyle, stick: Offset, pressed: Boolean) {
-    val d = min(size.width, size.height)
-    val knob = d * 0.21f
-    val center = Offset(size.width / 2 + stick.x * d * 0.32f, size.height / 2 + stick.y * d * 0.32f)
-    // Knob: `controlInk` 90 % (Riso, on an outlined circle) / 50 % (Aurora, on frosted glass).
-    if (style.isInk) {
-        drawCircle(style.colors.controlInk.copy(alpha = 0.9f), radius = knob, center = center)
-    } else {
-        drawCircle(style.colors.controlInk.copy(alpha = if (pressed) 0.65f else 0.5f), radius = knob, center = center)
-        drawCircle(style.highlight, radius = knob, center = center, style = Stroke(0.75.dp.toPx()))
+/** A stick's ring at full tilt, brightened: a 2.5 dp `controlInk` rim over the travel ring (as iOS). */
+@Composable
+fun PlayerStickFullTiltRing(visual: PlayerVisualTheme, modifier: Modifier = Modifier) {
+    val style = visual.style
+    Canvas(modifier) {
+        val stroke = 2.5.dp.toPx()
+        drawCircle(style.colors.controlInk.copy(alpha = if (style.isInk) 1f else 0.85f), radius = min(size.width, size.height) / 2 - stroke / 2, style = Stroke(stroke))
+    }
+}
+
+/**
+ * A stick's knob, filling the modifier's box (travel × 0.95 across; the travel ring is drawn by
+ * [PlayerControlGraphic] with [PlayerControlKind.STICK]): `controlInk` at 90 % (Riso) or 55 % with
+ * a highlight edge (Aurora, on frosted glass).
+ */
+@Composable
+fun PlayerStickKnob(visual: PlayerVisualTheme, modifier: Modifier = Modifier, opacity: Float = PlayerStyle.DEFAULT_OPACITY) {
+    val style = visual.style
+    Canvas(modifier.controlAlpha(style.controlAlpha(opacity, face = false))) {
+        val radius = min(size.width, size.height) / 2
+        if (style.isInk) {
+            drawCircle(style.colors.controlInk.copy(alpha = 0.9f), radius = radius)
+        } else {
+            drawCircle(style.colors.controlInk.copy(alpha = 0.55f), radius = radius)
+            drawCircle(style.highlight, radius = radius, style = Stroke(0.75.dp.toPx()))
+        }
     }
 }
 

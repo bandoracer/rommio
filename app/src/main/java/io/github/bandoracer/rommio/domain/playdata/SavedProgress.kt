@@ -314,6 +314,24 @@ object SavedProgressRules {
         .take(limit)
         .toList()
 
+    /**
+     * Each game's latest place to continue from (Aurora Play's screens, docs/theme-layouts.md
+     * "Play" v2): its current resume point, else its newest loadable save state (or current slot).
+     * Game-save data never. Keyed by ROM id (as iOS `latestByGame`).
+     */
+    fun latestByGame(entries: List<SaveEntry>): Map<Long, SaveEntry> {
+        val result = mutableMapOf<Long, SaveEntry>()
+        for (entry in entries.distinctBy { it.key }.sortedWith(newestFirst)) {
+            val resume = entry.kind == SaveKind.RESUME_POINT && entry.isCurrentResume
+            val state = entry.kind == SaveKind.SAVE_STATE && (entry.loadable || entry.isCurrentSlot)
+            if (!resume && !state) continue
+            val chosen = result[entry.romId]
+            // A resume point beats a save state; otherwise the newest (already chosen) stays.
+            if (chosen == null || (resume && chosen.kind != SaveKind.RESUME_POINT)) result[entry.romId] = entry
+        }
+        return result
+    }
+
     /** One game's saves, split into its current resume point, save states and the rest of its history. */
     fun forGame(entries: List<SaveEntry>): GameSaves {
         val unique = entries.distinctBy { it.key }.sortedWith(newestFirst)

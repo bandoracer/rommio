@@ -398,19 +398,25 @@ def swift(doc: dict) -> str:
             w(f"    let {k}: CGFloat")
     w("}")
     w("")
-    w("struct ThemeTokenSet: Sendable {")
-    w("    let key: String")
-    w("    let name: String")
-    w("    let summary: String")
-    w("    let light: ThemeColorTokens")
-    w("    let dark: ThemeColorTokens")
-    w("    let type: ThemeTypeTokens")
-    w("    let radius: ThemeRadiusTokens")
-    w("    let spacing: ThemeSpacingTokens")
-    w("    let material: ThemeMaterialTokens")
-    w("    let playerLight: PlayerColorTokens")
-    w("    let playerDark: PlayerColorTokens")
-    w("    let playerShape: PlayerShapeTokens")
+    fields = [
+        ("key", "String"), ("name", "String"), ("summary", "String"),
+        ("light", "ThemeColorTokens"), ("dark", "ThemeColorTokens"), ("type", "ThemeTypeTokens"),
+        ("radius", "ThemeRadiusTokens"), ("spacing", "ThemeSpacingTokens"), ("material", "ThemeMaterialTokens"),
+        ("playerLight", "PlayerColorTokens"), ("playerDark", "PlayerColorTokens"), ("playerShape", "PlayerShapeTokens"),
+    ]
+    w("/// One theme's tokens. A final class: views pass the theme around constantly, so it")
+    w("/// travels as one immutable, shared reference instead of a copy of every token.")
+    w("final class ThemeTokenSet: Sendable, Equatable {")
+    for field, kind in fields:
+        w(f"    let {field}: {kind}")
+    w("")
+    w("    init(" + ", ".join(f"{field}: {kind}" for field, kind in fields) + ") {")
+    for field, _ in fields:
+        w(f"        self.{field} = {field}")
+    w("    }")
+    w("")
+    w("    /// Themes are identified by their key.")
+    w("    static func == (lhs: ThemeTokenSet, rhs: ThemeTokenSet) -> Bool { lhs === rhs || lhs.key == rhs.key }")
     w("")
     w("    func colors(dark: Bool) -> ThemeColorTokens { dark ? self.dark : light }")
     w("    func player(dark: Bool) -> PlayerColorTokens { dark ? playerDark : playerLight }")

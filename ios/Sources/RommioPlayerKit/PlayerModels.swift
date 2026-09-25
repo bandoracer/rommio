@@ -271,14 +271,22 @@ public struct PlayerInputConfiguration: Codable, Hashable, Sendable {
     public var controlUtilityCount: Int?
     /// Fold, dual-screen, and side-pane facts shared with the touch overlay.
     public var stage: PlayerStageContext?
+    /// The touch controls' family (`PlayerControlPlan`), so the renderer places the
+    /// game exactly where the overlay leaves room for it.
+    public var controlFamily: String?
+    /// PlayStation's per-game Analog controls (sticks and L3/R3 shown).
+    public var controlAnalog: Bool?
 
-    public init(deadzone: Double = 0.2, reserveTouchSpace: Bool? = nil, controlDeckHeight: Double? = nil, controlScale: Double? = nil, controlUtilityCount: Int? = nil, stage: PlayerStageContext? = nil) {
+    public init(deadzone: Double = 0.2, reserveTouchSpace: Bool? = nil, controlDeckHeight: Double? = nil, controlScale: Double? = nil, controlUtilityCount: Int? = nil, stage: PlayerStageContext? = nil,
+                controlFamily: String? = nil, controlAnalog: Bool? = nil) {
         self.deadzone = deadzone
         self.reserveTouchSpace = reserveTouchSpace
         self.controlDeckHeight = controlDeckHeight
         self.controlScale = controlScale
         self.controlUtilityCount = controlUtilityCount
         self.stage = stage
+        self.controlFamily = controlFamily
+        self.controlAnalog = controlAnalog
     }
 }
 
@@ -332,3 +340,40 @@ public extension PlayerEngine {
         throw PlayerEngineError.hostUnavailable
     }
 }
+
+/// Touch and controller input applied at once, in call order, on the caller's thread:
+/// no task hop between a press and its release (docs/player-controls.md, Touch model).
+public protocol ImmediatePlayerInput: AnyObject {
+    func sendDigital(keyCode: Int, pressed: Bool, port: Int) throws
+    func sendMotion(source: PlayerMotionSource, x: Double, y: Double, port: Int) throws
+}
+
+#if DEBUG
+/// Debug builds only: the inputs the core received, for UI tests
+/// (`ROMMIO_INPUT_LOG=1`). Entries read `D<key>:<1|0>` and `A<stick>:<x>,<y>` (×100).
+public enum PlayerInputLog {
+    public static let isEnabled = ProcessInfo.processInfo.environment["ROMMIO_INPUT_LOG"] == "1"
+    public static let didChange = Notification.Name("RommioPlayerInputLogDidChange")
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var entries: [String] = []
+
+    public static func record(_ entry: String) {
+        guard isEnabled else { return }
+        lock.lock()
+        entries.append(entry)
+        if entries.count > 400 { entries.removeFirst(entries.count - 400) }
+        lock.unlock()
+        NotificationCenter.default.post(name: didChange, object: nil)
+    }
+
+    public static var all: [String] {
+        lock.lock(); defer { lock.unlock() }
+        return entries
+    }
+
+    public static func clear() {
+        lock.lock(); entries.removeAll(); lock.unlock()
+        NotificationCenter.default.post(name: didChange, object: nil)
+    }
+}
+#endif
