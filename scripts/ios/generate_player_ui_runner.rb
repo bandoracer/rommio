@@ -3,14 +3,15 @@
 # keeps the installed app and its bundled cores intact.
 #
 #   generate_player_ui_runner.rb [--actions FILE] [--theme aurora|riso] [--scheme light|dark]
-#                                [--query TEXT] [--iterations N] [--team TEAM_ID]
+#                                [--query TEXT] [--iterations N] [--controls] [--team TEAM_ID]
 #
 # --actions embeds an action list (see ios/AppUITests/UIActionRunner.swift) in the
 # test bundle as rommio-ui-actions.json, so a pass runs on a device without the
 # host's /tmp. --theme/--scheme/--query/--iterations go into rommio-ui-config.json
 # for the navigation pass (NavigationPassTests), which launches the app with
-# -appearance.theme/-appearance.scheme. --team (or ROMMIO_DEVELOPMENT_TEAM) signs the
-# runner for a device; simulator builds are never signed.
+# -appearance.theme/-appearance.scheme. --controls opts the controls-harness tests in
+# (PlayerHarnessButtonTests, PlayerStickControlsTests; see run_controls_pass.sh). --team (or
+# ROMMIO_DEVELOPMENT_TEAM) signs the runner for a device; simulator builds are never signed.
 require 'fileutils'
 require 'json'
 require 'optparse'
@@ -25,6 +26,7 @@ OptionParser.new do |parser|
   parser.on('--iterations N') { |value| options[:iterations] = value }
   parser.on('--capture-prefix PREFIX') { |value| options[:capturePrefix] = value }
   parser.on('--team TEAM') { |value| options[:team] = value }
+  parser.on('--controls') { options[:controls] = '1' }
 end.parse!
 
 root = File.expand_path('../..', __dir__)
@@ -36,7 +38,7 @@ FileUtils.mkdir_p(resources)
 
 p = Xcodeproj::Project.new(path)
 t = p.new_target(:ui_test_bundle, 'PlayerUIRunner', :ios, '17.0')
-t.add_file_references(Dir[root + '/ios/AppUITests/{UIActionRunner,PlayerExplorationTests,ExpansionControlsTests,NavigationPassTests,PlayerTouchControlsTests,PlayerStickControlsTests}.swift'].sort.map { |f| p.main_group.new_file(f) })
+t.add_file_references(Dir[root + '/ios/AppUITests/{UIActionRunner,PlayerExplorationTests,ExpansionControlsTests,NavigationPassTests,PlayerTouchControlsTests,PlayerStickControlsTests,PlayerHarnessButtonTests}.swift'].sort.map { |f| p.main_group.new_file(f) })
 
 bundled = []
 if options[:actions]
@@ -45,7 +47,7 @@ if options[:actions]
   File.write(resources + '/rommio-ui-actions.json', JSON.pretty_generate(actions))
   bundled << 'rommio-ui-actions.json'
 end
-config = options.slice(:theme, :scheme, :query, :iterations, :capturePrefix).transform_keys(&:to_s).compact
+config = options.slice(:theme, :scheme, :query, :iterations, :capturePrefix, :controls).transform_keys(&:to_s).compact
 unless config.empty?
   File.write(resources + '/rommio-ui-config.json', JSON.pretty_generate(config))
   bundled << 'rommio-ui-config.json'

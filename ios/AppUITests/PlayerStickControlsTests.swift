@@ -6,19 +6,24 @@ import XCTest
 /// Analog controls; taps on a DS or 3DS touch screen, even right beside a control,
 /// reach the game (the harness logs them as `screenN:x,y`).
 ///
-/// Opt-in (simulator): the host file `/tmp/rommio-stick-tests`.
+/// Opt-in: the host file `/tmp/rommio-stick-tests` (simulator), or a runner built with
+/// `--controls` (simulator or device: `scripts/ios/run_controls_pass.sh`). The harness
+/// plays no game and changes no saves, so it is safe on a signed-in phone.
 @MainActor
 final class PlayerStickControlsTests: XCTestCase {
     private var app: XCUIApplication!
     private var events: XCUIElement { app.staticTexts["qa.events"] }
+    private var appearance: [String] = []
 
     override func setUp() async throws {
         continueAfterFailure = false
+        let config = UIActionRunner.config(for: Self.self)
+        var optedIn = config["controls"] == "1"
         #if targetEnvironment(simulator)
-        guard FileManager.default.fileExists(atPath: "/tmp/rommio-stick-tests") else { throw XCTSkip("Opt-in stick controls pass") }
-        #else
-        throw XCTSkip("Simulator only")
+        optedIn = optedIn || FileManager.default.fileExists(atPath: "/tmp/rommio-stick-tests")
         #endif
+        guard optedIn else { throw XCTSkip("Opt-in stick controls pass") }
+        appearance = UIActionRunner.appearanceArguments(config)
         app = XCUIApplication(bundleIdentifier: "io.github.mattsays.rommio.ios")
     }
 
@@ -30,6 +35,7 @@ final class PlayerStickControlsTests: XCTestCase {
     private func launch(_ family: String, _ orientation: UIDeviceOrientation, analog: Bool = true) {
         app.terminate()
         XCUIDevice.shared.orientation = orientation
+        app.launchArguments = appearance
         app.launchEnvironment = ["ROMMIO_CONTROLS_QA": family, "ROMMIO_CONTROLS_QA_ANALOG": analog ? "1" : "0"]
         app.launch()
         XCTAssertTrue(events.waitForExistence(timeout: 15))

@@ -117,6 +117,23 @@ R3 only with Analog controls (the harness shows them unless `ROMMIO_CONTROLS_QA_
 taps on the DS and 3DS touch screens, including their corners next to the controls, reach the game
 (the harness logs them as `screen1:x,y` in `qa.events`) while the 3DS circle pad drives stick 0.
 
+The same harness runs the touch model without a game: `PlayerHarnessButtonTests` checks a tap
+10 pt outside A, the A/B chord, quick taps, rolling from B to A, a d-pad direction held off the pad
+until lift, and the GBA shoulders (above their clusters, pressing L and R), then captures every
+family in portrait and landscape. The harness plays nothing and writes no saves, so both classes
+also run on a signed-in phone. `scripts/ios/run_controls_pass.sh` builds the runner with
+`--controls` (which opts both classes in through the bundled config, no host file) and runs them
+against the installed Debug app, writing the result bundle, captures and a summary to
+`ios/build/controls-pass/<theme>-<scheme>/`:
+
+```sh
+scripts/ios/run_controls_pass.sh --simulator UDID --theme aurora --scheme light
+scripts/ios/run_controls_pass.sh --device UDID --theme riso --scheme dark --team TEAMID
+```
+
+On a phone, turn on Do Not Disturb first: a notification banner over the top of the screen takes
+the runner's next tap there and sends the app to the background.
+
 The resume-conflict seed (`ROMMIO_SEED_RESUME_CONFLICT=1`, Debug builds only; `ConflictSeedProbe.swift`)
 exists to exercise the Conflict sheet against the mock server, which has no progress endpoints.
 **Use it with test accounts only.** At launch it writes into the real local progress store of the

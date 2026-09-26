@@ -60,7 +60,7 @@ struct UIActionRunner {
             values = decoded
         }
         let environment = ProcessInfo.processInfo.environment
-        for key in ["theme", "scheme", "query", "iterations", "capturePrefix"] {
+        for key in ["theme", "scheme", "query", "iterations", "capturePrefix", "controls"] {
             if let value = environment["ROMMIO_" + key.uppercased()], !value.isEmpty { values[key] = value }
         }
         return values

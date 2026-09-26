@@ -64,6 +64,8 @@ status=${PIPESTATUS[0]}
 set -e
 
 # Captures (screenshots and accessibility trees) and the measured transitions.
+# A fresh folder: an export into an earlier run's folder can keep that run's manifest.
+rm -rf "$OUT/attachments"
 xcrun xcresulttool export attachments --path "$RESULT" --output-path "$OUT/attachments" >/dev/null 2>&1 || true
 grep -E "measured \[|error:|crash|not running|stopped at" "$OUT/xcodebuild.log" > "$OUT/summary.txt" || true
 cat "$OUT/summary.txt"
