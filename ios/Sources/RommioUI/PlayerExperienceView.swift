@@ -375,6 +375,7 @@ private struct PlayerPauseSheet: View {
             title: feature.presentation.romTitle,
             platformSlug: feature.presentation.platformSlug,
             runtimeName: feature.presentation.runtimeName,
+            audioMuted: feature.audioMuted,
             actions: PlayerPauseActions(
                 resume: { await feature.resumeGame() },
                 quickSave: { await feature.quickSave() },
@@ -385,7 +386,8 @@ private struct PlayerPauseSheet: View {
                 },
                 sync: { await feature.syncSaves() },
                 reset: { await feature.resetCore() },
-                leave: { await feature.leaveGame() }
+                leave: { await feature.leaveGame() },
+                toggleSound: { await feature.toggleAudioMuted() }
             )
         )
     }

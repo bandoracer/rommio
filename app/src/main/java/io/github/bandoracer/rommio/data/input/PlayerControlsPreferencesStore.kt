@@ -31,6 +31,7 @@ class PlayerControlsPreferencesStore(
             oledBlackModeEnabled = prefs[OLED_BLACK_MODE_ENABLED] ?: false,
             consoleColorsEnabled = prefs[CONSOLE_COLORS_ENABLED] ?: true,
             hapticsEnabled = prefs[HAPTICS_ENABLED] ?: true,
+            audioMuted = prefs[AUDIO_MUTED] ?: false,
         )
     }
 
@@ -56,6 +57,10 @@ class PlayerControlsPreferencesStore(
 
     suspend fun setHapticsEnabled(enabled: Boolean) {
         dataStore.edit { it[HAPTICS_ENABLED] = enabled }
+    }
+
+    suspend fun setAudioMuted(muted: Boolean) {
+        dataStore.edit { it[AUDIO_MUTED] = muted }
     }
 
     /**
@@ -99,6 +104,7 @@ class PlayerControlsPreferencesStore(
             it[OLED_BLACK_MODE_ENABLED] = preferences.oledBlackModeEnabled
             it[CONSOLE_COLORS_ENABLED] = preferences.consoleColorsEnabled
             it[HAPTICS_ENABLED] = preferences.hapticsEnabled
+            it[AUDIO_MUTED] = preferences.audioMuted
         }
     }
 
@@ -110,6 +116,7 @@ class PlayerControlsPreferencesStore(
             oledBlackModeEnabled = this[OLED_BLACK_MODE_ENABLED] ?: false,
             consoleColorsEnabled = this[CONSOLE_COLORS_ENABLED] ?: true,
             hapticsEnabled = this[HAPTICS_ENABLED] ?: true,
+            audioMuted = this[AUDIO_MUTED] ?: false,
         )
     }
 
@@ -120,6 +127,7 @@ class PlayerControlsPreferencesStore(
         private val OLED_BLACK_MODE_ENABLED = booleanPreferencesKey("oled_black_mode_enabled")
         private val CONSOLE_COLORS_ENABLED = booleanPreferencesKey("console_colors_enabled")
         private val HAPTICS_ENABLED = booleanPreferencesKey("haptics_enabled")
+        private val AUDIO_MUTED = booleanPreferencesKey("audio_muted")
         /** ROM ids with Analog controls on. */
         private val ANALOG_CONTROLS_ROMS = stringSetPreferencesKey("analog_controls_rom_ids")
 

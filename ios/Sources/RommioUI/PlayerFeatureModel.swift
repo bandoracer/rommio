@@ -496,6 +496,18 @@ public final class PlayerFeatureModel: Identifiable {
         }
     }
 
+    /// The pause menu's sound toggle. Takes effect at once; saved for every game.
+    func toggleAudioMuted() async {
+        let muted = !audioMuted
+        engine.setAudioMuted(muted)
+        do {
+            try await services.playerControlsRepository.setAudioMuted(muted)
+            await reloadControlsState()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func updateTouchOpacity(_ value: Double) async {
         await mutateTouchLayout { $0.opacity = value }
     }
@@ -635,6 +647,7 @@ public final class PlayerFeatureModel: Identifiable {
     }
 
     var hapticsEnabled: Bool { controlsState?.preferences.hapticsEnabled ?? true }
+    var audioMuted: Bool { controlsState?.preferences.audioMuted ?? false }
 
     /// Touch input, applied now and in order (no task hop): the touch surface calls this
     /// for every press, release and stick movement.
@@ -766,6 +779,7 @@ public final class PlayerFeatureModel: Identifiable {
             controlsState = try await services.playerControlsRepository.controls(platformSlug: presentation.platformSlug)
             gameControls = (try? await services.playerControlsRepository.gameControls(romID: presentation.romID)) ?? PlayerGameControls()
             if let state = controlsState {
+                engine.setAudioMuted(state.preferences.audioMuted)
                 recomputeStage()
                 try await engine.updateInputConfiguration(PlayerInputConfiguration(
                     deadzone: state.hardwareBinding.deadzone,

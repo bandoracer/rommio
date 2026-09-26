@@ -32,7 +32,8 @@ public struct PlayerControlsRepository: Sendable {
                        rumble_to_device_enabled,
                        oled_black_mode_enabled,
                        console_colors_enabled,
-                       haptics_enabled
+                       haptics_enabled,
+                       audio_muted
                 FROM player_control_preferences
                 WHERE id = 1
                 """)
@@ -45,7 +46,8 @@ public struct PlayerControlsRepository: Sendable {
                 rumbleToDeviceEnabled: row["rumble_to_device_enabled"],
                 oledBlackModeEnabled: row["oled_black_mode_enabled"],
                 consoleColorsEnabled: row["console_colors_enabled"],
-                hapticsEnabled: row["haptics_enabled"]
+                hapticsEnabled: row["haptics_enabled"],
+                audioMuted: row["audio_muted"]
             )
         }
     }
@@ -187,6 +189,10 @@ public struct PlayerControlsRepository: Sendable {
 
     public func setHapticsEnabled(_ enabled: Bool) async throws {
         try await updatePreferences { $0.hapticsEnabled = enabled }
+    }
+
+    public func setAudioMuted(_ muted: Bool) async throws {
+        try await updatePreferences { $0.audioMuted = muted }
     }
 
     /// One game's touch-control settings: PlayStation's Analog controls (off until turned
@@ -343,8 +349,9 @@ public struct PlayerControlsRepository: Sendable {
                     oled_black_mode_enabled,
                     console_colors_enabled,
                     haptics_enabled,
+                    audio_muted,
                     updated_at_epoch_ms
-                ) VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     touch_controls_enabled = excluded.touch_controls_enabled,
                     auto_hide_touch_on_controller = excluded.auto_hide_touch_on_controller,
@@ -352,6 +359,7 @@ public struct PlayerControlsRepository: Sendable {
                     oled_black_mode_enabled = excluded.oled_black_mode_enabled,
                     console_colors_enabled = excluded.console_colors_enabled,
                     haptics_enabled = excluded.haptics_enabled,
+                    audio_muted = excluded.audio_muted,
                     updated_at_epoch_ms = excluded.updated_at_epoch_ms
                 """,
                 arguments: [
@@ -361,6 +369,7 @@ public struct PlayerControlsRepository: Sendable {
                     value.oledBlackModeEnabled,
                     value.consoleColorsEnabled,
                     value.hapticsEnabled,
+                    value.audioMuted,
                     Int64(Date().timeIntervalSince1970 * 1000),
                 ]
             )

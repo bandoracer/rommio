@@ -123,7 +123,8 @@ public struct ExpansionControlsQAHarness: View {
                 controls: { events.append("pause.controls") },
                 sync: { events.append("pause.sync") },
                 reset: { events.append("pause.reset") },
-                leave: { events.append("pause.leave") }
+                leave: { events.append("pause.leave") },
+                toggleSound: { events.append("pause.sound") }
             )
         )
         .accessibilityIdentifier("player.pause.sheet")

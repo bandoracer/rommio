@@ -63,9 +63,10 @@ private final class PlayerAudioEngine {
         primeFrames = AVAudioFrameCount(sampleRate * 0.04)
         maximumFrames = AVAudioFrameCount(sampleRate * 0.2)
         // Configure the session before the engine's I/O node binds to it.
-        // Game audio follows the silent switch and mixes with other audio.
+        // Game audio plays with the silent switch on (the pause menu has its own
+        // sound toggle) and mixes with other audio.
         do {
-            try AVAudioSession.sharedInstance().setCategory(.ambient, mode: .default)
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
             NSLog("[PlayerAudioEngine] audio session setup failed: %@", error.localizedDescription)
@@ -90,6 +91,11 @@ private final class PlayerAudioEngine {
         engine.stop()
         started = false
         lock.withLock { queuedFrames = 0 }
+    }
+
+    /// Silent, not stopped: the queue keeps its timing, so unmuting never clicks or lags.
+    func setMuted(_ muted: Bool) {
+        playerNode.volume = muted ? 0 : 1
     }
 
     func enqueue(_ batches: [RMLAudioBatch]) {
@@ -149,6 +155,7 @@ public final class IOSLibretroPlayerEngine: ProgressPlayerEngine, ImmediatePlaye
     private var inputConfiguration = PlayerInputConfiguration()
     private var surfaceController: PlayerSurfaceController?
     private var audioEngine: PlayerAudioEngine?
+    private var audioMuted = false
     private var latestFrameSnapshot: PlayerVideoFrameSnapshot?
     private var paused = false
     private var running = false
@@ -179,6 +186,7 @@ public final class IOSLibretroPlayerEngine: ProgressPlayerEngine, ImmediatePlaye
         NSLog("[IOSLibretroPlayerEngine] bridge prepared sampleRate=%f", preparedState.sampleRate)
         self.bridge = preparedState.bridge
         self.audioEngine = PlayerAudioEngine(sampleRate: preparedState.sampleRate)
+        self.audioEngine?.setMuted(audioMuted)
         self.latestFrameSnapshot = nil
         self.paused = false
         self.running = false
@@ -407,6 +415,11 @@ public final class IOSLibretroPlayerEngine: ProgressPlayerEngine, ImmediatePlaye
         AsyncStream { continuation in
             self.hotkeyContinuation = continuation
         }
+    }
+
+    public func setAudioMuted(_ muted: Bool) {
+        audioMuted = muted
+        audioEngine?.setMuted(muted)
     }
 
     public func rumbleSignals() -> AsyncStream<PlayerRumbleSignal> {

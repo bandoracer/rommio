@@ -12,6 +12,7 @@ import android.view.View
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.clickable
 import io.github.bandoracer.rommio.ui.component.themedSurface
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -33,6 +34,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.only
@@ -46,6 +48,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Logout
+import androidx.compose.material.icons.automirrored.outlined.VolumeOff
+import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Refresh
@@ -275,6 +279,12 @@ fun PlayerScreen(
                 }
             }
         }
+    }
+
+    // The pause menu's sound toggle, applied before play resumes.
+    val audioMuted = state.controls?.preferences?.audioMuted == true
+    LaunchedEffect(playerAttached, audioMuted) {
+        if (playerAttached) engine.setAudioMuted(audioMuted)
     }
 
     LaunchedEffect(playerAttached, showPauseSheet, showStateBrowserSheet, showControlsSheet, ownerState.progress?.phase, lifecycleState) {
@@ -524,6 +534,8 @@ fun PlayerScreen(
                     it.kind == GameSyncStatusKind.IDLE && it.lastSuccessfulSyncAtEpochMs == null
                 }?.message,
                 hasLoadableStates = owner != null || viewModel.hasBrowsableStates(),
+                audioMuted = audioMuted,
+                onToggleSound = { viewModel.setAudioMuted(!audioMuted) },
                 onResume = { showPauseSheet = false },
                 onOpenControls = {
                     showPauseSheet = false
@@ -1018,6 +1030,8 @@ private fun PauseSheet(
     currentSlot: Int,
     syncStatus: String?,
     hasLoadableStates: Boolean,
+    audioMuted: Boolean = false,
+    onToggleSound: () -> Unit = {},
     onResume: () -> Unit,
     onOpenControls: () -> Unit,
     onOpenStateBrowser: () -> Unit,
@@ -1062,12 +1076,15 @@ private fun PauseSheet(
         syncStatus?.let {
             io.github.bandoracer.rommio.ui.component.RoleText(it, theme.type.caption, color = c.inkSecondary, maxLines = 2)
         }
-        io.github.bandoracer.rommio.ui.component.PrimaryButton(
-            text = "Resume",
-            onClick = onResume,
-            icon = Icons.Outlined.PlayArrow,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            io.github.bandoracer.rommio.ui.component.PrimaryButton(
+                text = "Resume",
+                onClick = onResume,
+                icon = Icons.Outlined.PlayArrow,
+                modifier = Modifier.weight(1f),
+            )
+            PauseSoundToggle(muted = audioMuted, visualTheme = visualTheme, onClick = onToggleSound)
+        }
         val tiles = listOf(
             PauseTile("Save snapshot", "Slot $currentSlot", Icons.Outlined.Save, onQuickSave),
             PauseTile("Snapshots & game saves", null, Icons.Outlined.Layers, onOpenStateBrowser, enabled = hasLoadableStates),
@@ -1083,6 +1100,39 @@ private fun PauseSheet(
                 }
             }
         }
+    }
+}
+
+/**
+ * The game's sound, beside Resume: a speaker, struck through when muted. Aurora: a glass circle,
+ * the speaker in `tint` (`bad` when muted). Riso: an ink-outlined box, a pink block when muted.
+ */
+@Composable
+private fun PauseSoundToggle(muted: Boolean, visualTheme: PlayerVisualTheme, onClick: () -> Unit) {
+    val theme = io.github.bandoracer.rommio.ui.theme.RommioTheme.current
+    val c = theme.colors
+    val icon = if (muted) Icons.AutoMirrored.Outlined.VolumeOff else Icons.AutoMirrored.Outlined.VolumeUp
+    val tint = when {
+        muted && theme.isRiso -> c.onAccent
+        muted -> c.badText
+        theme.isRiso -> c.ink
+        else -> io.github.bandoracer.rommio.ui.theme.RommioTheme.light.tintText
+    }
+    val surface = when {
+        theme.isRiso && muted -> Modifier.background(c.accent1)
+        theme.isRiso -> Modifier.border(1.5.dp, c.ink)
+        else -> Modifier.themedSurface(theme, 22.dp, fill = c.surface)
+    }
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .then(surface)
+            .toggleable(value = muted, role = androidx.compose.ui.semantics.Role.Switch, onValueChange = { onClick() })
+            .semantics { contentDescription = "Sound"; stateDescription = if (muted) "Muted" else "On" }
+            .testTag("player.pause.sound"),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(imageVector = icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
     }
 }
 

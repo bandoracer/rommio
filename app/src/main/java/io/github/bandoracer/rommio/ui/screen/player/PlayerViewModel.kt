@@ -339,6 +339,13 @@ class PlayerViewModel(
         }
     }
 
+    /** The pause menu's sound toggle; saved for every game. */
+    fun setAudioMuted(muted: Boolean) {
+        viewModelScope.launch {
+            controlsRepository.setAudioMuted(muted)
+        }
+    }
+
     fun setAnalogControls(enabled: Boolean) {
         viewModelScope.launch {
             controlsRepository.setAnalogControls(romId, enabled)

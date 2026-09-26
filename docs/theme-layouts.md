@@ -642,7 +642,13 @@ OLED black: canvas and panels black, dark player palette, in both themes.
 
 Sheets (theme colours and type; strings and identifiers unchanged):
 - Pause — header (Aurora `section` "Paused" + `headline` title; Riso `label`
-  "Paused" … "SLUG · Core" over a 3 pt rule + `headline` 26); Resume (primary);
+  "Paused" … "SLUG · Core" over a 3 pt rule + `headline` 26); Resume (primary)
+  with the sound toggle beside it (`player.pause.sound`, 44 pt: a speaker, struck
+  through when muted; Aurora a glass circle, the speaker in `tint`, `bad` when
+  muted; Riso an ink-outlined box, a pink block when muted). Muting is saved on the
+  device for every game. The silent switch never mutes games (iOS plays them in the
+  `.playback` audio category, mixing with other audio; Android's media stream
+  ignores the ringer's silent mode). Then
   a 2-column grid of tiles: Save snapshot, Saved progress, Controls, Sync game
   saves and snapshots, Reset core, Leave game. Aurora: glass 16-radius tiles
   (symbol in `tint`, `bodyEmphasis` 15; Leave in `bad`). Riso: numbered boxes

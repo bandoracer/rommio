@@ -13,6 +13,8 @@ struct PlayerPauseActions {
     let sync: () async -> Void
     let reset: () async -> Void
     let leave: () async -> Void
+    /// Mutes or unmutes the game's audio (the silent switch never does).
+    var toggleSound: () async -> Void = {}
 }
 
 /// Pause: the game, Resume, and the actions as tiles. Aurora: glass tiles.
@@ -24,18 +26,24 @@ struct PlayerPausePanel: View {
     let title: String
     let platformSlug: String
     let runtimeName: String
+    var audioMuted = false
     let actions: PlayerPauseActions
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
-            Button {
-                Task { await actions.resume() }
-            } label: {
-                Label("Resume", systemImage: "play.fill")
+            HStack(spacing: 10) {
+                Button {
+                    Task { await actions.resume() }
+                } label: {
+                    Label("Resume", systemImage: "play.fill")
+                }
+                .buttonStyle(PrimaryButtonStyle(large: false))
+                .accessibilityIdentifier("player.pause.resume")
+                PauseSoundToggle(muted: audioMuted) {
+                    Task { await actions.toggleSound() }
+                }
             }
-            .buttonStyle(PrimaryButtonStyle(large: false))
-            .accessibilityIdentifier("player.pause.resume")
 
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                 PauseTile(number: 1, title: "Save snapshot", symbol: "camera") {
@@ -95,6 +103,37 @@ struct PlayerPausePanel: View {
                 Text(title).themeText(.headline).foregroundStyle(theme.ink).lineLimit(1)
             }
         }
+    }
+}
+
+/// The game's sound, beside Resume: a speaker, struck through and inked when muted.
+private struct PauseSoundToggle: View {
+    @Environment(\.rommioTheme) private var theme
+    let muted: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(muted ? (theme.isRiso ? theme.onAccent : theme.badText) : (theme.isRiso ? theme.ink : theme.unlitLight.readableTint))
+                .frame(width: 44, height: 44)
+                .background {
+                    if theme.isRiso {
+                        Rectangle().fill(muted ? theme.accent1 : theme.surface)
+                        if !muted { Rectangle().strokeBorder(theme.ink, lineWidth: theme.material.strokeWidth) }
+                    } else {
+                        GlassFill(shape: Circle())
+                        GlassEdge(shape: Circle())
+                    }
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Sound")
+        .accessibilityValue(muted ? "Muted" : "On")
+        .accessibilityAddTraits(muted ? .isSelected : [])
+        .accessibilityIdentifier("player.pause.sound")
     }
 }
 

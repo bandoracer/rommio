@@ -232,7 +232,7 @@ final class StackBudgetTests: XCTestCase {
             }
         }
         measure("player-pause") { _ in
-            PlayerPausePanel(title: "Super Metroid 1", platformSlug: "snes", runtimeName: "Snes9x",
+            PlayerPausePanel(title: "Super Metroid 1", platformSlug: "snes", runtimeName: "Snes9x", audioMuted: true,
                              actions: PlayerPauseActions(resume: {}, quickSave: {}, savedProgress: {}, controls: {}, sync: {}, reset: {}, leave: {}))
         }
     }

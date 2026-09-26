@@ -345,6 +345,10 @@ public final class AppDatabase: @unchecked Sendable {
                 )
                 """)
         }
+        // The pause menu's sound toggle: sound on by default, device-local.
+        migrator.registerMigration("v10_player_audio_muted") { db in
+            try db.execute(sql: "ALTER TABLE player_control_preferences ADD COLUMN audio_muted INTEGER NOT NULL DEFAULT 0")
+        }
         return migrator
     }
 }

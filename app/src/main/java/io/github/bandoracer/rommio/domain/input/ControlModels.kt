@@ -139,6 +139,8 @@ data class PlayerControlsPreferences(
     val consoleColorsEnabled: Boolean = true,
     /** Touch-control haptics (docs/player-controls.md): device-local, on by default. */
     val hapticsEnabled: Boolean = true,
+    /** The pause menu's sound toggle: game audio silenced. Device-local, sound on by default. */
+    val audioMuted: Boolean = false,
 )
 
 /**

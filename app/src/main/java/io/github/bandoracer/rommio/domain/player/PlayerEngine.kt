@@ -212,5 +212,8 @@ interface PlayerEngine {
     suspend fun setControllerType(port: Int, controllerTypeId: Int)
     fun rumbleSignals(): Flow<PlayerRumbleSignal>
     fun hotkeySignals(): Flow<HotkeyAction>
+
+    /** Silences the game's audio without pausing it (the pause menu's sound toggle). */
+    suspend fun setAudioMuted(muted: Boolean) {}
     fun detach()
 }

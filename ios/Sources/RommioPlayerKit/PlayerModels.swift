@@ -332,6 +332,8 @@ public protocol PlayerEngine: AnyObject, Sendable {
     func setControllerType(port: Int, controllerTypeID: Int) async throws
     func hotkeySignals() -> AsyncStream<PlayerHotkeyAction>
     func rumbleSignals() -> AsyncStream<PlayerRumbleSignal>
+    /// Silences the game's audio without pausing it (the pause menu's sound toggle).
+    func setAudioMuted(_ muted: Bool)
     func detach()
 }
 
@@ -339,6 +341,8 @@ public extension PlayerEngine {
     func dispatchPointer(x: Double, y: Double, pressed: Bool, port: Int) async throws {
         throw PlayerEngineError.hostUnavailable
     }
+
+    func setAudioMuted(_ muted: Bool) {}
 }
 
 /// Touch and controller input applied at once, in call order, on the caller's thread:

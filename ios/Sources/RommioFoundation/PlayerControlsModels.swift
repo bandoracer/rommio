@@ -205,6 +205,9 @@ public struct PlayerControlsPreferences: Codable, Hashable, Sendable {
     public var consoleColorsEnabled: Bool
     /// Touch controls tap back (docs/player-controls.md, Haptics). Device-local.
     public var hapticsEnabled: Bool
+    /// The pause menu's sound toggle: game audio silenced. Device-local; the silent
+    /// switch never mutes games.
+    public var audioMuted: Bool
 
     public init(
         touchControlsEnabled: Bool = true,
@@ -212,7 +215,8 @@ public struct PlayerControlsPreferences: Codable, Hashable, Sendable {
         rumbleToDeviceEnabled: Bool = true,
         oledBlackModeEnabled: Bool = false,
         consoleColorsEnabled: Bool = true,
-        hapticsEnabled: Bool = true
+        hapticsEnabled: Bool = true,
+        audioMuted: Bool = false
     ) {
         self.touchControlsEnabled = touchControlsEnabled
         self.autoHideTouchOnController = autoHideTouchOnController
@@ -220,13 +224,15 @@ public struct PlayerControlsPreferences: Codable, Hashable, Sendable {
         self.oledBlackModeEnabled = oledBlackModeEnabled
         self.consoleColorsEnabled = consoleColorsEnabled
         self.hapticsEnabled = hapticsEnabled
+        self.audioMuted = audioMuted
     }
 
     private enum CodingKeys: String, CodingKey {
-        case touchControlsEnabled, autoHideTouchOnController, rumbleToDeviceEnabled, oledBlackModeEnabled, consoleColorsEnabled, hapticsEnabled
+        case touchControlsEnabled, autoHideTouchOnController, rumbleToDeviceEnabled, oledBlackModeEnabled, consoleColorsEnabled, hapticsEnabled, audioMuted
     }
 
-    /// Older encodings (before haptics) decode with haptics on.
+    /// Older encodings (before haptics, before the sound toggle) decode with haptics on
+    /// and sound on.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         touchControlsEnabled = try container.decode(Bool.self, forKey: .touchControlsEnabled)
@@ -235,6 +241,7 @@ public struct PlayerControlsPreferences: Codable, Hashable, Sendable {
         oledBlackModeEnabled = try container.decode(Bool.self, forKey: .oledBlackModeEnabled)
         consoleColorsEnabled = try container.decode(Bool.self, forKey: .consoleColorsEnabled)
         hapticsEnabled = try container.decodeIfPresent(Bool.self, forKey: .hapticsEnabled) ?? true
+        audioMuted = try container.decodeIfPresent(Bool.self, forKey: .audioMuted) ?? false
     }
 }
 

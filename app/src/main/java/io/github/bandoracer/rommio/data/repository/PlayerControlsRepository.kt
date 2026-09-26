@@ -134,6 +134,10 @@ class PlayerControlsRepository(
         preferencesStore.setHapticsEnabled(enabled)
     }
 
+    suspend fun setAudioMuted(muted: Boolean) = StorageAccess.normal {
+        preferencesStore.setAudioMuted(muted)
+    }
+
     private fun observeTouchLayout(profile: PlatformControlProfile): Flow<TouchLayoutProfile?> {
         return touchLayoutDao.observeByFamilyId(profile.familyId).map { entity ->
             when {

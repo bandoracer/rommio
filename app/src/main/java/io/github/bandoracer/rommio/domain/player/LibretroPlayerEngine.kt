@@ -44,6 +44,7 @@ class LibretroPlayerEngine : PlayerEngine {
     private var inputConfiguration = PlayerInputConfiguration()
     private val hotkeyEvents = MutableSharedFlow<HotkeyAction>(extraBufferCapacity = 8)
     @Volatile private var isPaused = true
+    @Volatile private var audioMuted = false
     @Volatile private var closing = false
     @Volatile private var isInForeground = false
     private val operations = Mutex()
@@ -276,6 +277,12 @@ class LibretroPlayerEngine : PlayerEngine {
         native { it.unserializeState(bytes, false) }
     } } }
 
+    override suspend fun setAudioMuted(muted: Boolean): Unit = operations.withLock {
+        audioMuted = muted
+        // Paused (the toggle is in the pause menu): the flag applies when play resumes.
+        if (gameplayStarted && !isPaused && !closing && retroView != null) native { it.audioEnabled = !muted }
+    }
+
     override suspend fun setPaused(paused: Boolean): Unit = operations.withLock {
         native { view ->
             if (paused) {
@@ -292,7 +299,7 @@ class LibretroPlayerEngine : PlayerEngine {
                 }
             }
             view.frameSpeed = if (paused) 0 else 1
-            view.audioEnabled = !paused
+            view.audioEnabled = !paused && !audioMuted
         }
         isPaused = paused
         if (!paused) gameplayStarted = true
