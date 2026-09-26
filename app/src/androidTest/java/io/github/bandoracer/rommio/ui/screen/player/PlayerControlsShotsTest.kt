@@ -39,7 +39,7 @@ import java.io.File
  * diamond, GBA with shoulders, PlayStation expansion) in portrait and landscape, and the stick
  * consoles (docs/player-controls.md, "Analog sticks and per-console layouts": Nintendo 64, 3DS,
  * PSP, PlayStation with Analog controls on) in landscape, at rest and with the stick held at full
- * tilt, on the real stage (bias light from a stand-in cover, title strip, Menu). Saved to the
+ * tilt, on the real stage (bias light from a stand-in cover, Menu). Saved to the
  * app's external files as `controls-<name>-<theme>-<scheme>-<orientation>.png`. The game picture
  * is a stand-in frame; the live-player shots come from the NES fixture in `PlayerScreenProgressTest`
  * and the app.
@@ -49,8 +49,6 @@ class PlayerControlsShotsTest {
 
     private data class Game(
         val family: String,
-        val title: String,
-        val detail: String,
         val analog: Boolean = false,
         val name: String = family,
         val aspect: Float? = null,
@@ -59,19 +57,19 @@ class PlayerControlsShotsTest {
     )
 
     private val games = listOf(
-        Game("nes", "Kirby's Adventure", "Nintendo Entertainment System · 25 min played"),
-        Game("snes", "Super Metroid", "Super Nintendo · 1 h 05 min played"),
-        Game("gba", "Metroid Fusion", "Game Boy Advance · 40 min played"),
-        Game("psx", "Symphony of the Night", "PlayStation · 2 h 10 min played"),
+        Game("nes"),
+        Game("snes"),
+        Game("gba"),
+        Game("psx"),
     )
 
     /** The stick consoles: landscape (their orientation policy). */
     private val stickGames = listOf(
-        Game("n64", "Super Mario 64", "Nintendo 64 · 3 h 20 min played", held = "stick0"),
-        Game("3ds", "Super Mario 3D Land", "Nintendo 3DS · 55 min played", aspect = 400f / 480f, held = "circlePad"),
-        Game("psp", "Lumines", "PlayStation Portable · 1 h 15 min played", held = "stick0"),
-        Game("psx", "Ape Escape", "PlayStation · Analog controls on", analog = true, name = "psx-analog", held = "stick0"),
-        Game("psx", "Ape Escape", "PlayStation · Analog controls off", name = "psx-analog-off"),
+        Game("n64", held = "stick0"),
+        Game("3ds", aspect = 400f / 480f, held = "circlePad"),
+        Game("psp", held = "stick0"),
+        Game("psx", analog = true, name = "psx-analog", held = "stick0"),
+        Game("psx", name = "psx-analog-off"),
     )
     private var layout: PlayerTouchLayout? = null
 
@@ -112,7 +110,9 @@ class PlayerControlsShotsTest {
                 BoxWithConstraints(Modifier.fillMaxSize()) {
                     val aspect = game.aspect ?: PlatformControlProfileResolver().supportedProfiles().first { it.familyId == game.family }.preferredViewportAspectRatio
                     val landscape = maxWidth > maxHeight
-                    val insets = if (landscape) PlayerStageInsets(bottom = 16f, left = 24f, right = 24f) else PlayerStageInsets(top = 32f, bottom = 24f)
+                    // A Pixel-style punch-hole camera: it ends above the status bar's height.
+                    val insets = if (landscape) PlayerStageInsets(bottom = 16f, left = 24f, right = 24f, cameraSide = 20f)
+                    else PlayerStageInsets(top = 32f, bottom = 24f, cameraTop = 26f)
                     val stage = resolvePlayerStage(maxWidth.value, maxHeight.value, insets, aspect, PlayerControlPlan.of(game.family, game.analog))
                     layout = stage.controls
                     PlayerStageBackdrop(visual, "file://${cover.path}", Modifier.fillMaxSize())
@@ -124,7 +124,7 @@ class PlayerControlsShotsTest {
                         modifier = Modifier.offset(stage.viewport.left.dp, stage.viewport.top.dp).size(stage.viewport.width.dp, stage.viewport.height.dp),
                     )
                     PlayerControlsOverlay(stage.controls, visual, PlayerStyle.DEFAULT_OPACITY, showControls = true, haptics = true,
-                        onInput = {}, onMenu = {}, title = game.title, detail = game.detail)
+                        onInput = {}, onMenu = {})
                 }
             }
         }

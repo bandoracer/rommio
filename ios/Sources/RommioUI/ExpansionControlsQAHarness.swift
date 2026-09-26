@@ -74,7 +74,6 @@ public struct ExpansionControlsQAHarness: View {
                     .position(x: viewport.midX, y: viewport.midY)
                 if let touch = layout.controls {
                     PlayerControlsOverlay(layout: touch, theme: theme, opacity: 0.72, showControls: !hidden, haptics: true,
-                        title: "\(profile.displayName) controls", detail: "QA harness · no game",
                         onInput: { output in
                             switch output {
                             case let .digital(key, pressed): events.append("D\(key):\(pressed ? 1 : 0)")

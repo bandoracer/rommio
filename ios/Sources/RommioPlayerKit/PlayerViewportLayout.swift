@@ -138,7 +138,7 @@ public struct PlayerControlDeckLayout {
         railTop = bounds.minY + (portrait ? size.height - insets.bottom - 56 - height * scale : insets.top + 8 + (availableHeight - height * scale) / 2)
         let x = bounds.minX + (portrait ? insets.left + 12 : insets.left + (visible ? railWidth + 4 : 52))
         let right = bounds.minX + (portrait ? size.width - insets.right - 12 : size.width - insets.right - (visible ? railWidth + 4 : 52))
-        let top = bounds.minY + insets.top + (portrait ? 8 : 0)
+        let top = bounds.minY + (portrait ? insets.cameraTop + 8 : insets.top)
         // Landscape utilities live below the side controls, not below the game.
         let bottom = bounds.minY + (portrait ? (visible ? railTop - bounds.minY - 12 : size.height - insets.bottom - 56) : size.height - insets.bottom)
         gameArea = CGRect(x: x, y: top, width: max(1, right - x), height: max(1, bottom - top))
@@ -175,8 +175,8 @@ public struct PlayerControlDeckLayout {
 public struct PlayerStageLayout {
     public let viewport: PlayerViewportLayout
     public let deck: PlayerControlDeckLayout
-    /// Every touch control, the Menu button and the title strip, placed for this
-    /// stage (when the stage was resolved with a control plan).
+    /// Every touch control and the Menu button, placed for this stage (when the stage
+    /// was resolved with a control plan).
     public var controls: PlayerTouchLayout? = nil
 
     public var screens: [PlayerScreenPlacement] { viewport.screens }
@@ -186,8 +186,8 @@ public struct PlayerStageLayout {
 /// Resolves the stage: where the game (or DS screens) and the controls go.
 ///
 /// With a control plan (`controls`), touch controls follow docs/player-controls.md:
-/// on a phone or tablet the portrait title strip and control band and the landscape
-/// rails (`StandardStage`); on iPhone Duo and for DS the stage rules below, with rails
+/// on a phone or tablet the portrait control band and the landscape rails
+/// (`StandardStage`); on iPhone Duo and for DS the stage rules below, with rails
 /// sized for the plan. Without one, the legacy rail geometry (148 pt rails).
 public func resolvePlayerStageLayout(
     containerSize: CGSize,
@@ -276,14 +276,14 @@ public func resolvePlayerStageLayout(
             leftRail: deck.leftOrigin ... deck.leftOrigin + deck.railWidth,
             rightRail: deck.rightOrigin ... deck.rightOrigin + deck.railWidth,
             alignOuter: false, leftClusterY: clusterY, rightClusterY: clusterY,
-            shoulders: shoulders, utility: utility, titleStrip: nil)
+            shoulders: shoulders, utility: utility)
         var controls = railPlan.place(anchors, metrics: PlayerControlMetrics(scale: deck.scale), mirrored: mirrored)
         controls.gameScreens = layout.screens.map(\.frame)
         layout.controls = controls
     } else {
         layout.controls = PlayerTouchLayout(controls: [], faceZone: nil, chord: nil,
                                             menuCenter: CGPoint(x: deck.utilityX(index: 0, count: 1, width: containerSize.width), y: deck.utilityY),
-                                            menuDiameter: PlayerControlMetrics.menuDiameter, titleStrip: nil,
+                                            menuDiameter: PlayerControlMetrics.menuDiameter,
                                             metrics: PlayerControlMetrics(scale: CGFloat(controlScale)))
     }
     return layout
@@ -353,9 +353,22 @@ private func resolveRailStage(
         let aspect = CGFloat(max(aspectRatio ?? (bounds.width / max(bounds.height, 1)), 0.1))
         let width = min(area.width, area.height * aspect)
         let height = width / aspect
-        let frame = CGRect(x: area.midX - width / 2,
+        var frame = CGRect(x: area.midX - width / 2,
                            y: controlDeck.isPortrait && topAlignedInPortrait ? area.minY : area.midY - height / 2,
                            width: width, height: height)
+        // Without touch controls, the same rule as with them (docs/player-controls.md,
+        // Geometry): the display's full width in portrait, or its full height in landscape,
+        // when that fits; otherwise the frame above, inside the border.
+        if !visible {
+            let fullWidth = bounds.width - insets.left - insets.right
+            if controlDeck.isPortrait, area.minY + fullWidth / aspect <= area.maxY {
+                let height = fullWidth / aspect
+                frame = CGRect(x: bounds.minX + insets.left, y: topAlignedInPortrait ? area.minY : area.midY - height / 2,
+                               width: fullWidth, height: height)
+            } else if !controlDeck.isPortrait, bounds.height * aspect <= area.width {
+                frame = CGRect(x: area.midX - bounds.height * aspect / 2, y: bounds.minY, width: bounds.height * aspect, height: bounds.height)
+            }
+        }
         var score = width * height
         if let prefers = stage.prefersPortrait, let portrait, prefers == portrait { score *= 1.15 }
         let layout = PlayerStageLayout(viewport: PlayerViewportLayout(frame: frame, isPortrait: controlDeck.isPortrait),
@@ -732,6 +745,17 @@ public struct PlayerViewportSafeAreaInsets {
     public let bottom: CGFloat
     public let left: CGFloat
     public let right: CGFloat
+
+    /// How far the camera housing (Dynamic Island or notch) reaches in from the top edge:
+    /// iOS reports no rectangle for it, and on every iPhone with one (a top inset of 44 pt
+    /// or more, the status bar hidden) the safe area runs 11 pt past it. Without one, the
+    /// inset itself (docs/player-controls.md, Geometry).
+    public var cameraTop: CGFloat { Self.cameraReach(top) }
+    /// The same from a side in landscape. iOS reports equal side insets, so both sides take
+    /// the housing's reach and the game stays centred.
+    public var cameraSide: CGFloat { Self.cameraReach(max(left, right)) }
+
+    static func cameraReach(_ inset: CGFloat) -> CGFloat { inset >= 40 ? inset - 11 : inset }
 
     public init(top: CGFloat, bottom: CGFloat, left: CGFloat, right: CGFloat) {
         self.top = top

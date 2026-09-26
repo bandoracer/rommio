@@ -57,15 +57,26 @@ Sizes scale with the control-size setting (0.8–1.3). Hit regions follow the to
 No face button is drawn smaller than 50 pt and no hit region is smaller than 58 pt, in
 any family (the expansion families keep their layouts but take this floor).
 
-- **Portrait:** the game at the top. Under it, 12 pt down, a title strip: the game's name
-  and "Platform · 25 min played" (Aurora `headline` 18 + `secondary`; Riso `label` +
-  `headline`). The rest of the screen is the control band: the d-pad (left) and face
+- **The game's size (revised 2026-09-25):** the game takes the display's full width
+  (portrait) or full height (landscape), edge to edge, whenever that fits beside the
+  controls. When it has to be smaller, it keeps a border on every side (12 pt from the
+  sides, 8 pt from the camera, 12 pt above the controls). It sits 8 pt under the camera
+  housing (the Dynamic Island, a notch or a punch-hole camera), not under the safe area,
+  and landscape rails start 6 pt from it. iOS reports no rectangle for the housing; on
+  every iPhone with one (a top inset of 44 pt or more) the safe area runs 11 pt past it,
+  so its reach is the inset less 11 pt (`PlayerViewportSafeAreaInsets.cameraTop` /
+  `cameraSide`). Android takes it from the cutout's bounding rectangles
+  (`PlayerStageInsets.cameraTop` / `cameraSide`). With a controller (no touch controls),
+  the same rule applies. Nothing names the game while playing; its name is in the pause
+  menu (the title strip under the game was removed on 2026-09-25).
+- **Portrait:** the game at the top. The rest of the screen, from 12 pt under the game, is
+  the control band: the d-pad (left) and face
   cluster (right) centred at 55% of the band's height, 20 pt from the screen edges;
   shoulders 16 pt above their side's cluster, aligned to its outer edge, so an index or
   thumb reaches them from the cluster (revised 2026-09-24: shoulders at the band's top
   corners sat too far from the hands); Select · Menu · Start centred at the bottom, 12
   pt above the home indicator.
-- **Landscape:** the game centred between side rails; the d-pad and the face cluster
+- **Landscape:** the game centred between side rails (6 pt from the camera housing); the d-pad and the face cluster
   centred in their rails at 60% of the height; shoulders at the top of each rail;
   Select and Start at the foot of the rails; Menu bottom centre. Nothing overlaps the
   game.
@@ -162,9 +173,9 @@ six-button, Nintendo 64, or the family's own arrangement), with each console's l
 `PlayerTouchTracker.swift` is the touch model (hit regions, chord, rolling, drift
 release, d-pad sectors, `PlayerStickModel` for sticks, ordered output with per-key hold
 counts). The iPhone Duo and DS/3DS stages keep their rules with rails sized for the
-plan. UI: `RommioUI/PlayerControlsOverlay.swift` (one `PlayerTouchSurfaceView`,
-drawing-only control views with the `player.control.*` identifiers, haptics, the title
-strip and Menu). Input goes to the core through `ImmediatePlayerInput` (`sendDigital` /
+plan (the DS/3DS screens also start 8 pt under the camera; the Duo keeps its studio
+geometry). UI: `RommioUI/PlayerControlsOverlay.swift` (one `PlayerTouchSurfaceView`,
+drawing-only control views with the `player.control.*` identifiers, haptics, and Menu). Input goes to the core through `ImmediatePlayerInput` (`sendDigital` /
 `sendMotion`, synchronous). Tests: `PlayerTouchModelTests`, `PlayerTouchStickTests`, `PlayerLayoutParityTests`,
 `PlayerHapticsPreferenceTests`, `PlayerGameControlsTests`, UI `PlayerTouchControlsTests`
 (Debug input log, `ROMMIO_INPUT_LOG=1`) and `PlayerStickControlsTests` (the controls QA
@@ -183,7 +194,7 @@ Choices the spec leaves open, so Android can match:
   band under the screens does the same; landscape rails keep them at the rail's top.
 - Secondary sticks sit 10 pt under their side's cluster (a pair lines up under the
   taller one); a small d-pad sits 10 pt above (N64) or below (3DS) the primary stick.
-- Portrait: the band is from the title strip to the top of the home indicator. The
+- Portrait: the band is from 12 pt under the game to the top of the home indicator. The
   cluster centre is clamped so shoulders, sticks and the Select · Menu · Start row never
   touch it; the control size gives way (to 0.8) before the game loses more than 20% of
   its height, or when the two clusters would not fit side by side. Both sides' primary
@@ -247,8 +258,7 @@ The same model with the iOS names and the choices above (details in
 `PlayerEngine.sendDigital` / `sendMotion` (synchronous); haptics `VIRTUAL_KEY` / `CLOCK_TICK`;
 the debug `PlayerInputLog` for UI tests. Android-only, for screens iOS doesn't have: the portrait
 utility row tightens on phones narrower than about 375 dp (6 dp gaps, pills down to 30 dp), a
-rail foot with three or more utilities uses 36 dp pills, and a tall game (DS) on a compact phone
-drops the title strip once the controls are at their smallest.
+rail foot with three or more utilities uses 36 dp pills.
 
 Sticks and per-console layouts (Android): the iOS plan and stage names (`dpadSlot`,
 `leftStickPrimary`, `analogControls`, `compact()`, `RailContent`, `stack`, `fitted`, `level`,

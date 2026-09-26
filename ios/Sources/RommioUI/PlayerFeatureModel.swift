@@ -41,8 +41,6 @@ public final class PlayerFeatureModel: Identifiable {
     var analogControls: Bool { gameControls.analogControls }
     /// Game artwork shown softly behind letterboxing so the player fills the display.
     var backdropURL: URL?
-    /// The title strip's play line: "Super Nintendo · 25 min played".
-    var titleDetail: String?
     var pauseSheetPresented = false
     var controlsSheetPresented = false
     var stateBrowserPresented = false
@@ -614,7 +612,7 @@ public final class PlayerFeatureModel: Identifiable {
         return state.showTouchControls && state.platformProfile.supportTier == .touchSupported
     }
 
-    /// Every touch control, the Menu button and the title strip for this window: the
+    /// Every touch control and the Menu button for this window: the
     /// same stage the renderer draws the game in.
     func touchLayout(containerSize: CGSize, safeAreaInsets: PlayerViewportSafeAreaInsets) -> PlayerTouchLayout? {
         guard let state = controlsState else { return nil }
@@ -633,7 +631,7 @@ public final class PlayerFeatureModel: Identifiable {
         return stage.controls ?? PlayerTouchLayout(
             controls: [], faceZone: nil, chord: nil,
             menuCenter: CGPoint(x: stage.deck.utilityX(index: 0, count: 1, width: containerSize.width), y: stage.deck.utilityY),
-            menuDiameter: PlayerControlMetrics.menuDiameter, titleStrip: nil, metrics: PlayerControlMetrics(scale: 1))
+            menuDiameter: PlayerControlMetrics.menuDiameter, metrics: PlayerControlMetrics(scale: 1))
     }
 
     var hapticsEnabled: Bool { controlsState?.preferences.hapticsEnabled ?? true }

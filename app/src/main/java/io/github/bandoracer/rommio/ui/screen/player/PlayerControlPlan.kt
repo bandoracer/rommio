@@ -169,7 +169,7 @@ data class PlacedPlayerControl(
     val hitFrame: Rect get() = if (shape == PlayerTouchShape.ZONE) frame else frame.inflate(PlayerControlMetrics.HIT_GROWTH)
 }
 
-/** Every touch control of a stage, the Menu button and the title strip. */
+/** Every touch control of a stage and the Menu button. */
 data class PlayerTouchLayout(
     val controls: List<PlacedPlayerControl>,
     /** The face cluster's zone: its buttons' box grown by the hit growth. Inside it the nearest button takes a touch. */
@@ -178,8 +178,6 @@ data class PlayerTouchLayout(
     val chord: List<String>?,
     val menuCenter: Offset,
     val menuDiameter: Float,
-    /** Portrait on a phone: the game's name and play line under the game. */
-    val titleStrip: Rect?,
     val metrics: PlayerControlMetrics,
     /**
      * The game's screens: touches that land on one go to the game (a DS or 3DS touch screen,
@@ -192,7 +190,7 @@ data class PlayerTouchLayout(
     fun control(id: String): PlacedPlayerControl? = controls.firstOrNull { it.id == id }
 
     companion object {
-        val Empty = PlayerTouchLayout(emptyList(), null, null, Offset.Zero, PlayerControlMetrics.MENU_DIAMETER, null, PlayerControlMetrics(1f))
+        val Empty = PlayerTouchLayout(emptyList(), null, null, Offset.Zero, PlayerControlMetrics.MENU_DIAMETER, PlayerControlMetrics(1f))
     }
 }
 
@@ -208,7 +206,6 @@ data class PlayerControlAnchors(
     val rightClusterY: Float,
     val shoulders: Shoulders,
     val utility: Utility,
-    val titleStrip: Rect?,
 ) {
     sealed interface Shoulders {
         /** The top of the rails (landscape). */
@@ -658,7 +655,7 @@ data class PlayerControlPlan(
         }
 
         val chord = if (arrangement == PlayerFaceArrangement.TWO_BUTTON) face.map { it.id } else null
-        return PlayerTouchLayout(placed, faceZone, chord, menuCenter, metrics.menu, anchors.titleStrip, metrics)
+        return PlayerTouchLayout(placed, faceZone, chord, menuCenter, metrics.menu, metrics)
     }
 
     companion object {

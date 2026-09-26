@@ -414,7 +414,7 @@ public struct PlacedPlayerControl: Hashable, Sendable, Identifiable {
     }
 }
 
-/// Every touch control of a stage, the Menu button and the title strip.
+/// Every touch control of a stage and the Menu button.
 public struct PlayerTouchLayout: Hashable, Sendable {
     public var controls: [PlacedPlayerControl]
     /// The face cluster's zone: its buttons' box grown by the hit growth. Inside it the
@@ -424,21 +424,18 @@ public struct PlayerTouchLayout: Hashable, Sendable {
     public var chord: [String]?
     public var menuCenter: CGPoint
     public var menuDiameter: CGFloat
-    /// Portrait on a phone: the game's name and play line under the game.
-    public var titleStrip: CGRect?
     public var metrics: PlayerControlMetrics
     /// The game's screens: touches that land on one go to the game (a DS or 3DS touch
     /// screen, pointer games), never to a control whose grown hit region reaches it.
     public var gameScreens: [CGRect]
 
     public init(controls: [PlacedPlayerControl], faceZone: CGRect?, chord: [String]?, menuCenter: CGPoint, menuDiameter: CGFloat,
-                titleStrip: CGRect?, metrics: PlayerControlMetrics, gameScreens: [CGRect] = []) {
+                metrics: PlayerControlMetrics, gameScreens: [CGRect] = []) {
         self.controls = controls
         self.faceZone = faceZone
         self.chord = chord
         self.menuCenter = menuCenter
         self.menuDiameter = menuDiameter
-        self.titleStrip = titleStrip
         self.metrics = metrics
         self.gameScreens = gameScreens
     }
@@ -462,7 +459,6 @@ public struct PlayerControlAnchors: Hashable, Sendable {
     public var rightClusterY: CGFloat
     public var shoulders: Shoulders
     public var utility: Utility
-    public var titleStrip: CGRect?
 
     public enum Shoulders: Hashable, Sendable {
         /// The top of the rails (landscape, rail stages).
@@ -661,6 +657,6 @@ extension PlayerControlPlan {
 
         let chord = arrangement == .twoButton ? face.map(\.id) : nil
         return PlayerTouchLayout(controls: placed, faceZone: faceZone, chord: chord, menuCenter: menuCenter,
-                                 menuDiameter: metrics.menu, titleStrip: anchors.titleStrip, metrics: metrics)
+                                 menuDiameter: metrics.menu, metrics: metrics)
     }
 }

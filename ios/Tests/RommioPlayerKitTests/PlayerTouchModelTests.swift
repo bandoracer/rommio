@@ -95,21 +95,21 @@ final class PlayerTouchModelTests: XCTestCase {
 
     // MARK: Geometry
 
-    func testPortraitPutsTheTitleStripUnderTheGameAndClustersAt55PercentOfTheBand() throws {
+    func testPortraitPutsTheGameFullWidthUnderTheCameraAndClustersAt55PercentOfTheBand() throws {
         let layout = stage("nes", proPortrait)
         let controls = try XCTUnwrap(layout.controls)
         let game = layout.viewport.frame
-        let strip = try XCTUnwrap(controls.titleStrip)
         XCTAssertTrue(layout.viewport.isPortrait)
-        XCTAssertEqual(game.minY, 62 + 8, accuracy: 0.5, "Game at the top")
-        XCTAssertEqual(game.width, 402 - 24, accuracy: 0.5, "Game spans the width")
-        XCTAssertEqual(strip.minY - game.maxY, 12, accuracy: 0.5, "Title strip 12 pt under the game")
+        // The Dynamic Island ends 11 pt above the safe area; the game starts 8 pt under it.
+        XCTAssertEqual(game.minY, 62 - 11 + 8, accuracy: 0.5, "Game 8 pt under the camera")
+        XCTAssertEqual(game.minX, 0, accuracy: 0.5, "Edge to edge")
+        XCTAssertEqual(game.width, 402, accuracy: 0.5, "Game spans the display")
         let dpad = try XCTUnwrap(controls.dpad)
         let face = controls.controls.filter { $0.kind == .face }
         let faceBox = face.reduce(CGRect.null) { $0.union($1.frame) }
         XCTAssertEqual(dpad.frame.minX, 20, accuracy: 0.5, "D-pad 20 pt from the left edge")
         XCTAssertEqual(faceBox.maxX, 402 - 20, accuracy: 0.5, "Face 20 pt from the right edge")
-        let bandTop = strip.maxY + 8, bandBottom = 874 - 34.0
+        let bandTop = game.maxY + 12, bandBottom = 874 - 34.0
         XCTAssertEqual(dpad.center.y, bandTop + 0.55 * (bandBottom - bandTop), accuracy: 0.5, "Clusters at 55% of the band")
         XCTAssertEqual(faceBox.midY, dpad.center.y, accuracy: 0.5)
         // Select · Menu · Start centred at the bottom, 12 pt above the home indicator.
@@ -125,8 +125,8 @@ final class PlayerTouchModelTests: XCTestCase {
     func testPortraitShouldersSit16PointsAboveTheirClusterAlignedToItsOuterEdge() throws {
         for family in ["gba", "snes", "psx"] {
             for mirrored in [false, true] {
-                let controls = try XCTUnwrap(stage(family, proPortrait, mirrored: mirrored).controls)
-                let strip = try XCTUnwrap(controls.titleStrip)
+                let layout = stage(family, proPortrait, mirrored: mirrored)
+                let controls = try XCTUnwrap(layout.controls)
                 let dpad = try XCTUnwrap(controls.dpad)
                 let face = controls.controls.filter { $0.kind == .face }.reduce(CGRect.null) { $0.union($1.frame) }
                 let label = "\(family) mirrored=\(mirrored)"
@@ -139,7 +139,7 @@ final class PlayerTouchModelTests: XCTestCase {
                     } else {
                         XCTAssertEqual(row.maxX, cluster.maxX, accuracy: 0.5, "Outer edge: \(label)")
                     }
-                    XCTAssertGreaterThanOrEqual(row.minY, strip.maxY + 8 - 0.5, "Inside the band: \(label)")
+                    XCTAssertGreaterThanOrEqual(row.minY, layout.viewport.frame.maxY + 12 - 0.5, "Inside the band: \(label)")
                 }
                 if family == "gba" {
                     XCTAssertEqual(try XCTUnwrap(controls.control("L")).frame.size, CGSize(width: 88, height: 40))
@@ -160,9 +160,10 @@ final class PlayerTouchModelTests: XCTestCase {
         XCTAssertEqual(faceBox.midY, 402 * 0.6, accuracy: 0.5, "Face at 60% of the height")
         XCTAssertLessThan(dpad.frame.maxX, game.minX)
         XCTAssertGreaterThan(faceBox.minX, game.maxX)
-        // Centred in their rails.
-        XCTAssertEqual(dpad.center.x, (66 + game.minX - 10) / 2, accuracy: 0.5)
-        XCTAssertEqual(faceBox.midX, (game.maxX + 10 + 874 - 66) / 2, accuracy: 0.5)
+        // Centred in their rails, which start 6 pt from the Dynamic Island (11 pt inside the safe area).
+        let edge: CGFloat = 62 - 11 + 6
+        XCTAssertEqual(dpad.center.x, (edge + game.minX - 10) / 2, accuracy: 0.5)
+        XCTAssertEqual(faceBox.midX, (game.maxX + 10 + 874 - edge) / 2, accuracy: 0.5)
         // Shoulders at the top of each rail; Select and Start at the foot.
         let l = try XCTUnwrap(controls.control("L")), r = try XCTUnwrap(controls.control("R"))
         XCTAssertEqual(l.frame.minY, 8, accuracy: 0.5)
@@ -174,6 +175,73 @@ final class PlayerTouchModelTests: XCTestCase {
         // Menu bottom centre, under the game.
         XCTAssertEqual(controls.menuCenter.x, game.midX, accuracy: 0.5)
         XCTAssertGreaterThan(controls.menuFrame.minY, game.maxY)
+    }
+
+    /// Portrait: the game spans the display when it fits above the controls; otherwise it
+    /// keeps 12 pt from both sides. Either way it starts 8 pt under the camera housing.
+    func testTheGameIsFullWidthOrInsideTheBorder() throws {
+        var bordered = 0
+        // (The 820 pt "iPad" here is an open foldable, whose stage keeps its own rules.)
+        for phone in phones where phone.size.height > phone.size.width && phone.size.width < 600 {
+            for (family, analog) in [("nes", false), ("gba", false), ("snes", false), ("n64", false), ("psx", true), ("psp", false)] {
+                let game = stage(family, phone, analog: analog).viewport.frame
+                let label = "\(family) \(phone.name)"
+                XCTAssertEqual(game.minY, phone.insets.cameraTop + 8, accuracy: 0.5, label)
+                if game.width >= phone.size.width - 0.5 {
+                    XCTAssertEqual(game.minX, 0, accuracy: 0.5, label)
+                } else {
+                    bordered += 1
+                    XCTAssertGreaterThanOrEqual(game.minX, 12 - 0.5, label)
+                    XCTAssertLessThanOrEqual(game.maxX, phone.size.width - 12 + 0.5, label)
+                    XCTAssertEqual(game.midX, phone.size.width / 2, accuracy: 0.5, label)
+                }
+            }
+        }
+        // PlayStation with its sticks leaves the iPhone SE's game short of the width.
+        XCTAssertGreaterThan(bordered, 0)
+        XCTAssertLessThan(stage("psx", phones[2], analog: true).viewport.frame.width, 375 - 24 + 0.5)
+        // The camera reach: the safe area less 11 pt with a housing, the inset without one.
+        XCTAssertEqual(PlayerViewportSafeAreaInsets(top: 59, bottom: 34, left: 0, right: 0).cameraTop, 48)
+        XCTAssertEqual(PlayerViewportSafeAreaInsets(top: 24, bottom: 20, left: 0, right: 0).cameraTop, 24)
+        XCTAssertEqual(PlayerViewportSafeAreaInsets(top: 0, bottom: 21, left: 62, right: 62).cameraSide, 51)
+    }
+
+    /// Landscape: a game the rails leave room for at full height (a vertical arcade game)
+    /// fills the display's height; others keep a border above and below.
+    func testALandscapeGameFillsTheHeightWhenTheRailsLeaveRoom() throws {
+        let tall = resolvePlayerStageLayout(containerSize: proLandscape.size, safeAreaInsets: proLandscape.insets, aspectRatio: 3.0 / 4.0,
+                                            topAlignedInPortrait: true, reserveTouchSpace: true,
+                                            stage: PlayerStageContext(isPhoneFormFactor: true), controls: plan("arcade"))
+        let game = tall.viewport.frame
+        XCTAssertEqual(game.minY, 0, accuracy: 0.5)
+        XCTAssertEqual(game.height, 402, accuracy: 0.5)
+        XCTAssertEqual(game.midX, 437, accuracy: 0.5)
+        let controls = try XCTUnwrap(tall.controls)
+        for frame in controls.controls.map(\.frame) + [controls.menuFrame] {
+            XCTAssertFalse(game.insetBy(dx: 0.5, dy: 0.5).intersects(frame), "\(frame) over the game")
+        }
+        let wide = stage("snes", proLandscape).viewport.frame
+        XCTAssertGreaterThanOrEqual(wide.minY, 8 - 0.5)
+        XCTAssertLessThan(wide.height, 402 - 16)
+    }
+
+    /// A controller took over: the game follows the same rule, and is never smaller than with
+    /// the touch controls showing.
+    func testWithoutTouchControlsTheGameGrowsUnderTheSameRule() throws {
+        for phone in [proPortrait, proLandscape] {
+            let shown = stage("nes", phone).viewport.frame
+            let hidden = resolvePlayerStageLayout(containerSize: phone.size, safeAreaInsets: phone.insets, aspectRatio: 4.0 / 3.0,
+                                                  topAlignedInPortrait: true, reserveTouchSpace: false,
+                                                  stage: PlayerStageContext(isPhoneFormFactor: true), controls: plan("nes"))
+            let game = hidden.viewport.frame
+            XCTAssertGreaterThanOrEqual(game.width, shown.width - 0.5, phone.name)
+            XCTAssertFalse(game.insetBy(dx: 0.5, dy: 0.5).intersects(try XCTUnwrap(hidden.controls).menuFrame), phone.name)
+            if phone.size.height > phone.size.width {
+                XCTAssertEqual(game, CGRect(x: 0, y: 59, width: 402, height: 301.5), phone.name)
+            } else {
+                XCTAssertEqual(game.height, 402, accuracy: 0.5, "Full height: \(phone.name)")
+            }
+        }
     }
 
     func testMirroringSwapsTheRailsButNotTheLabelsOrTheGame() throws {
@@ -190,8 +258,8 @@ final class PlayerTouchModelTests: XCTestCase {
     }
 
     /// Every touch family, phone and orientation, size and hand: controls stay on the
-    /// display, off the game and the title strip, and off each other; faces are 50 pt
-    /// or more and every hit region at least 58 pt.
+    /// display, off the game and off each other; faces are 50 pt or more and every hit
+    /// region at least 58 pt.
     func testEveryFamilyFitsEveryPhoneWithoutOverlap() throws {
         let families = PlatformControlProfileResolver().supportedProfiles()
             .filter { $0.supportTier == .touchSupported && !["nds", "3ds"].contains($0.familyID) && ExpansionControls.controls(for: $0.familyID) != nil }
@@ -209,11 +277,7 @@ final class PlayerTouchModelTests: XCTestCase {
                         let game = layout.viewport.frame
                         // (Atari 2600 on an iPhone SE in landscape, six switches at the feet, is the tightest.)
                         XCTAssertGreaterThan(game.width, phone.size.width * 0.28, "Game too small: \(label)")
-                        var frames = controls.controls.map { ($0.id, $0.frame) } + [("menu", controls.menuFrame)]
-                        if let strip = controls.titleStrip {
-                            XCTAssertFalse(strip.intersects(game), "Strip over the game: \(label)")
-                            frames.append(("strip", strip))
-                        }
+                        let frames = controls.controls.map { ($0.id, $0.frame) } + [("menu", controls.menuFrame)]
                         for control in controls.controls {
                             XCTAssertGreaterThanOrEqual(min(control.hitFrame.width, control.hitFrame.height), 58, "Small hit region \(control.id): \(label)")
                             if control.kind == .face {
@@ -222,7 +286,7 @@ final class PlayerTouchModelTests: XCTestCase {
                         }
                         for (index, (id, frame)) in frames.enumerated() {
                             XCTAssertTrue(display.contains(frame), "\(id) off the display: \(label) \(frame)")
-                            if id != "strip" { XCTAssertFalse(game.insetBy(dx: 0.5, dy: 0.5).intersects(frame), "\(id) over the game: \(label) \(frame) \(game)") }
+                            XCTAssertFalse(game.insetBy(dx: 0.5, dy: 0.5).intersects(frame), "\(id) over the game: \(label) \(frame) \(game)")
                             for (other, otherFrame) in frames.dropFirst(index + 1) {
                                 XCTAssertFalse(frame.insetBy(dx: 0.5, dy: 0.5).intersects(otherFrame), "\(id) overlaps \(other): \(label)")
                             }

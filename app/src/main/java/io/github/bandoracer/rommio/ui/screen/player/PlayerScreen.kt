@@ -181,17 +181,6 @@ fun PlayerScreen(
     }
     val latestUiState = rememberUpdatedState(state)
     val latestPlayerAttached = rememberUpdatedState(playerAttached)
-    // The title strip's play line: "Super Nintendo · 25 min played" (docs/player-controls.md).
-    val playStats by container.playActivity.stats.collectAsStateWithLifecycleCompat()
-    val titleDetail = remember(state.rom, playStats) {
-        state.rom?.let { rom ->
-            val played = playStats.games.firstOrNull { it.romId == rom.id.toLong() }?.playedMs ?: 0L
-            io.github.bandoracer.rommio.ui.component.Fmt.join(
-                rom.platformName.takeIf { it.isNotBlank() },
-                if (played >= 60_000L) "${io.github.bandoracer.rommio.ui.component.Fmt.duration(played)} played" else null,
-            ).ifBlank { null }
-        }
-    }
 
     ImmersivePlayerMode(enabled = true)
     PlayerOrientationMode(policy = state.controls?.platformProfile?.playerOrientationPolicy)
@@ -379,11 +368,26 @@ fun PlayerScreen(
                     val stageInsets = with(density) {
                         // Side cutouts apply to both sides so the game stays centred.
                         val side = maxOf(cutout?.safeInsetLeft ?: 0, cutout?.safeInsetRight ?: 0).toDp().value
+                        // How far the camera cutout reaches in (docs/player-controls.md, Geometry): the
+                        // game sits 8 dp under it and the landscape rails 6 dp beside it, rather than
+                        // at the safe inset, which is the status bar's height.
+                        val rects = cutout?.boundingRects.orEmpty()
+                        val width = rootView.width
+                        val cameraTop = rects.filter { it.top < (cutout?.safeInsetTop ?: 0) }.maxOfOrNull { it.bottom }?.toDp()?.value
+                        val cameraSide = rects.mapNotNull { rect ->
+                            when {
+                                rect.left < (cutout?.safeInsetLeft ?: 0) -> rect.right
+                                rect.right > width - (cutout?.safeInsetRight ?: 0) -> width - rect.left
+                                else -> null
+                            }
+                        }.maxOrNull()?.toDp()?.value
                         PlayerStageInsets(
                             top = if (isLandscape) 0f else maxOf(systemBars.calculateTopPadding(), (cutout?.safeInsetTop ?: 0).toDp()).value,
                             bottom = maxOf(systemBars.calculateBottomPadding(), gestures.calculateBottomPadding()).value,
                             left = side,
                             right = side,
+                            cameraTop = if (isLandscape) null else cameraTop,
+                            cameraSide = if (isLandscape) cameraSide else null,
                         )
                     }
                     val familyId = controls?.platformProfile?.familyId
@@ -475,8 +479,6 @@ fun PlayerScreen(
                                 }
                             },
                             onMenu = { showPauseSheet = true },
-                            title = state.rom?.displayName,
-                            detail = titleDetail,
                         )
                     }
                 }

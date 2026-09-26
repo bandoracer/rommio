@@ -227,7 +227,7 @@ final class StackBudgetTests: XCTestCase {
                 let theme = resolvePlayerVisualTheme(controls: nil, familyOverride: family, appTheme: variant.rommioTheme)
                 return ZStack {
                     theme.canvasColor
-                    PlayerControlsChrome(layout: layout, theme: theme, title: "Super Metroid 1", detail: "Super Nintendo · 25 min played", onMenu: {})
+                    PlayerControlsChrome(layout: layout, theme: theme, onMenu: {})
                 }
             }
         }

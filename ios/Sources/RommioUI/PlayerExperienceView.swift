@@ -315,7 +315,6 @@ private struct PlayerOverlayChrome: View {
                     layout: layout, theme: feature.theme, opacity: state.touchLayout?.opacity ?? 0.72,
                     showControls: state.showTouchControls && (!feature.isPaused || livePreview),
                     haptics: feature.hapticsEnabled,
-                    title: feature.presentation.romTitle, detail: feature.titleDetail,
                     onInput: { output in feature.touchInput(output) },
                     onMenu: { Task { await feature.openPauseMenu() } })
                     .frame(width: size.width, height: size.height)

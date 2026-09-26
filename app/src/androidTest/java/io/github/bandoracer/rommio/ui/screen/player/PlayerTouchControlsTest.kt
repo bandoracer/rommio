@@ -93,8 +93,6 @@ class PlayerTouchControlsTest {
                             haptics = haptics,
                             onInput = { outputs += it },
                             onMenu = {},
-                            title = "Touch QA",
-                            detail = family,
                         )
                     }
                 }

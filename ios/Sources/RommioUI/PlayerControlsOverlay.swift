@@ -2,61 +2,19 @@ import SwiftUI
 import RommioFoundation
 import RommioPlayerKit
 
-/// The title strip and Menu over the player (everything but the touch surface):
-/// SwiftUI only, so the stack budget measures it on every platform.
+/// Menu over the player (everything but the touch surface): SwiftUI only, so the stack
+/// budget measures it on every platform.
 struct PlayerControlsChrome: View {
     let layout: PlayerTouchLayout
     let theme: PlayerVisualTheme
-    var title: String? = nil
-    var detail: String? = nil
     let onMenu: () -> Void
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             Color.clear
-            if let strip = layout.titleStrip, let title {
-                PlayerTitleStrip(title: title, detail: detail, theme: theme)
-                    .frame(width: strip.width, height: strip.height, alignment: .topLeading)
-                    .position(x: strip.midX, y: strip.midY)
-            }
             PlayerMenuControl(appearance: PlayerControlStyleRenderer(theme: theme).menu(), diameter: layout.menuDiameter, action: onMenu)
                 .position(layout.menuCenter)
         }
-    }
-}
-
-/// The game's name and its play line under the game (portrait, docs/player-controls.md):
-/// Aurora `headline` 18 with the line in `secondary`; Riso `headline` over a `label`.
-private struct PlayerTitleStrip: View {
-    @Environment(\.rommioTheme) private var appTheme
-    let title: String
-    let detail: String?
-    let theme: PlayerVisualTheme
-
-    var body: some View {
-        let ink = theme.palette.controlInk.color
-        Group {
-            if appTheme.isRiso {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title).themeText(.headline, size: 22).foregroundStyle(ink).lineLimit(1).minimumScaleFactor(0.7)
-                    if let detail { Text(detail).themeText(.label, size: 10.5).foregroundStyle(ink.opacity(0.72)).lineLimit(1) }
-                }
-            } else {
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        Text(title).themeText(.headline, size: 18).foregroundStyle(ink).lineLimit(1)
-                        Spacer(minLength: 0)
-                        if let detail { Text(detail).themeText(.secondary, size: 13).foregroundStyle(ink.opacity(0.8)).lineLimit(1) }
-                    }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(title).themeText(.headline, size: 18).foregroundStyle(ink).lineLimit(1).minimumScaleFactor(0.75)
-                        if let detail { Text(detail).themeText(.secondary, size: 13).foregroundStyle(ink.opacity(0.8)).lineLimit(1) }
-                    }
-                }
-            }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("player.titleStrip")
     }
 }
 
@@ -118,7 +76,7 @@ private struct PlayerShapeView: Shape {
 import UIKit
 
 /// The player's touch controls (docs/player-controls.md): one multi-touch surface
-/// with every control, the title strip (portrait on a phone) and the Menu button.
+/// with every control and the Menu button.
 /// Where things go is `PlayerTouchLayout`'s; how they look, `PlayerControlStyleRenderer`'s;
 /// what touches do, `PlayerTouchTracker`'s.
 struct PlayerControlsOverlay: View {
@@ -129,8 +87,6 @@ struct PlayerControlsOverlay: View {
     /// Controls show (they hide while paused); Menu always shows.
     let showControls: Bool
     let haptics: Bool
-    var title: String? = nil
-    var detail: String? = nil
     let onInput: (PlayerTouchOutput) -> Void
     let onMenu: () -> Void
 
@@ -140,7 +96,7 @@ struct PlayerControlsOverlay: View {
                                active: showControls, haptics: haptics, onInput: onInput)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("player.touchControls")
-            PlayerControlsChrome(layout: layout, theme: theme, title: title, detail: detail, onMenu: onMenu)
+            PlayerControlsChrome(layout: layout, theme: theme, onMenu: onMenu)
         }
     }
 }
@@ -174,7 +130,7 @@ final class PlayerTouchSurfaceView: UIView {
     var onInput: ((PlayerTouchOutput) -> Void)?
     var hapticsEnabled = true
     private var tracker = PlayerTouchTracker(layout: PlayerTouchLayout(controls: [], faceZone: nil, chord: nil, menuCenter: .zero,
-                                                                        menuDiameter: 44, titleStrip: nil, metrics: PlayerControlMetrics(scale: 1)))
+                                                                        menuDiameter: 44, metrics: PlayerControlMetrics(scale: 1)))
     private var renderer: PlayerControlStyleRenderer?
     private var opacity: Double = 1
     private var active = true

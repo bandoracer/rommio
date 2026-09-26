@@ -1466,10 +1466,6 @@ public final class RommioAppModel {
             }
         )
         player.backdropURL = artworkURL(path: rom.urlCover)
-        // The title strip's line: "Super Nintendo · 25 min played" (docs/player-controls.md).
-        let played = statsFeature.stats.games.first { $0.romID == rom.id }?.playtime ?? 0
-        player.titleDetail = PlayFormat.line([rom.platformName.isEmpty ? nil : rom.platformName,
-                                              played >= 60 ? "\(PlayFormat.duration(played)) played" : nil])
         let chosen = pendingStartOption
         pendingStartOption = nil
         // The choice is made before the player opens (docs/theme-layouts.md, Launch choice).

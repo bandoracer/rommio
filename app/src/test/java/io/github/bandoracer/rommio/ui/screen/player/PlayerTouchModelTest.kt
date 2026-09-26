@@ -29,16 +29,16 @@ import kotlin.math.sin
 class PlayerTouchModelTest {
     private data class Phone(val name: String, val size: Size, val insets: PlayerStageInsets)
 
-    private val proPortrait = Phone("17 Pro portrait", Size(402f, 874f), PlayerStageInsets(top = 62f, bottom = 34f))
-    private val proLandscape = Phone("17 Pro landscape", Size(874f, 402f), PlayerStageInsets(bottom = 21f, left = 62f, right = 62f))
+    private val proPortrait = Phone("17 Pro portrait", Size(402f, 874f), PlayerStageInsets(top = 62f, bottom = 34f, cameraTop = 51f))
+    private val proLandscape = Phone("17 Pro landscape", Size(874f, 402f), PlayerStageInsets(bottom = 21f, left = 62f, right = 62f, cameraSide = 51f))
     private val phones = listOf(
         proPortrait, proLandscape,
         Phone("SE portrait", Size(375f, 667f), PlayerStageInsets(top = 20f)),
         Phone("SE landscape", Size(667f, 375f), PlayerStageInsets()),
-        Phone("Pro Max portrait", Size(440f, 956f), PlayerStageInsets(top = 62f, bottom = 34f)),
-        Phone("Pro Max landscape", Size(956f, 440f), PlayerStageInsets(bottom = 21f, left = 62f, right = 62f)),
-        Phone("Pixel portrait", Size(412f, 915f), PlayerStageInsets(top = 32f, bottom = 24f)),
-        Phone("Pixel landscape", Size(915f, 412f), PlayerStageInsets(bottom = 24f, left = 32f)),
+        Phone("Pro Max portrait", Size(440f, 956f), PlayerStageInsets(top = 62f, bottom = 34f, cameraTop = 51f)),
+        Phone("Pro Max landscape", Size(956f, 440f), PlayerStageInsets(bottom = 21f, left = 62f, right = 62f, cameraSide = 51f)),
+        Phone("Pixel portrait", Size(412f, 915f), PlayerStageInsets(top = 32f, bottom = 24f, cameraTop = 26f)),
+        Phone("Pixel landscape", Size(915f, 412f), PlayerStageInsets(bottom = 24f, left = 32f, cameraSide = 26f)),
         Phone("Small Android portrait", Size(360f, 640f), PlayerStageInsets(top = 24f, bottom = 16f)),
         Phone("Small Android landscape", Size(640f, 360f), PlayerStageInsets(bottom = 16f, left = 24f)),
         Phone("Foldable inner", Size(673f, 841f), PlayerStageInsets(top = 24f, bottom = 24f)),
@@ -119,20 +119,19 @@ class PlayerTouchModelTest {
 
     // ---- Geometry ----
 
-    @Test fun portraitPutsTheTitleStripUnderTheGameAndClustersAt55PercentOfTheBand() {
+    @Test fun portraitPutsTheGameFullWidthUnderTheCameraAndClustersAt55PercentOfTheBand() {
         val layout = stage("nes", proPortrait)
         val controls = layout.controls
         val game = layout.viewport
-        val strip = requireNotNull(controls.titleStrip)
         assertTrue(layout.isPortrait)
-        assertEquals("Game at the top", 62f + 8f, game.top, 0.5f)
-        assertEquals("Game spans the width", 402f - 24f, game.width, 0.5f)
-        assertEquals("Title strip 12 dp under the game", 12f, strip.top - game.bottom, 0.5f)
+        assertEquals("Game 8 dp under the camera", 51f + 8f, game.top, 0.5f)
+        assertEquals("Edge to edge", 0f, game.left, 0.5f)
+        assertEquals("Game spans the display", 402f, game.width, 0.5f)
         val dpad = requireNotNull(controls.dpad)
         val faceBox = faceBox(controls)
         assertEquals("D-pad 20 dp from the left edge", 20f, dpad.frame.left, 0.5f)
         assertEquals("Face 20 dp from the right edge", 402f - 20f, faceBox.right, 0.5f)
-        val bandTop = strip.bottom + 8f
+        val bandTop = game.bottom + 12f
         val bandBottom = 874f - 34f
         assertEquals("Clusters at 55% of the band", bandTop + 0.55f * (bandBottom - bandTop), dpad.center.y, 0.5f)
         assertEquals(dpad.center.y, faceBox.midY, 0.5f)
@@ -152,8 +151,8 @@ class PlayerTouchModelTest {
         for (family in listOf("gba", "snes", "psx")) {
             for (mirrored in listOf(false, true)) {
                 val label = "$family mirrored=$mirrored"
-                val controls = stage(family, proPortrait, mirrored = mirrored).controls
-                val strip = requireNotNull(controls.titleStrip)
+                val layout = stage(family, proPortrait, mirrored = mirrored)
+                val controls = layout.controls
                 val dpad = requireNotNull(controls.dpad).frame
                 val face = faceBox(controls)
                 val left = controls.controls.filter { it.kind == PlayerTouchKind.SHOULDER && it.spec.left }.map { it.frame }
@@ -165,7 +164,7 @@ class PlayerTouchModelTest {
                     assertEquals("16 dp above the cluster: $label", cluster.top - 16f, box.bottom, 0.5f)
                     if (outerOnLeft) assertEquals("Outer edge: $label", cluster.left, box.left, 0.5f)
                     else assertEquals("Outer edge: $label", cluster.right, box.right, 0.5f)
-                    assertTrue("Below the title strip: $label", box.top >= strip.bottom)
+                    assertTrue("Inside the band: $label", box.top >= layout.viewport.bottom + 12f - 0.5f)
                     row.forEach { assertEquals(40f, it.height, 0.01f) }
                 }
             }
@@ -189,9 +188,10 @@ class PlayerTouchModelTest {
         assertEquals("Face at 60% of the height", 402f * 0.6f, faceBox.midY, 0.5f)
         assertTrue(dpad.frame.right < game.left)
         assertTrue(faceBox.left > game.right)
-        // Centred in their rails.
-        assertEquals((66f + game.left - 10f) / 2, dpad.center.x, 0.5f)
-        assertEquals((game.right + 10f + 874f - 66f) / 2, faceBox.midX, 0.5f)
+        // Centred in their rails, which start 6 dp from the camera.
+        val edge = 51f + 6f
+        assertEquals((edge + game.left - 10f) / 2, dpad.center.x, 0.5f)
+        assertEquals((game.right + 10f + 874f - edge) / 2, faceBox.midX, 0.5f)
         // Shoulders at the top of each rail; Select and Start at the foot.
         assertEquals(8f, requireNotNull(controls.control("L")).frame.top, 0.5f)
         assertEquals(8f, requireNotNull(controls.control("R")).frame.top, 0.5f)
@@ -203,6 +203,46 @@ class PlayerTouchModelTest {
         // Menu bottom centre, under the game.
         assertEquals(game.midX, controls.menuCenter.x, 0.5f)
         assertTrue(controls.menuFrame.top > game.bottom)
+    }
+
+    /**
+     * Portrait: the game spans the display when it fits above the controls; otherwise it keeps 12 dp
+     * from both sides. Either way it starts 8 dp under the camera cutout (the top inset without one).
+     */
+    @Test fun theGameIsFullWidthOrInsideTheBorder() {
+        var bordered = 0
+        for (phone in phones.filter { it.size.height > it.size.width }) {
+            for ((family, analog) in listOf("nes" to false, "gba" to false, "snes" to false, "n64" to false, "psx" to true, "psp" to false, "nds" to false)) {
+                val game = stage(family, phone, analog = analog).viewport
+                val label = "$family ${phone.name}"
+                assertEquals(label, (phone.insets.cameraTop ?: phone.insets.top) + 8f, game.top, 0.5f)
+                if (game.width >= phone.size.width - 0.5f) {
+                    assertEquals(label, 0f, game.left, 0.5f)
+                } else {
+                    bordered++
+                    assertTrue(label, game.left >= 12f - 0.5f && game.right <= phone.size.width - 12f + 0.5f)
+                    assertEquals(label, phone.size.width / 2, game.center.x, 0.5f)
+                }
+            }
+        }
+        // A DS, two screens tall, never fits the width above its controls.
+        assertTrue(bordered > 0)
+        assertTrue(stage("nds", proPortrait).viewport.width < 402f - 24f + 0.5f)
+    }
+
+    /** Landscape: a game the rails leave room for at full height (a vertical arcade game) fills it. */
+    @Test fun aLandscapeGameFillsTheHeightWhenTheRailsLeaveRoom() {
+        val tall = resolvePlayerStage(874f, 402f, proLandscape.insets, 3f / 4f, plan("arcade"))
+        val game = tall.viewport
+        assertEquals(0f, game.top, 0.5f)
+        assertEquals(402f, game.height, 0.5f)
+        assertEquals(437f, game.center.x, 0.5f)
+        (tall.controls.controls.map { it.frame } + tall.controls.menuFrame).forEach {
+            assertFalse("$it over the game", game.intersectsStrictly(it))
+        }
+        val wide = stage("snes", proLandscape).viewport
+        assertTrue(wide.top >= 8f - 0.5f)
+        assertTrue(wide.height < 402f - 16f)
     }
 
     @Test fun mirroringSwapsTheRailsButNotTheLabelsOrTheGame() {
@@ -223,8 +263,7 @@ class PlayerTouchModelTest {
 
     /**
      * Every touch family, phone and orientation, size and hand: controls stay on the display, off
-     * the game and the title strip, and off each other; faces are 50 dp or more and every hit
-     * region at least 58 dp.
+     * the game, and off each other; faces are 50 dp or more and every hit region at least 58 dp.
      */
     @Test fun everyFamilyFitsEveryPhoneWithoutOverlap() {
         val families = PlatformControlProfileResolver().supportedProfiles().map { it.familyId }.filter { PlayerControlPlan.of(it) != null }
@@ -243,17 +282,13 @@ class PlayerTouchModelTest {
             assertTrue("Game too small: $label $game", if (tall) game.height > phone.size.height * 0.45f else game.width > phone.size.width * 0.28f)
             val frames = controls.controls.map { it.id to it.frame }.toMutableList()
             frames += "menu" to controls.menuFrame
-            controls.titleStrip?.let { strip ->
-                assertFalse("Strip over the game: $label", strip.intersectsStrictly(game, 0f))
-                frames += "strip" to strip
-            }
             for (control in controls.controls) {
                 assertTrue("Small hit region ${control.id}: $label", minOf(control.hitFrame.width, control.hitFrame.height) >= 58f - 0.01f)
                 if (control.kind == PlayerTouchKind.FACE) assertTrue("Small face ${control.id}: $label", control.frame.width >= (if (control.spec.isAxisButton) 44f else 50f) - 0.01f)
             }
             frames.forEachIndexed { index, (id, frame) ->
                 assertTrue("$id off the display: $label $frame", frame.left >= display.left && frame.top >= display.top && frame.right <= display.right && frame.bottom <= display.bottom)
-                if (id != "strip") assertFalse("$id over the game: $label $frame $game", game.intersectsStrictly(frame))
+                assertFalse("$id over the game: $label $frame $game", game.intersectsStrictly(frame))
                 frames.drop(index + 1).forEach { (other, otherFrame) ->
                     assertFalse("$id overlaps $other: $label", frame.intersectsStrictly(otherFrame))
                 }
@@ -785,7 +820,7 @@ class PlayerTouchModelTest {
         assertEquals(PlayerControlPlan.DPadSlot.BESIDE, compact.dpadSlot)
         val beside = compact.place(
             PlayerControlAnchors(0f..300f, 500f..800f, alignOuter = true, leftClusterY = 200f, rightClusterY = 200f,
-                shoulders = PlayerControlAnchors.Shoulders.Top(8f), utility = PlayerControlAnchors.Utility.Row(400f, 380f, 600f), titleStrip = null),
+                shoulders = PlayerControlAnchors.Shoulders.Top(8f), utility = PlayerControlAnchors.Utility.Row(400f, 380f, 600f)),
             PlayerControlMetrics(1f), mirrored = false,
         )
         val stick = requireNotNull(beside.control("circlePad"))

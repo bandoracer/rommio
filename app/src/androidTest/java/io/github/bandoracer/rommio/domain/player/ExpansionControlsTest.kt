@@ -63,7 +63,7 @@ class ExpansionControlsTest {
                         else -> Unit
                     }
                 },
-                onMenu = { hidden = !hidden }, title = "Controls QA", detail = family)
+                onMenu = { hidden = !hidden })
             }
         } }
         turn(landscape = true)

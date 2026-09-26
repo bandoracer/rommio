@@ -32,7 +32,6 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEvent
 import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.PointerInputModifierNode
 import androidx.compose.ui.platform.InspectorInfo
@@ -45,8 +44,6 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -54,15 +51,13 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.bandoracer.rommio.BuildConfig
-import io.github.bandoracer.rommio.ui.component.RoleText
-import io.github.bandoracer.rommio.ui.theme.RommioTheme
 import kotlin.math.max
 import kotlin.math.roundToInt
 
 /*
  * The player's touch controls (docs/player-controls.md): one multi-touch surface owns every
  * control; control composables only draw and carry the `player.*` test tags and semantics; the
- * title strip (portrait on a phone) and the Menu button sit on top. Where things go is
+ * Menu button sits on top. Where things go is
  * [PlayerTouchLayout]'s; how they look, the style renderer's; what touches do,
  * [PlayerTouchTracker]'s.
  */
@@ -264,8 +259,6 @@ fun PlayerControlsOverlay(
     onInput: (PlayerTouchOutput) -> Unit,
     onMenu: () -> Unit,
     modifier: Modifier = Modifier,
-    title: String? = null,
-    detail: String? = null,
 ) {
     val state = remember { PlayerTouchSurfaceState() }
     val view = LocalView.current
@@ -300,8 +293,6 @@ fun PlayerControlsOverlay(
                 }
             }
         }
-        val strip = layout.titleStrip
-        if (strip != null && title != null) TitleStrip(strip, title, detail, visual)
         MenuButton(layout, visual, opacity, onMenu)
     }
 }
@@ -487,63 +478,3 @@ private fun MenuButton(layout: PlayerTouchLayout, visual: PlayerVisualTheme, opa
     }
 }
 
-/**
- * The game's name and its play line under the game (portrait, docs/player-controls.md): Aurora
- * `headline` 18 with the line in `secondary`, side by side when they fit, else stacked; Riso
- * `headline` over a `label`.
- */
-@Composable
-private fun TitleStrip(strip: Rect, title: String, detail: String?, visual: PlayerVisualTheme) {
-    val theme = RommioTheme.current
-    val ink = visual.style.colors.controlInk
-    Box(
-        Modifier
-            .placedAt(strip)
-            .testTag("player.titleStrip")
-            .semantics(mergeDescendants = true) {},
-    ) {
-        if (visual.style.isInk) {
-            androidx.compose.foundation.layout.Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(3.dp)) {
-                RoleText(title, theme.type.headline, size = 22f, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                detail?.let { RoleText(it, theme.type.label, size = 10.5f, color = ink.copy(alpha = ink.alpha * 0.72f), maxLines = 1) }
-            }
-        } else {
-            FitRowOrStack(spacing = 12f) {
-                RoleText(title, theme.type.headline, size = 18f, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                detail?.let { RoleText(it, theme.type.secondary, size = 13f, color = ink.copy(alpha = ink.alpha * 0.8f), maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            }
-        }
-    }
-}
-
-/** Two texts side by side (the second at the trailing edge) when they fit, else one over the other. */
-@Composable
-private fun FitRowOrStack(spacing: Float, content: @Composable () -> Unit) {
-    Layout(content) { measurables, constraints ->
-        val loose = Constraints(maxWidth = constraints.maxWidth)
-        val gap = (spacing * density).toInt()
-        val natural = measurables.map { it.maxIntrinsicWidth(Int.MAX_VALUE) }
-        val fits = natural.sum() + gap * (measurables.size - 1) <= constraints.maxWidth
-        val placeables = measurables.map { it.measure(loose) }
-        if (fits && placeables.size == 2) {
-            val height = placeables.maxOf { it.height }
-            layout(constraints.maxWidth, height) {
-                val first = placeables[0]
-                val second = placeables[1]
-                val baseline = { p: androidx.compose.ui.layout.Placeable -> p[androidx.compose.ui.layout.FirstBaseline].takeIf { it != androidx.compose.ui.layout.AlignmentLine.Unspecified } ?: p.height }
-                val line = maxOf(baseline(first), baseline(second))
-                first.placeRelative(0, line - baseline(first))
-                second.placeRelative(constraints.maxWidth - second.width, line - baseline(second))
-            }
-        } else {
-            val height = placeables.sumOf { it.height } + (2 * density).toInt() * (placeables.size - 1)
-            layout(constraints.maxWidth, height) {
-                var y = 0
-                placeables.forEach {
-                    it.placeRelative(0, y)
-                    y += it.height + (2 * density).toInt()
-                }
-            }
-        }
-    }
-}

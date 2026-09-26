@@ -192,10 +192,12 @@ Look ([player-controls.md](player-controls.md), Look):
 - **Pure model** (`ui/screen/player/`): `PlayerControlPlan` (a family's d-pad, faces and their
   arrangement, shoulders, sticks, utilities, classified from `ExpansionControls`),
   `PlayerControlMetrics` (the spec's sizes and floors, scale 0.8–1.3), `PlayerControlPlan.place`
-  → `PlayerTouchLayout` (every control's frame, the face zone, the chord pair, Menu, the title
-  strip), `StandardStage` / `resolvePlayerStage` (portrait: game at the top, title strip 12 dp
-  under it, clusters at 55 % of the band 20 dp from the edges, Select · Menu · Start 12 dp above
-  the gesture area; landscape: rails either side of a centred game, clusters at 60 %, shoulders at
+  → `PlayerTouchLayout` (every control's frame, the face zone, the chord pair, Menu),
+  `StandardStage` / `resolvePlayerStage` (portrait: game at the top 8 dp under the camera
+  cutout, full width when it fits and otherwise inside a 12 dp border; the band from 12 dp under
+  it, clusters at 55 % of the band 20 dp from the edges, Select · Menu · Start 12 dp above
+  the gesture area; landscape: rails either side of a centred game, 6 dp from the cutout, the
+  game at full height when they leave room for it, clusters at 60 %, shoulders at
   the top, Select/Start at the feet, Menu under the game or beside Select), and
   `PlayerTouchRules` / `PlayerTouchTracker` (hit regions = drawn shape + 14 dp, nearest centre
   wins, no dead gaps inside a face cluster, the 22 % chord band, rolling within a kind with
@@ -207,8 +209,7 @@ Look ([player-controls.md](player-controls.md), Look):
 - **One surface** (`PlayerControlsOverlay.kt`): a single `PointerInputModifierNode` over the
   overlay feeds the tracker synchronously; control composables only draw and keep their
   `player.control.*` / `player.dpad` tags, "Pressed"/"Released" state and click actions (for
-  TalkBack and tests). Menu stays an ordinary button (`player.menu`); the title strip is
-  `player.titleStrip`. The node shares input with its siblings, so a touch that misses every control
+  TalkBack and tests). Menu stays an ordinary button (`player.menu`). The node shares input with its siblings, so a touch that misses every control
   still reaches the game view (touch-screen cores); controls never overlap the game.
 - **Immediate, ordered input**: `PlayerEngine.sendDigital` / `sendMotion` queue presses and
   releases on the core's command queue in call order, with no coroutine per event (the old
@@ -262,8 +263,7 @@ Look ([player-controls.md](player-controls.md), Look):
   was already at `d814964`.
 - Android-only adaptations for screens iOS doesn't have: on a phone narrower than about 375 dp the
   portrait utility row tightens (6 dp gaps, pills down to 30 dp) so many switches (Atari 2600)
-  still fit; a foot holding three or more utilities uses 36 dp pills; when a tall game (DS) on a
-  compact phone is already at the smallest control size, the title strip gives way to the game; and
+  still fit; a foot holding three or more utilities uses 36 dp pills; and
   since the 3DS goes through the phone stage on Android (iOS uses its DS rail stage), primaries
   that can't share a height at the ideal level at the lowest height both allow, and in landscape a
   primary stick's stack gives way in size until they can.

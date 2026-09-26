@@ -51,8 +51,9 @@ final class PlayerLayoutParityTests: XCTestCase {
         XCTAssertGreaterThan(snapshot.systemFrame!.maxX, snapshot.viewportFrame.maxX)
         XCTAssertNotNil(snapshot.leftRailInset)
         XCTAssertNotNil(snapshot.rightRailInset)
-        XCTAssertGreaterThanOrEqual(snapshot.leftRailInset ?? 0, 59)
-        XCTAssertGreaterThanOrEqual(snapshot.rightRailInset ?? 0, 59 - 0.001)
+        // The rails start 6 pt from the Dynamic Island, which ends 11 pt inside the safe area.
+        XCTAssertGreaterThanOrEqual(snapshot.leftRailInset ?? 0, 59 - 11 + 6 - 0.001)
+        XCTAssertGreaterThanOrEqual(snapshot.rightRailInset ?? 0, 59 - 11 + 6 - 0.001)
         XCTAssertNotNil(snapshot.menuCenter)
         XCTAssertGreaterThan(snapshot.menuCenter?.y ?? 0, 360)
         XCTAssertNotNil(snapshot.systemFrame)
@@ -254,7 +255,8 @@ final class PlayerLayoutParityTests: XCTestCase {
         XCTAssertEqual(frame.midY, (420 - 21) / 2.0, accuracy: 0.01)
         let hidden = resolvePlayerViewportLayout(containerSize: size, safeAreaInsets: insets, aspectRatio: 4.0 / 3.0,
             topAlignedInPortrait: true, reserveTouchSpace: false, utilityCount: 1).frame
-        XCTAssertEqual(hidden.height, 399, accuracy: 0.01)
+        // Without touch controls the game takes the display's full height (docs/player-controls.md, Geometry).
+        XCTAssertEqual(hidden.height, 420, accuracy: 0.01)
     }
 
     private func controlsState(platformSlug: String) async throws -> PlayerControlsState {

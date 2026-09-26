@@ -6,8 +6,19 @@ import androidx.compose.ui.geometry.Size
 import kotlin.math.max
 import kotlin.math.min
 
-/** Safe-area insets of the player (dp): status bar or cutout, the gesture area, side cutouts. */
-data class PlayerStageInsets(val top: Float = 0f, val bottom: Float = 0f, val left: Float = 0f, val right: Float = 0f)
+/**
+ * Safe-area insets of the player (dp): status bar or cutout, the gesture area, side cutouts.
+ * [cameraTop] is how far the camera cutout reaches in from the top edge (portrait) and [cameraSide]
+ * from a side (landscape), from its bounding rectangles; null without one (the insets apply).
+ */
+data class PlayerStageInsets(
+    val top: Float = 0f,
+    val bottom: Float = 0f,
+    val left: Float = 0f,
+    val right: Float = 0f,
+    val cameraTop: Float? = null,
+    val cameraSide: Float? = null,
+)
 
 /** Where the game goes and where every control is. */
 data class PlayerStage(
@@ -37,28 +48,44 @@ fun resolvePlayerStage(
     }
     val deck = PlayerControlDeckLayout(width, height, insets.top, insets.bottom, max(insets.left, insets.right), visible = false, aspectRatio = aspectRatio, utilityCount = 1)
     val aspect = (aspectRatio ?: (width / max(height, 1f))).coerceAtLeast(0.1f)
+    // The same rule as with touch controls (docs/player-controls.md, Geometry): the display's full
+    // width in portrait, 8 dp under the camera, or its full height in landscape, when that fits;
+    // otherwise the largest frame inside the border.
+    val gameTop = if (deck.portrait) (insets.cameraTop ?: insets.top) + StandardStage.CAMERA_GAP else deck.gameTop
     val areaWidth = (deck.gameRight - deck.gameLeft).coerceAtLeast(1f)
-    val areaHeight = (deck.gameBottom - deck.gameTop).coerceAtLeast(1f)
-    val gameWidth = min(areaWidth, areaHeight * aspect)
-    val gameHeight = gameWidth / aspect
-    val left = deck.gameLeft + (areaWidth - gameWidth) / 2
-    val top = deck.gameTop + if (deck.portrait) 0f else (areaHeight - gameHeight) / 2
+    val areaHeight = (deck.gameBottom - gameTop).coerceAtLeast(1f)
+    val fullWidth = width - 2 * max(insets.left, insets.right)
+    val viewport = when {
+        deck.portrait && fullWidth / aspect <= areaHeight ->
+            Rect(width / 2 - fullWidth / 2, gameTop, width / 2 + fullWidth / 2, gameTop + fullWidth / aspect)
+        !deck.portrait && height * aspect <= areaWidth ->
+            Rect(width / 2 - height * aspect / 2, 0f, width / 2 + height * aspect / 2, height)
+        else -> {
+            val gameWidth = min(areaWidth, areaHeight * aspect)
+            val gameHeight = gameWidth / aspect
+            val left = deck.gameLeft + (areaWidth - gameWidth) / 2
+            val top = gameTop + if (deck.portrait) 0f else (areaHeight - gameHeight) / 2
+            Rect(left, top, left + gameWidth, top + gameHeight)
+        }
+    }
     val menu = PlayerTouchLayout.Empty.copy(menuCenter = Offset(deck.utilityX(0, 1), deck.utilityY))
-    return PlayerStage(Rect(left, top, left + gameWidth, top + gameHeight), deck.portrait, menu)
+    return PlayerStage(viewport, deck.portrait, menu)
 }
 
 /**
  * Touch controls v2 on a phone or tablet (docs/player-controls.md, Geometry). A port of iOS
  * `StandardStage`.
  *
- * - Portrait: the game at the top; 12 dp under it the title strip; the rest is the control band:
- *   the d-pad and face cluster at 55 % of its height, 20 dp from the screen edges, each side's
+ * - Portrait: the game at the top, 8 dp under the camera cutout: the display's full width when that
+ *   fits above the controls, otherwise inside a 12 dp border. The rest is the control band: the
+ *   d-pad and face cluster at 55 % of its height, 20 dp from the screen edges, each side's
  *   shoulders 16 dp above its stack at the stack's outer edge (revised 2026-09-24), and
  *   Select · Menu · Start centred at the bottom, 12 dp above the gesture area.
- * - Landscape: the game centred between side rails; the clusters centred in their rails at 60 %
- *   of the height, shoulders at the top of each rail, Select and Start at their foot and Menu
- *   bottom centre (under the game when there is room, else beside Select). Nothing overlaps the
- *   game.
+ * - Landscape: the game centred between side rails (6 dp from the camera cutout); the display's
+ *   full height when the rails leave room for it, otherwise inside the border. The clusters
+ *   centred in their rails at 60 % of the height, shoulders at the top of each rail, Select and
+ *   Start at their foot and Menu bottom centre (under the game when there is room, else beside
+ *   Select). Nothing overlaps the game.
  *
  * The control size comes from the setting; it gives way (down to 0.8) only when the game would
  * otherwise lose too much of its size, and never below the size floors. Both rails are as wide as
@@ -157,40 +184,36 @@ internal class StandardStage(
 
     fun portrait(): PlayerStage {
         val safe = safe
-        val top = safe.top + 8f
+        val top = bounds.top + (insets.cameraTop ?: insets.top) + CAMERA_GAP
         val rowHeight = max(PlayerControlMetrics.MENU_DIAMETER, PlayerControlMetrics(requestedScale).pill.height)
         val rowY = safe.bottom - 12f - rowHeight / 2
         val rowTop = rowY - rowHeight / 2
-        val gameWidth = safe.width - 24f
-        val aspect = aspect(Size(gameWidth, gameWidth * 0.75f))
-        val natural = gameWidth / aspect
+        val aspect = aspect(Size(safe.width, safe.width * 0.75f))
+        // Full width, edge to edge.
+        val natural = safe.width / aspect
 
         fun band(metrics: PlayerControlMetrics): Float = listOf(true, false).maxOf { side ->
             val stack = stack(side, metrics, portrait = true)
             stack.up + stack.down
         } + 12f
 
-        var stripSpace = TITLE_STRIP_HEIGHT + TITLE_STRIP_GAP
-        fun gameHeight(metrics: PlayerControlMetrics): Float =
-            min(natural, rowTop - band(metrics) - 8f - stripSpace - top)
+        // The game's frame: the full width when it fits above the controls (12 dp over the band),
+        // otherwise as large as fits inside the border.
+        fun gameFrame(metrics: PlayerControlMetrics): Rect {
+            val room = rowTop - band(metrics) - 12f - top
+            if (natural <= room) return Rect(safe.left, top, safe.right, top + natural)
+            val height = max(1f, min((safe.width - 2 * BORDER) / aspect, room))
+            val width = height * aspect
+            return Rect(safe.center.x - width / 2, top, safe.center.x + width / 2, top + height)
+        }
 
         // The two clusters side by side, 20 dp from the edges, never touching.
         fun fitsAcross(metrics: PlayerControlMetrics): Boolean =
             plan.rail(true, metrics).width + plan.rail(false, metrics).width + 16f <=
                 bounds.width - max(EDGE, insets.left) - max(EDGE, insets.right)
-        val metrics = scaled(requestedScale) { !fitsAcross(it) || gameHeight(it) < natural * PORTRAIT_GAME_FLOOR }
-        // On a small screen with a tall game (a DS on a compact phone) the title strip gives way
-        // to the game when the controls are already at their smallest.
-        if (gameHeight(metrics) < natural * PORTRAIT_GAME_FLOOR) stripSpace = 0f
-        val height = max(1f, gameHeight(metrics))
-        val width = height * aspect
-        val game = Rect(safe.center.x - width / 2, top, safe.center.x + width / 2, top + height)
-        val strip = if (stripSpace > 0f) {
-            Rect(safe.left + 16f, game.bottom + TITLE_STRIP_GAP, safe.right - 16f, game.bottom + TITLE_STRIP_GAP + TITLE_STRIP_HEIGHT)
-        } else {
-            null
-        }
-        val bandTop = (strip?.bottom ?: game.bottom) + 8f
+        val metrics = scaled(requestedScale) { !fitsAcross(it) || gameFrame(it).height < natural * PORTRAIT_GAME_FLOOR }
+        val game = gameFrame(metrics)
+        val bandTop = game.bottom + 12f
         val ideal = bandTop + 0.55f * (safe.bottom - bandTop)
         fun clusterY(dpadSide: Boolean): Clamp {
             // The shoulders ride above the stack: it never rises so far that they leave the band.
@@ -210,7 +233,6 @@ internal class StandardStage(
             rightClusterY = if (mirrored) dpadY else faceY,
             shoulders = PlayerControlAnchors.Shoulders.AboveCluster(PlayerControlMetrics(1f).shoulderLift),
             utility = PlayerControlAnchors.Utility.Row(midX = safe.center.x, y = rowY, maxWidth = rightEdge - leftEdge),
-            titleStrip = strip,
         )
         return PlayerStage(game, isPortrait = true, controls = plan.place(anchors, metrics, mirrored).copy(gameScreens = listOf(game)))
     }
@@ -219,8 +241,9 @@ internal class StandardStage(
 
     fun landscape(): PlayerStage {
         val safe = safe
-        val leftEdge = bounds.left + max(insets.left, 16f) + 4f
-        val rightEdge = bounds.right - max(insets.right, 16f) - 4f
+        val side = max((insets.cameraSide ?: max(insets.left, insets.right)) + CAMERA_SIDE_GAP, 20f)
+        val leftEdge = bounds.left + side
+        val rightEdge = bounds.right - side
         val railGap = 10f
         val areaTop = safe.top + 8f
         val areaBottom = safe.bottom
@@ -232,8 +255,11 @@ internal class StandardStage(
             plan.rail(true, metrics).width, plan.rail(false, metrics).width,
             plan.footWidth(leading = true, metrics), plan.footWidth(leading = false, metrics),
         )
+        // The game between the rails: the display's full height when the rails leave room for it,
+        // otherwise inside the border.
         fun gameSize(metrics: PlayerControlMetrics): Size {
             val width = max(1f, rightEdge - leftEdge - 2 * (railWidth(metrics) + railGap))
+            if (width >= bounds.height * aspect) return Size(bounds.height * aspect, bounds.height)
             val fitted = min(width, available * aspect)
             return Size(fitted, fitted / aspect)
         }
@@ -283,7 +309,11 @@ internal class StandardStage(
         val menuUnder = menuFitsUnder(metrics)
         val footSize = footHeight(metrics)
         val footY = areaBottom - 4f - footSize / 2
-        val gameY = if (menuUnder) areaTop + max(0f, (available - menu - 16f - size.height) / 2) else areaTop + (available - size.height) / 2
+        val gameY = when {
+            size.height >= bounds.height - 0.5f -> bounds.top
+            menuUnder -> areaTop + max(0f, (available - menu - 16f - size.height) / 2)
+            else -> areaTop + (available - size.height) / 2
+        }
         val midX = (leftEdge + rightEdge) / 2
         val game = Rect(midX - size.width / 2, gameY, midX + size.width / 2, gameY + size.height)
         val leftRail = leftEdge..max(leftEdge + 1f, game.left - railGap)
@@ -303,16 +333,18 @@ internal class StandardStage(
             rightClusterY = if (mirrored) dpadY else faceY,
             shoulders = PlayerControlAnchors.Shoulders.Top(shoulderTop),
             utility = PlayerControlAnchors.Utility.Feet(y = footY, menu = menuSpot),
-            titleStrip = null,
         )
         return PlayerStage(game, isPortrait = false, controls = plan.place(anchors, metrics, mirrored).copy(gameScreens = listOf(game)))
     }
 
     companion object {
-        const val TITLE_STRIP_HEIGHT = 44f
-        const val TITLE_STRIP_GAP = 12f
         /** Portrait clusters sit this far from the screen edges. */
         const val EDGE = 20f
+        /** The game's distance from the camera cutout (portrait), and the controls' (landscape). */
+        const val CAMERA_GAP = 8f
+        const val CAMERA_SIDE_GAP = 6f
+        /** A game smaller than the display's width or height keeps this from its edges. */
+        const val BORDER = 12f
         /** Share of the game's natural height the controls may take before they shrink. */
         const val PORTRAIT_GAME_FLOOR = 0.8f
         const val LANDSCAPE_GAME_FLOOR = 0.7f

@@ -35,24 +35,29 @@ extension PlayerControlPlan {
 
 /// Touch controls v2 on a phone or tablet (docs/player-controls.md, Geometry).
 ///
-/// - Portrait: the game at the top; 12 pt under it the title strip; the rest is the
-///   control band: the d-pad and face cluster at 55% of its height, 20 pt from the
-///   screen edges, shoulders 16 pt above their side's stack and aligned to its outer
+/// - Portrait: the game at the top, 8 pt under the camera housing: the display's full
+///   width when that fits above the controls, otherwise inside a 12 pt border. The rest
+///   is the control band: the d-pad and face cluster at 55% of its height, 20 pt from
+///   the screen edges, shoulders 16 pt above their side's stack and aligned to its outer
 ///   edge, Select · Menu · Start centred at the bottom, 12 pt above the home indicator.
-/// - Landscape: the game centred between side rails; the clusters centred in their
-///   rails at 60% of the height, shoulders at the top of each rail, Select and Start
-///   at their foot and Menu bottom centre (under the game when there is room, else
-///   beside Select). Nothing overlaps the game.
+/// - Landscape: the game centred between side rails (6 pt from the camera housing); the
+///   display's full height when the rails leave room for it, otherwise inside the
+///   border. The clusters centred in their rails at 60% of the height, shoulders at the
+///   top of each rail, Select and Start at their foot and Menu bottom centre (under the
+///   game when there is room, else beside Select). Nothing overlaps the game.
 ///
 /// The control size comes from the setting; it gives way (down to 0.8) only when the
 /// game would otherwise lose too much of its size, and never below the size floors.
 /// Both rails are as wide as the wider one, so the game stays centred and mirroring
 /// (left-handed) never moves it.
 struct StandardStage {
-    static let titleStripHeight: CGFloat = 44
-    static let titleStripGap: CGFloat = 12
     /// Portrait clusters sit this far from the screen edges.
     static let edge: CGFloat = 20
+    /// The game's distance from the camera housing (portrait), and the controls' (landscape).
+    static let cameraGap: CGFloat = 8
+    static let cameraSideGap: CGFloat = 6
+    /// A game smaller than the display's width or height keeps this from its edges.
+    static let border: CGFloat = 12
     /// Share of the game's natural height the controls may take before they shrink.
     static let portraitGameFloor: CGFloat = 0.8
     static let landscapeGameFloor: CGFloat = 0.7
@@ -132,13 +137,13 @@ struct StandardStage {
 
     func portrait() -> PlayerStageLayout {
         let safe = self.safe
-        let top = safe.minY + 8
+        let top = bounds.minY + insets.cameraTop + Self.cameraGap
         let rowHeight = max(PlayerControlMetrics.menuDiameter, PlayerControlMetrics(scale: requestedScale).pill.height)
         let rowY = safe.maxY - 12 - rowHeight / 2
         let rowTop = rowY - rowHeight / 2
-        let gameWidth = safe.width - 24
-        let aspect = self.aspect(CGSize(width: gameWidth, height: gameWidth * 0.75))
-        let natural = gameWidth / aspect
+        let aspect = self.aspect(CGSize(width: safe.width, height: safe.width * 0.75))
+        // Full width, edge to edge.
+        let natural = safe.width / aspect
 
         func band(_ metrics: PlayerControlMetrics) -> CGFloat {
             [true, false].map { side -> CGFloat in
@@ -146,20 +151,22 @@ struct StandardStage {
                 return stack.up + stack.down
             }.max()! + 12
         }
-        func gameHeight(_ metrics: PlayerControlMetrics) -> CGFloat {
-            min(natural, rowTop - band(metrics) - 8 - Self.titleStripHeight - Self.titleStripGap - top)
+        /// The game's frame: the full width when it fits above the controls (12 pt over the
+        /// band), otherwise as large as fits inside the border.
+        func gameFrame(_ metrics: PlayerControlMetrics) -> CGRect {
+            let room = rowTop - band(metrics) - 12 - top
+            if natural <= room { return CGRect(x: safe.minX, y: top, width: safe.width, height: natural) }
+            let height = max(1, min((safe.width - 2 * Self.border) / aspect, room))
+            return CGRect(x: safe.midX - height * aspect / 2, y: top, width: height * aspect, height: height)
         }
         // The two clusters side by side, 20 pt from the edges, never touching.
         func fitsAcross(_ metrics: PlayerControlMetrics) -> Bool {
             let dpad = plan.rail(dpadSide: true, metrics), face = plan.rail(dpadSide: false, metrics)
             return dpad.width + face.width + 16 <= bounds.width - max(Self.edge, insets.left) - max(Self.edge, insets.right)
         }
-        let metrics = scaled(from: requestedScale) { !fitsAcross($0) || gameHeight($0) < natural * Self.portraitGameFloor }
-        let height = max(1, gameHeight(metrics))
-        let width = height * aspect
-        let game = CGRect(x: safe.midX - width / 2, y: top, width: width, height: height)
-        let strip = CGRect(x: safe.minX + 16, y: game.maxY + Self.titleStripGap, width: safe.width - 32, height: Self.titleStripHeight)
-        let bandTop = strip.maxY + 8
+        let metrics = scaled(from: requestedScale) { !fitsAcross($0) || gameFrame($0).height < natural * Self.portraitGameFloor }
+        let game = gameFrame(metrics)
+        let bandTop = game.maxY + 12
         let ideal = bandTop + 0.55 * (safe.maxY - bandTop)
         func clusterY(dpadSide: Bool) -> (y: CGFloat, high: CGFloat) {
             let stack = self.stack(dpadSide: dpadSide, metrics, portrait: true)
@@ -177,8 +184,7 @@ struct StandardStage {
             leftClusterY: mirrored ? faceY : dpadY,
             rightClusterY: mirrored ? dpadY : faceY,
             shoulders: .aboveCluster(PlayerControlMetrics(scale: 1).shoulderLift),
-            utility: .row(midX: safe.midX, y: rowY, maxWidth: rightEdge - leftEdge),
-            titleStrip: strip)
+            utility: .row(midX: safe.midX, y: rowY, maxWidth: rightEdge - leftEdge))
         let controls = plan.place(anchors, metrics: metrics, mirrored: mirrored)
         let deck = PlayerControlDeckLayout(
             scale: metrics.scale, railTop: bandTop, railWidth: max(1, safe.midX - 6 - leftEdge), leftOrigin: leftEdge,
@@ -190,8 +196,9 @@ struct StandardStage {
 
     func landscape() -> PlayerStageLayout {
         let safe = self.safe
-        let leftEdge = bounds.minX + max(insets.left, 16) + 4
-        let rightEdge = bounds.maxX - max(insets.right, 16) - 4
+        let side = max(insets.cameraSide + Self.cameraSideGap, 20)
+        let leftEdge = bounds.minX + side
+        let rightEdge = bounds.maxX - side
         let railGap: CGFloat = 10
         let areaTop = safe.minY + 8
         let areaBottom = safe.maxY
@@ -203,8 +210,11 @@ struct StandardStage {
             max(plan.rail(dpadSide: true, metrics).width, plan.rail(dpadSide: false, metrics).width,
                 plan.footWidth(leading: true, metrics), plan.footWidth(leading: false, metrics))
         }
+        /// The game between the rails: the display's full height when the rails leave room
+        /// for it, otherwise inside the border.
         func gameSize(_ metrics: PlayerControlMetrics) -> CGSize {
             let width = max(1, rightEdge - leftEdge - 2 * (railWidth(metrics) + railGap))
+            if width >= bounds.height * aspect { return CGSize(width: bounds.height * aspect, height: bounds.height) }
             let fitted = min(width, available * aspect)
             return CGSize(width: fitted, height: fitted / aspect)
         }
@@ -231,7 +241,12 @@ struct StandardStage {
         let menuUnder = menuFitsUnder(metrics)
         let footSize = footHeight(metrics)
         let footY = areaBottom - 4 - footSize / 2
-        let gameY = menuUnder ? areaTop + max(0, (available - menu - 16 - size.height) / 2) : areaTop + (available - size.height) / 2
+        let gameY: CGFloat
+        if size.height >= bounds.height - 0.5 {
+            gameY = bounds.minY
+        } else {
+            gameY = menuUnder ? areaTop + max(0, (available - menu - 16 - size.height) / 2) : areaTop + (available - size.height) / 2
+        }
         let game = CGRect(x: (leftEdge + rightEdge) / 2 - size.width / 2, y: gameY, width: size.width, height: size.height)
         let leftRail = leftEdge ... max(leftEdge + 1, game.minX - railGap)
         let rightRail = min(rightEdge - 1, game.maxX + railGap) ... rightEdge
@@ -254,7 +269,7 @@ struct StandardStage {
         let anchors = PlayerControlAnchors(
             leftRail: leftRail, rightRail: rightRail, alignOuter: false,
             leftClusterY: mirrored ? faceY : dpadY, rightClusterY: mirrored ? dpadY : faceY,
-            shoulders: .top(shoulderTop), utility: .feet(y: footY, menu: menuSpot), titleStrip: nil)
+            shoulders: .top(shoulderTop), utility: .feet(y: footY, menu: menuSpot))
         let controls = plan.place(anchors, metrics: metrics, mirrored: mirrored)
         let deck = PlayerControlDeckLayout(
             scale: metrics.scale, railTop: shoulderTop, railWidth: leftRail.upperBound - leftRail.lowerBound,
