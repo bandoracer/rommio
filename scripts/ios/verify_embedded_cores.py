@@ -57,6 +57,10 @@ def verify(app: pathlib.Path, distribution: bool) -> list[dict]:
             record = json.loads(provenance.read_text())
             if record.get('runtimeId') != runtime or record.get('sha256') != digest:
                 raise ValueError(f'{runtime}: final framework digest does not match provenance')
+            # The core's snapshot identity, stable across app builds (docs/save-sync-spec.md).
+            identity = record.get('artifactSha256')
+            if not isinstance(identity, str) or len(identity) != 64 or any(c not in '0123456789abcdef' for c in identity):
+                raise ValueError(f'{runtime}: provenance does not record the core artifact digest')
         verified.append({'runtimeId': runtime, 'binaryPath': relative, 'sha256': digest,
                          'architectures': architectures,
                          'teamSigned': bool(team and team != 'not set')})

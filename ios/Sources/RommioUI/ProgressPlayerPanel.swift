@@ -168,7 +168,7 @@ struct ProgressPlayerPanel: View {
 
     /// Loadable here: the session runs and the state (if any) was made by this core build.
     private func canRestore(_ checkpoint: ProgressCheckpoint) -> Bool {
-        feature.hasStarted && (checkpoint.stateCompatibility == nil || checkpoint.stateCompatibility == feature.progressOwner?.qualification.state)
+        feature.hasStarted && (checkpoint.stateCompatibility == nil || feature.progressOwner?.qualification.restoresState(checkpoint) == true)
     }
 
     private func isSlotOrResumeHead(_ entry: SaveEntry) -> Bool {
@@ -220,7 +220,7 @@ struct ProgressPlayerPanel: View {
 
     private func subtitle(_ entry: SaveEntry, checkpoint: ProgressCheckpoint?) -> String {
         var line = SaveFormat.gameDetail(entry)
-        if let checkpoint, checkpoint.stateCompatibility != nil, checkpoint.stateCompatibility != feature.progressOwner?.qualification.state {
+        if let checkpoint, checkpoint.stateCompatibility != nil, feature.progressOwner?.qualification.restoresState(checkpoint) != true {
             line += " · Made by another core or platform"
         }
         if feature.progressHistory.first(where: { $0.id == entry.key.checkpointId })?.pinned == true { line += " · Preserved" }

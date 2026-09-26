@@ -26,7 +26,7 @@ Local `namespaceId` and `contentId` are opaque UUIDs stored in SQLite. A unique 
 Each checkpoint includes its ID, binding, capture reason, provenance, save compatibility, optional state compatibility, `saveDataComplete`, and artifacts. Artifact fields are `sha256`, `byteLength`, `role`, `relativePath`, and `format`.
 
 - Save compatibility describes `system`, `format`, `layoutVersion`, optional `coreId`, and whether empty save data is valid (`allowsEmpty`). Its values must eventually come from qualified core capabilities, not guesses based on file extensions.
-- State compatibility describes the exact `coreId`, `coreSha256`, `stateFormat`, `platform`, `architecture`, core `options`, and `systemFiles` digests.
+- State compatibility describes the exact `coreId`, `coreSha256`, `stateFormat`, `platform`, `architecture`, core `options`, and `systemFiles` digests. `coreSha256` is the core artifact's digest before platform signing (save/sync specification §3.2).
 - Artifact roles are `sram`, `rtc`, `memoryCard`, `saveFile`, and `state`. At most one state artifact is allowed, and it requires a state descriptor. A state artifact cannot be empty.
 - A complete save capture contains save artifacts unless the descriptor explicitly allows an empty save. A checkpoint that declares an incomplete save cannot contain partial save artifacts.
 - Artifact paths are NFC Unicode relative paths, without empty, dot, parent, backslash, colon, or control-character components. Paths cannot duplicate another artifact ignoring case or use another artifact as a directory. Safe materialization additionally rejects symlinks beneath the owned root.

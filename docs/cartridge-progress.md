@@ -5,7 +5,8 @@ The subsequent Sega/PlayStation/N64/PSP increment is tracked separately in [plat
 Updated 2026-09-21. This extends the existing NES implementation under the
 [save/sync specification](save-sync-spec.md). Game saves and resume snapshots
 remain independent, equally important streams. A game save can cross platforms;
-a resume snapshot requires the exact core binary, platform, architecture,
+a resume snapshot requires the exact core build (its artifact digest before any
+platform signing; see the save/sync specification §3.2), platform, architecture,
 options, and firmware identity. An incompatible snapshot stays in history while
 an explicit cold boot uses compatible game-save data.
 

@@ -23,7 +23,7 @@ public enum PinnedAppleCore {
                   let expected = record?["sha256"] as? String, try ProgressFileHash.sha256(core) == expected else {
                 throw ProgressStoreError.invalid("The Azahar Vulkan core does not match its pinned build.")
             }
-            return expected
+            return identity(record, signed: expected)
         }
         let cartridge = cartridgeRuntimes.contains(runtimeID)
         guard record?["schemaVersion"] as? Int == 1, record?["runtimeId"] as? String == runtimeID,
@@ -37,6 +37,17 @@ public enum PinnedAppleCore {
               let expected = record?["sha256"] as? String, try ProgressFileHash.sha256(core) == expected else {
             throw ProgressStoreError.invalid("The Apple core does not match its pinned persistence build.")
         }
-        return expected
+        return identity(record, signed: expected)
+    }
+
+    /// The core's identity in snapshot compatibility (docs/save-sync-spec.md): the pinned
+    /// artifact's digest before the app build embedded and signed it (`artifactSha256`), which
+    /// every app build from that core build shares. The signed file's digest (`sha256`, checked
+    /// above) changes with every signature, which records its signing time. Provenance without
+    /// the artifact digest (the macOS test build, whose core is not re-signed) names the file.
+    private static func identity(_ record: [String: Any]?, signed: String) -> String {
+        guard let artifact = record?["artifactSha256"] as? String, artifact.count == 64,
+              artifact.allSatisfy({ "0123456789abcdef".contains($0) }) else { return signed }
+        return artifact
     }
 }

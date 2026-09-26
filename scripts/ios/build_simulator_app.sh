@@ -134,6 +134,8 @@ manifest = json.loads((root / 'FceummProvenance.json').read_text())
 actual = hashlib.sha256((root / 'Frameworks/fceumm.framework/fceumm').read_bytes()).hexdigest()
 if manifest['sha256'] != actual:
     raise SystemExit('Final signed FCEUmm bytes differ from the runtime provenance manifest')
+if len(manifest.get('artifactSha256', '')) != 64:
+    raise SystemExit('The FCEUmm provenance does not record the core artifact digest')
 PY
 
 echo "Built ${app_path}"

@@ -338,7 +338,7 @@ public final class PlayerFeatureModel: Identifiable {
     func quickLoadPreferredState() async {
         if progressOwner != nil {
             await refreshProgress()
-            if let state = progressHistory.first(where: { $0.checkpoint.stateCompatibility == progressOwner?.qualification.state }) { await restoreProgress(state.id) }
+            if let state = progressHistory.first(where: { progressOwner?.qualification.restoresState($0.checkpoint) == true }) { await restoreProgress(state.id) }
             else { errorMessage = "No compatible snapshot is available. Game-save data remains separate." }
             return
         }

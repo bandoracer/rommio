@@ -40,6 +40,13 @@ public enum PlayerPreviewFrames {
 }
 
 public struct CartridgePersistence: Sendable {
+    /// Whether this core restores `checkpoint`'s snapshot (a checkpoint without one has none to
+    /// restore): see `ProgressStateCompatibility.restores`.
+    public func restoresState(_ checkpoint: ProgressCheckpoint) -> Bool {
+        guard let snapshot = checkpoint.stateCompatibility else { return false }
+        return state.restores(snapshot, createdAtEpochMs: checkpoint.createdAtEpochMs)
+    }
+
     public static let regions = [0: ("sram", "save.srm"), 1: ("rtc", "save.rtc"), 256: ("sram", "save-1.srm"), 512: ("sram", "save-2.srm"), 768: ("sram", "save-3.srm")]
     public let save: ProgressSaveCompatibility
     public let state: ProgressStateCompatibility

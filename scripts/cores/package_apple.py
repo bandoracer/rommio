@@ -22,7 +22,7 @@ def main():
             assets=root/'Cores/system'/runtime;assets.mkdir(parents=True,exist_ok=True)
             shutil.copytree(binary.with_name('system'),assets/'system',dirs_exist_ok=True)
             shutil.copy2(binary.with_name('system-manifest.json'),assets/'system-manifest.json')
-        pin=json.loads(binary.with_name('provenance.json').read_text());pin['sha256']=digest;(root/f'{runtime}Provenance.json').write_text(json.dumps(pin,indent=2)+'\n')
+        pin=json.loads(binary.with_name('provenance.json').read_text());pin['artifactSha256']=framework.artifact_digest(binary);pin['sha256']=digest;(root/f'{runtime}Provenance.json').write_text(json.dumps(pin,indent=2)+'\n')
         license_dest=root/'Cores/licenses'/f'{runtime}.LICENSE.txt';license_dest.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(binary.with_name('LICENSE.txt'),license_dest)
         licenses=[x for x in licenses if x['id']!=runtime]+[{'id':runtime,'binary_path':f'Frameworks/{runtime}.framework/{runtime}','license_path':f'Cores/licenses/{runtime}.LICENSE.txt'}]
     fbneo=pathlib.Path(__file__).resolve().parents[2]/'ios/App/Resources/Cores/fbneo.dylib'
@@ -46,7 +46,7 @@ def main():
         moltenvk_license.parent.mkdir(parents=True,exist_ok=True)
         shutil.copy2(pathlib.Path(__file__).resolve().parents[2]/'ios/Sources/RommioPlayerBridge/vendor/MOLTENVK_LICENSE.txt',moltenvk_license)
         _,digest=framework.embed(binary,root,'azahar',identity)
-        provenance=json.loads(binary.with_name('provenance.json').read_text());provenance['sha256']=digest;provenance['bundledInApp']=True
+        provenance=json.loads(binary.with_name('provenance.json').read_text());provenance['artifactSha256']=framework.artifact_digest(binary);provenance['sha256']=digest;provenance['bundledInApp']=True
         (root/'azaharProvenance.json').write_text(json.dumps(provenance,indent=2)+'\n')
         license_dest=root/'Cores/licenses/azahar.LICENSE.txt';license_dest.parent.mkdir(parents=True,exist_ok=True)
         shutil.copy2(pathlib.Path(__file__).resolve().parents[2]/f'build/azahar-candidate/{sdk}-{arch}/output/LICENSE.txt',license_dest)

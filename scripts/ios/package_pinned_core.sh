@@ -21,6 +21,7 @@ spec=importlib.util.spec_from_file_location('embed_core_framework',pathlib.Path(
 module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
 _,digest=module.embed(source,root,'fceumm',sys.argv[3])
 manifest=json.loads(source.with_name('FceummProvenance.json').read_text())
+manifest['artifactSha256']=module.artifact_digest(source)
 manifest['sha256']=digest
 (root/'FceummProvenance.json').write_text(json.dumps(manifest,indent=2)+'\n')
 licenses=root/'CoreLicenses.json'

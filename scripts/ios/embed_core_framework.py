@@ -8,6 +8,14 @@ import subprocess
 import sys
 
 
+def artifact_digest(core: pathlib.Path) -> str:
+    """The core's identity in snapshot compatibility: its SHA-256 as built, before it is embedded
+    and signed. Every app build from the same core build has it. The final (signed) digest, which
+    `embed` returns and provenance keeps as `sha256`, changes with every signature: a signature
+    records its signing time."""
+    return hashlib.sha256(core.read_bytes()).hexdigest()
+
+
 def embed(core: pathlib.Path, app: pathlib.Path, runtime: str, identity: str) -> tuple[pathlib.Path, str]:
     if not runtime.replace('_', '').isalnum():
         raise ValueError('Invalid core runtime ID')

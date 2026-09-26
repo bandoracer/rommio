@@ -89,7 +89,7 @@ public actor ProgressSessionOwner {
             let resumeRefs = refs.filter { $0.key.hasPrefix("state/resume/") }
             guard !resumeRefs.isEmpty else { return .none }
             for head in resumeRefs.values.flatMap({ $0.count == 1 ? $0 : [] }) {
-                guard let cp = head.checkpoint, cp.stateCompatibility == owner.qualification.state,
+                guard let cp = head.checkpoint, owner.qualification.restoresState(cp),
                       let pair = cp.gameSaveOperationId,
                       try await owner.store.isGameAncestor(owner.identity, ancestor: pair, descendant: current),
                       ProgressProtocol.gameArtifacts(cp) == ProgressProtocol.gameArtifacts(game) else { continue }
@@ -125,10 +125,13 @@ public actor ProgressSessionOwner {
             try await engine.restoreProgress(memory: memory, state: nil)
             message = "Loaded game-save data."
             if !coldBoot {
-                let candidates = refs.filter { $0.key.hasPrefix("state/resume/") }.values.flatMap { heads -> [ProgressHead] in heads.count == 1 ? heads : [] }
+                // A snapshot made by this exact core first, then one from a pre-fix build.
+                let candidates = refs.filter { $0.key.hasPrefix("state/resume/") }.values
+                    .flatMap { heads -> [ProgressHead] in heads.count == 1 ? heads : [] }
+                    .sorted { ($0.checkpoint?.stateCompatibility == qualification.state ? 0 : 1) < ($1.checkpoint?.stateCompatibility == qualification.state ? 0 : 1) }
                 var usedState = false
                 for head in candidates {
-                    guard let cp = head.checkpoint, cp.stateCompatibility == qualification.state,
+                    guard let cp = head.checkpoint, qualification.restoresState(cp),
                           let pair = cp.gameSaveOperationId, let current = gameHeads.first?.operationId,
                           try await store.isGameAncestor(identity, ancestor: pair, descendant: current),
                           ProgressProtocol.gameArtifacts(cp) == ProgressProtocol.gameArtifacts(game) else { continue }
@@ -228,7 +231,7 @@ public actor ProgressSessionOwner {
         try await ordered { owner in
             guard owner.started && !owner.closed else { throw ProgressStoreError.invalid("Start the session before restoring") }
             let cp = try await owner.store.checkpointByID(owner.identity, id: checkpointID)
-            guard cp.saveCompatibility == owner.qualification.save, cp.stateCompatibility == nil || cp.stateCompatibility == owner.qualification.state else { throw ProgressStoreError.invalid("This snapshot requires a different core, platform, or options. Its game-save data remains in history.") }
+            guard cp.saveCompatibility == owner.qualification.save, cp.stateCompatibility == nil || owner.qualification.restoresState(cp) else { throw ProgressStoreError.invalid("This snapshot requires a different core, platform, or options. Its game-save data remains in history.") }
             let target = try await owner.readMemory(cp)
             try await owner.setEnginePaused(true)
             let current = try await owner.engine.captureProgress(includeState: false); try owner.qualification.validate(current)
@@ -336,7 +339,7 @@ public actor ProgressSessionOwner {
         let memory = try await readMemory(cp)
         var state: Data?
         if cp.stateCompatibility != nil {
-            guard cp.stateCompatibility == qualification.state, let artifact = cp.artifacts.first(where: { $0.role == "state" }) else { throw ProgressStoreError.invalid("Incompatible snapshot") }
+            guard qualification.restoresState(cp), let artifact = cp.artifacts.first(where: { $0.role == "state" }) else { throw ProgressStoreError.invalid("Incompatible snapshot") }
             state = try Data(contentsOf: await store.artifact(identity, artifact))
         }
         if state == nil && started {
