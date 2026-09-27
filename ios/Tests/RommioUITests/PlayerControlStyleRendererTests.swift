@@ -82,7 +82,7 @@ final class PlayerControlStyleRendererTests: XCTestCase {
         XCTAssertEqual(dpad.plate, player.dpadAltFill.color, "blue plate")
         XCTAssertEqual(dpad.pivot, player.pivot.color, "yellow pivot")
         XCTAssertEqual(dpad.glyphs, .triangles)
-        XCTAssertNil(dpad.disc)
+        XCTAssertNil(dpad.stroke, "ink plates, no keyline")
 
         XCTAssertEqual(riso.opacity(user: 0.6), 1, "Riso never prints over a game, so it keeps full ink")
     }
@@ -107,7 +107,8 @@ final class PlayerControlStyleRendererTests: XCTestCase {
 
         let dpad = aurora.dpad()
         XCTAssertFalse(dpad.twoPlate)
-        XCTAssertEqual(dpad.disc, player.controlFill.color)
+        XCTAssertEqual(dpad.arm, player.controlFill.color, "a glass cross (no disc)")
+        XCTAssertNotNil(dpad.stroke)
         XCTAssertTrue(dpad.frosted)
         XCTAssertEqual(dpad.glyphs, .chevrons)
         XCTAssertEqual(aurora.opacity(user: 0.6), 0.6)

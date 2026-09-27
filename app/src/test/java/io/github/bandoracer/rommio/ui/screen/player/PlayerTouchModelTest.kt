@@ -146,34 +146,87 @@ class PlayerTouchModelTest {
         assertEquals(controls.menuCenter.y, select.center.y, 0.5f)
     }
 
-    /** Revised 2026-09-24: shoulders 16 dp above their side's cluster, at its outer edge. */
-    @Test fun portraitShouldersSit16AboveTheirClusterAtItsOuterEdge() {
-        for (family in listOf("gba", "snes", "psx")) {
+    /**
+     * Portrait shoulders (revised 2026-09-26): one level row 28 dp under the game; each side's main
+     * shoulder (L, R, L1, R1) a bumper flush against its screen edge, any other inward beside it; the
+     * clusters below the row. Mirrors iOS.
+     */
+    @Test fun portraitShouldersAreALevelRowOfEdgeBumpersUnderTheGame() {
+        for (family in listOf("gba", "snes", "psx", "3ds")) {
             for (mirrored in listOf(false, true)) {
                 val label = "$family mirrored=$mirrored"
-                val layout = stage(family, proPortrait, mirrored = mirrored)
+                // (PlayStation with its sticks: no room to stack, so one row.)
+                val layout = stage(family, proPortrait, mirrored = mirrored, analog = family == "psx")
                 val controls = layout.controls
-                val dpad = requireNotNull(controls.dpad).frame
-                val face = faceBox(controls)
-                val left = controls.controls.filter { it.kind == PlayerTouchKind.SHOULDER && it.spec.left }.map { it.frame }
-                val right = controls.controls.filter { it.kind == PlayerTouchKind.SHOULDER && !it.spec.left }.map { it.frame }
-                // The d-pad's shoulders ride its rail (left unless mirrored), the others the face's.
-                for ((row, cluster) in listOf(left to dpad, right to face)) {
-                    val box = union(row)
-                    val outerOnLeft = cluster.center.x < 201f
-                    assertEquals("16 dp above the cluster: $label", cluster.top - 16f, box.bottom, 0.5f)
-                    if (outerOnLeft) assertEquals("Outer edge: $label", cluster.left, box.left, 0.5f)
-                    else assertEquals("Outer edge: $label", cluster.right, box.right, 0.5f)
-                    assertTrue("Inside the band: $label", box.top >= layout.viewport.bottom + 12f - 0.5f)
-                    row.forEach { assertEquals(40f, it.height, 0.01f) }
+                val shoulders = controls.controls.filter { it.kind == PlayerTouchKind.SHOULDER }
+                assertTrue(label, shoulders.isNotEmpty())
+                val top = shoulders.minOf { it.frame.top }
+                shoulders.forEach {
+                    assertEquals("Level: ${it.id} $label", top, it.frame.top, 0.5f)
+                    assertTrue("${it.id} $label", it.frame.height >= 40f - 0.01f)
+                }
+                assertEquals("28 dp under the game: $label", layout.viewport.bottom + 28f, top, 0.5f)
+                val mains = shoulders.filter { it.spec.label in setOf("L", "R", "L1", "R1") }
+                assertEquals(label, 2, mains.size)
+                mains.forEach { main ->
+                    if (main.shape == PlayerTouchShape.BUMPER_LEADING) assertEquals("Flush left: ${main.id} $label", 0f, main.frame.left, 0.5f)
+                    else {
+                        assertEquals(label, PlayerTouchShape.BUMPER_TRAILING, main.shape)
+                        assertEquals("Flush right: ${main.id} $label", 402f, main.frame.right, 0.5f)
+                    }
+                }
+                (shoulders - mains.toSet()).forEach { assertEquals(label, PlayerTouchShape.TAB, it.shape) }
+                val rowBottom = shoulders.maxOf { it.frame.bottom }
+                controls.controls.filter { it.kind != PlayerTouchKind.SHOULDER && it.kind != PlayerTouchKind.SYSTEM }.forEach {
+                    assertTrue("Below the shoulders: ${it.id} $label", it.frame.top >= rowBottom + 12f - 0.5f)
                 }
             }
         }
-        // GBA: 88 × 40 tabs over the d-pad (left edge 20) and over the A/B pair (right edge 382).
+        // A squeezed band (a DS on a small phone, the controls at their smallest): the row gives way,
+        // 12 dp under the game at the shoulders' natural height.
+        val small = phones.first { it.name == "Small Android portrait" }
+        val ds = stage("nds", small, scale = 0.8f)
+        val dsRow = ds.controls.controls.filter { it.kind == PlayerTouchKind.SHOULDER }
+        assertEquals(ds.viewport.bottom + 12f, dsRow.minOf { it.frame.top }, 0.5f)
+        assertTrue(dsRow.all { it.frame.height < 44f })
+        // GBA: an 88 dp tab widened over the 20 dp margin to the edge, 44 dp tall.
         val gba = stage("gba", proPortrait).controls
-        assertEquals(Size(88f, 40f), gba.control("L")!!.frame.size)
-        assertEquals(20f, gba.control("L")!!.frame.left, 0.5f)
-        assertEquals(402f - 20f, gba.control("R")!!.frame.right, 0.5f)
+        assertEquals(Size(108f, 44f), gba.control("L")!!.frame.size)
+        assertEquals(0f, gba.control("L")!!.frame.left, 0.5f)
+        assertEquals(402f, gba.control("R")!!.frame.right, 0.5f)
+    }
+
+    /** PlayStation's numbered shoulders stack, 1 above 2, when that costs nothing (revised 2026-09-26). Mirrors iOS. */
+    @Test fun numberedShouldersStackWhenThereIsRoom() {
+        val portrait = stage("psx", proPortrait)
+        val controls = portrait.controls
+        assertEquals("The game keeps the full width", 402f, portrait.viewport.width, 0.5f)
+        assertEquals(1f, controls.metrics.scale, 0.001f)
+        for ((top, bottom, leading) in listOf(Triple("L1", "L2", true), Triple("R1", "R2", false))) {
+            val one = controls.control(top)!!
+            val two = controls.control(bottom)!!
+            assertEquals(portrait.viewport.bottom + 28f, one.frame.top, 0.5f)
+            assertEquals("$bottom 8 dp under $top", one.frame.bottom + 8f, two.frame.top, 0.5f)
+            for (shoulder in listOf(one, two)) {
+                assertEquals(if (leading) PlayerTouchShape.BUMPER_LEADING else PlayerTouchShape.BUMPER_TRAILING, shoulder.shape)
+                if (leading) assertEquals(0f, shoulder.frame.left, 0.5f) else assertEquals(402f, shoulder.frame.right, 0.5f)
+            }
+        }
+        val columnBottom = controls.controls.filter { it.kind == PlayerTouchKind.SHOULDER }.maxOf { it.frame.bottom }
+        controls.controls.filter { it.kind != PlayerTouchKind.SHOULDER && it.kind != PlayerTouchKind.SYSTEM }.forEach {
+            assertTrue("Below the shoulders: ${it.id}", it.frame.top >= columnBottom + 12f - 0.5f)
+        }
+        // With its sticks there is no room: one row.
+        val analog = stage("psx", proPortrait, analog = true).controls
+        assertEquals(analog.control("L1")!!.frame.top, analog.control("L2")!!.frame.top, 0.5f)
+        // Landscape rails, no sticks: a column at the rail's top, centred in it; with sticks, one row.
+        val landscape = stage("psx", proLandscape).controls
+        val l1 = landscape.control("L1")!!.frame
+        val l2 = landscape.control("L2")!!.frame
+        assertEquals(l1.bottom + 8f, l2.top, 0.5f)
+        assertEquals(l1.center.x, l2.center.x, 0.5f)
+        val rail = stage("psx", proLandscape, analog = true).controls
+        assertEquals(rail.control("L1")!!.frame.top, rail.control("L2")!!.frame.top, 0.5f)
     }
 
     @Test fun landscapeCentresTheGameBetweenRailsWithClustersAt60Percent() {
@@ -360,8 +413,8 @@ class PlayerTouchModelTest {
         assertEquals("Inside the dead zone (18% of 75 = 13.5)", PlayerDPadDirection.NONE, direction(0.0, 13f))
         assertEquals(PlayerDPadDirection.RIGHT, direction(0.0, 14f))
         assertEquals(PlayerDPadDirection.RIGHT, direction(0.0))
-        assertEquals(PlayerDPadDirection.RIGHT, direction(24.0))
-        assertEquals("Diagonal sectors are 40° wide (25°–65°)", PlayerDPadDirection.DOWN_RIGHT, direction(26.0))
+        assertEquals(PlayerDPadDirection.RIGHT, direction(29.0))
+        assertEquals("Diagonal sectors are 30° wide (30°–60°)", PlayerDPadDirection.DOWN_RIGHT, direction(31.0))
         assertEquals(PlayerDPadDirection.DOWN_RIGHT, direction(45.0))
         assertEquals(PlayerDPadDirection.DOWN, direction(90.0))
         assertEquals(PlayerDPadDirection.DOWN_LEFT, direction(135.0))
@@ -369,13 +422,33 @@ class PlayerTouchModelTest {
         assertEquals(PlayerDPadDirection.UP_LEFT, direction(225.0))
         assertEquals(PlayerDPadDirection.UP, direction(270.0))
         assertEquals(PlayerDPadDirection.UP_RIGHT, direction(315.0))
-        assertEquals(PlayerDPadDirection.DOWN_RIGHT, direction(64.0))
-        assertEquals(PlayerDPadDirection.DOWN, direction(66.0))
+        assertEquals(PlayerDPadDirection.DOWN_RIGHT, direction(59.0))
+        assertEquals(PlayerDPadDirection.DOWN, direction(61.0))
         // Hysteresis: a held direction keeps a slightly wider sector.
-        assertEquals(PlayerDPadDirection.RIGHT, direction(28.0, previous = PlayerDPadDirection.RIGHT))
-        assertEquals(PlayerDPadDirection.DOWN_RIGHT, direction(30.0, previous = PlayerDPadDirection.RIGHT))
+        assertEquals(PlayerDPadDirection.RIGHT, direction(33.0, previous = PlayerDPadDirection.RIGHT))
+        assertEquals(PlayerDPadDirection.DOWN_RIGHT, direction(35.0, previous = PlayerDPadDirection.RIGHT))
         assertEquals("Held: the dead zone shrinks to 15%", PlayerDPadDirection.RIGHT, direction(0.0, 12f, previous = PlayerDPadDirection.RIGHT))
         assertEquals(setOf(down, right), PlayerDPadDirection.DOWN_RIGHT.keys)
+    }
+
+    /** A small d-pad beside a primary stick (N64, 3DS) is four-way: every angle is one arm. Mirrors iOS. */
+    @Test fun aSecondaryDpadIsFourWay() {
+        fun direction(degrees: Double, previous: PlayerDPadDirection = PlayerDPadDirection.NONE): PlayerDPadDirection {
+            val radians = Math.toRadians(degrees)
+            return PlayerTouchRules.dpadDirection((40 * cos(radians)).toFloat(), (40 * sin(radians)).toFloat(), 52f, previous, diagonals = false)
+        }
+        assertEquals(PlayerDPadDirection.RIGHT, direction(44.0))
+        assertEquals(PlayerDPadDirection.DOWN, direction(46.0))
+        assertEquals(PlayerDPadDirection.LEFT, direction(135.5))
+        assertEquals(PlayerDPadDirection.RIGHT, direction(315.5))
+        assertEquals("Held: 4° wider", PlayerDPadDirection.RIGHT, direction(48.0, previous = PlayerDPadDirection.RIGHT))
+        for (family in listOf("n64", "3ds")) assertTrue(family, stage(family, proLandscape).controls.dpad!!.fourWay)
+        assertFalse(stage("snes", proLandscape).controls.dpad!!.fourWay)
+        assertFalse("PSP's d-pad is its primary", stage("psp", proLandscape).controls.dpad!!.fourWay)
+        val tracker = PlayerTouchTracker(stage("n64", proLandscape).controls)
+        val pad = tracker.layout.dpad!!
+        val diagonal = tracker.began(1, Offset(pad.center.x + 30f, pad.center.y + 30f))
+        assertEquals("One arm at a time: $diagonal", 1, diagonal.filterIsInstance<PlayerTouchOutput.Digital>().size)
     }
 
     // ---- Tracker ----
@@ -562,13 +635,65 @@ class PlayerTouchModelTest {
         Vector("psx-right", -15.0, 26.0, -0.3887, 0.6737, false)
     )
 
-    /** The script's follow line: centre (0, 0), thumb (80, 0) → centre. */
-    private val referenceFollow = mapOf(
-        "n64" to (32.0 to 0.0),
-        "3ds" to (36.0 to 0.0),
-        "psp" to (44.0 to 0.0),
-        "psx" to (36.0 to 0.0),
-        "psx-right" to (40.0 to 0.0)
+    private data class Notch(val profile: String, val degrees: Double, val entering: Int?, val holding: Int?)
+
+    /** The script's notch lines: at full tilt (60 dp out) by angle, entering and holding notch 1. */
+    private val referenceNotches = listOf(
+        Notch("n64", 0.0, 0, 0),
+        Notch("n64", 5.0, 0, 0),
+        Notch("n64", 10.0, null, null),
+        Notch("n64", 40.0, 1, 1),
+        Notch("n64", 45.0, 1, 1),
+        Notch("n64", 52.0, 1, 1),
+        Notch("n64", 55.0, null, 1),
+        Notch("n64", 58.0, null, null),
+        Notch("n64", 90.0, 2, 2),
+        Notch("n64", 135.0, 3, 3),
+        Notch("n64", 270.0, 6, 6),
+        Notch("3ds", 0.0, null, null),
+        Notch("3ds", 5.0, null, null),
+        Notch("3ds", 10.0, null, null),
+        Notch("3ds", 40.0, null, null),
+        Notch("3ds", 45.0, null, null),
+        Notch("3ds", 52.0, null, null),
+        Notch("3ds", 55.0, null, null),
+        Notch("3ds", 58.0, null, null),
+        Notch("3ds", 90.0, null, null),
+        Notch("3ds", 135.0, null, null),
+        Notch("3ds", 270.0, null, null),
+        Notch("psp", 0.0, null, null),
+        Notch("psp", 5.0, null, null),
+        Notch("psp", 10.0, null, null),
+        Notch("psp", 40.0, null, null),
+        Notch("psp", 45.0, null, null),
+        Notch("psp", 52.0, null, null),
+        Notch("psp", 55.0, null, null),
+        Notch("psp", 58.0, null, null),
+        Notch("psp", 90.0, null, null),
+        Notch("psp", 135.0, null, null),
+        Notch("psp", 270.0, null, null),
+        Notch("psx", 0.0, null, null),
+        Notch("psx", 5.0, null, null),
+        Notch("psx", 10.0, null, null),
+        Notch("psx", 40.0, 0, 0),
+        Notch("psx", 45.0, 0, 0),
+        Notch("psx", 52.0, 0, 0),
+        Notch("psx", 55.0, null, null),
+        Notch("psx", 58.0, null, null),
+        Notch("psx", 90.0, null, null),
+        Notch("psx", 135.0, 1, 1),
+        Notch("psx", 270.0, null, null),
+        Notch("psx-right", 0.0, null, null),
+        Notch("psx-right", 5.0, null, null),
+        Notch("psx-right", 10.0, null, null),
+        Notch("psx-right", 40.0, 0, 0),
+        Notch("psx-right", 45.0, 0, 0),
+        Notch("psx-right", 52.0, 0, 0),
+        Notch("psx-right", 55.0, null, null),
+        Notch("psx-right", 58.0, null, null),
+        Notch("psx-right", 90.0, null, null),
+        Notch("psx-right", 135.0, 1, 1),
+        Notch("psx-right", 270.0, null, null),
     )
 
     @Test fun stickOutputMatchesTheReferenceScriptForEveryProfile() {
@@ -585,17 +710,19 @@ class PlayerTouchModelTest {
         assertEquals(55, referenceVectors.size)
     }
 
-    @Test fun followCentreMatchesTheReferenceScript() {
-        for ((name, centre) in referenceFollow) {
-            val profile = requireNotNull(PlayerStickProfile.all[name])
-            val (cx, cy) = PlayerStickModel.followCentre(0.0, 0.0, 80.0, 0.0, profile)
-            assertEquals(name, centre.first, cx, 0.05)
-            assertEquals(name, centre.second, cy, 0.05)
-            // Exactly at the rim, and nothing within full travel or without follow.
-            assertEquals(name, profile.travel, 80.0 - cx, 1e-9)
-            assertEquals(0.0 to 0.0, PlayerStickModel.followCentre(0.0, 0.0, profile.travel, 0.0, profile))
-            assertEquals(0.0 to 0.0, PlayerStickModel.followCentre(0.0, 0.0, 80.0, 0.0, profile.copy(follow = false)))
+    /** The gate's notches (revised 2026-09-26): caught within 8°, held out to 12°. Mirrors iOS. */
+    @Test fun notchesMatchTheReferenceScript() {
+        assertEquals(55, referenceNotches.size)
+        for (n in referenceNotches) {
+            val profile = requireNotNull(PlayerStickProfile.all[n.profile])
+            val dx = 60.0 * Math.cos(Math.toRadians(n.degrees))
+            val dy = 60.0 * Math.sin(Math.toRadians(n.degrees))
+            assertEquals("${n.profile} ${n.degrees}°", n.entering, PlayerStickModel.notch(dx, dy, profile))
+            assertEquals("${n.profile} ${n.degrees}° holding 1", n.holding, PlayerStickModel.notch(dx, dy, profile, current = 1))
         }
+        assertEquals(listOf(PlayerStickGate.OCTAGON, PlayerStickGate.CIRCLE, PlayerStickGate.CIRCLE, PlayerStickGate.SQUARE, PlayerStickGate.SQUARE),
+            listOf("n64", "3ds", "psp", "psx", "psx-right").map { PlayerStickProfile.all.getValue(it).gate })
+        assertNull(PlayerStickModel.notch(20.0, 0.0, PlayerStickProfile.N64))
     }
 
     @Test fun theGateShapeSetsHowFarDiagonalsReach() {
@@ -636,7 +763,7 @@ class PlayerTouchModelTest {
         assertEquals(48.0 * n64.metrics.scale, n64.control("stick0")!!.stickProfile!!.travel, 1e-4)
         assertEquals(36.0 * stage("psp", proLandscape).controls.metrics.scale, stage("psp", proLandscape).controls.control("stick0")!!.stickProfile!!.travel, 1e-4)
         assertEquals(44.0 * stage("3ds", proLandscape).controls.metrics.scale, stage("3ds", proLandscape).controls.control("circlePad")!!.stickProfile!!.travel, 1e-4)
-        // Sensitivity: travel × 1.2 / 1 / 0.8; Dead zone: × 0.6 / 1 / 1.6; Fixed never follows.
+        // Sensitivity: travel × 1.2 / 1 / 0.8; Dead zone: × 0.6 / 1 / 1.6; the gate stays.
         val base = PlayerStickProfile.N64
         val low = base.tuned(PlayerStickTuning(sensitivity = PlayerStickTuning.Sensitivity.LOW))
         val high = base.tuned(PlayerStickTuning(sensitivity = PlayerStickTuning.Sensitivity.HIGH, deadZone = PlayerStickTuning.DeadZone.LARGE))
@@ -645,8 +772,8 @@ class PlayerTouchModelTest {
         assertEquals(38.4, high.travel, 1e-9)
         assertEquals(0.16, high.deadZone, 1e-9)
         assertEquals(0.06, fixed.deadZone, 1e-9)
-        assertFalse(fixed.follow)
-        assertTrue(low.follow)
+        assertEquals(PlayerStickGate.OCTAGON, fixed.gate)
+        assertEquals(PlayerStickGate.OCTAGON, low.gate)
         assertEquals(base, base.tuned(PlayerStickTuning()))
         // The tuning reaches the placed stick.
         val tuned = requireNotNull(PlayerControlPlan.of("n64", stickTuning = PlayerStickTuning(sensitivity = PlayerStickTuning.Sensitivity.HIGH, centre = PlayerStickTuning.Centre.FIXED)))
@@ -665,36 +792,41 @@ class PlayerTouchModelTest {
         assertEquals(Offset(158f, 2f), PlayerStickModel.center(Offset(158f, 2f), zone, 44f))
     }
 
-    @Test fun aStickTouchSetsItsCentreFollowsTheThumbAndCentresOnLift() {
+    /**
+     * The centre is where the thumb lands and stays there until it lifts (revised 2026-09-26: no
+     * follow); the N64's octagon clicks in its notches at full tilt; full tilt between notches ticks.
+     */
+    @Test fun aStickCentreStaysWhereTheThumbLandedAndItsOctagonClicks() {
         val tracker = PlayerTouchTracker(stage("n64", proLandscape).controls)
         val stick = requireNotNull(tracker.layout.control("stick0"))
         assertEquals(PlayerTouchKind.STICK, stick.kind)
         val travel = stick.travel
         assertEquals("N64: full at 48 dp (at the control size)", 48f * tracker.layout.metrics.scale, travel, 0.001f)
         val down = Offset(stick.frame.left + 70f, stick.frame.top + 75f)
+        fun at(degrees: Double, reach: Float) = Offset(
+            down.x + reach * travel * Math.cos(Math.toRadians(degrees)).toFloat(),
+            down.y + reach * travel * Math.sin(Math.toRadians(degrees)).toFloat(),
+        )
+        val click = PlayerTouchOutput.NotchHaptic(PlayerStickGate.OCTAGON)
         // Touch-down there makes it the centre: no deflection, no haptic.
         assertEquals(listOf(PlayerTouchOutput.Motion(0, 0f, 0f)), tracker.began(1, down))
         assertEquals(down, tracker.stickPositions["stick0"]?.center)
-        // The travel right of the new centre is full right (though past the zone's middle), with
-        // one full-tilt tick.
-        assertEquals(listOf(PlayerTouchOutput.Motion(0, 1f, 0f), PlayerTouchOutput.FullTiltHaptic), tracker.moved(1, Offset(down.x + travel, down.y)))
-        assertEquals(down, tracker.stickPositions["stick0"]?.center)
+        // Full right, the octagon's 0° notch: a click; none while it stays there.
+        assertEquals(listOf(PlayerTouchOutput.Motion(0, 1f, 0f), click), tracker.moved(1, at(0.0, 1f)))
+        assertEquals(emptyList<PlayerTouchOutput>(), tracker.moved(1, at(0.0, 1.01f)))
         assertEquals(true, tracker.stickPositions["stick0"]?.fullTilt)
-        // Far outside the zone: still this stick; the centre follows to sit at the rim. No second tick.
-        val far = Offset(down.x, down.y + 400f)
-        assertEquals(listOf(PlayerTouchOutput.Motion(0, 0f, 1f)), tracker.moved(1, far))
-        val followed = requireNotNull(tracker.stickPositions["stick0"])
-        assertEquals(far.y - travel, followed.center.y, 0.01f)
-        assertEquals(down.x, followed.center.x, 0.01f)
-        assertEquals("The knob at the output", far.y, followed.knob.y, 0.01f)
-        // Reversing responds at once: a travel back up from the followed centre is full up.
-        assertEquals(listOf(PlayerTouchOutput.Motion(0, 0f, -1f)), tracker.moved(1, Offset(far.x, followed.center.y - travel)))
-        // Back into the dead zone, then out to full tilt again: a second tick.
-        tracker.moved(1, followed.center)
+        // Far outside the zone: still this stick, the centre where the thumb landed, no haptic.
+        assertEquals(emptyList<PlayerTouchOutput>(), tracker.moved(1, at(0.0, 8f)).filter { it !is PlayerTouchOutput.Motion })
+        assertEquals(down, tracker.stickPositions["stick0"]?.center)
+        assertEquals("The knob at the rim", down.x + travel, tracker.stickPositions["stick0"]!!.knob.x, 0.01f)
+        // Round the rim to 22.5°: no click; into the 45° notch: a click; held within 12°: no second.
+        assertFalse(tracker.moved(1, at(22.5, 1.5f)).any { it == click || it == PlayerTouchOutput.FullTiltHaptic })
+        assertTrue(tracker.moved(1, at(45.0, 1.5f)).contains(click))
+        assertFalse(tracker.moved(1, at(55.0, 1.5f)).contains(click))
+        // Back inside, then out between notches: the tick instead.
+        tracker.moved(1, at(0.0, 0.5f))
         assertEquals(false, tracker.stickPositions["stick0"]?.fullTilt)
-        assertTrue(tracker.moved(1, Offset(followed.center.x - travel, followed.center.y)).contains(PlayerTouchOutput.FullTiltHaptic))
-        // No repeat when the value doesn't change.
-        assertEquals(emptyList<PlayerTouchOutput>(), tracker.moved(1, Offset(followed.center.x - travel - 1f, followed.center.y)).filterIsInstance<PlayerTouchOutput.Motion>())
+        assertEquals(PlayerTouchOutput.FullTiltHaptic, tracker.moved(1, at(22.5, 1.2f)).last())
         // A second touch in the zone doesn't take the held stick.
         assertEquals(emptyList<PlayerTouchOutput>(), tracker.began(2, stick.center))
         // Lift: straight back to zero.
@@ -706,6 +838,23 @@ class PlayerTouchModelTest {
         assertTrue(cornerOutput.filterIsInstance<PlayerTouchOutput.Motion>().all { it.x == 0f && it.y == 0f })
         assertEquals(corner, tracker.stickPositions["stick0"]?.center)
         assertEquals(listOf(PlayerTouchOutput.Motion(0, 0f, 0f)), tracker.releaseAll())
+    }
+
+    /** The DualShock's near-square gate bumps at its corners only; a round gate never clicks. Mirrors iOS. */
+    @Test fun theSquareGateBumpsAtItsCornersAndARoundGateOnlyTicks() {
+        fun run(family: String, analog: Boolean, id: String, degrees: Double): List<PlayerTouchOutput> {
+            val tracker = PlayerTouchTracker(stage(family, proLandscape, analog = analog).controls)
+            val stick = requireNotNull(tracker.layout.control(id))
+            tracker.began(1, stick.center)
+            return tracker.moved(1, Offset(stick.center.x + 1.5f * stick.travel * Math.cos(Math.toRadians(degrees)).toFloat(),
+                stick.center.y + 1.5f * stick.travel * Math.sin(Math.toRadians(degrees)).toFloat()))
+        }
+        assertEquals(PlayerTouchOutput.FullTiltHaptic, run("psx", true, "stick0", 0.0).last())
+        assertEquals(PlayerTouchOutput.NotchHaptic(PlayerStickGate.SQUARE), run("psx", true, "stick0", 45.0).last())
+        assertEquals(PlayerTouchOutput.NotchHaptic(PlayerStickGate.SQUARE), run("psx", true, "stick1", 225.0).last())
+        val circle = run("3ds", false, "circlePad", 45.0)
+        assertEquals(PlayerTouchOutput.FullTiltHaptic, circle.last())
+        assertTrue(circle.none { it is PlayerTouchOutput.NotchHaptic })
     }
 
     @Test fun aFixedCentreStaysAtTheZonesCentreAndNeverFollows() {

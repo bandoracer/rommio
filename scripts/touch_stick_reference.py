@@ -19,16 +19,28 @@ class StickProfile:
     saturation: float      # fraction of travel (after the dead zone) that already reads as full tilt
     curve: float           # response exponent (>1 = finer near the centre)
     diagonal_reach: float  # per-axis value at 45° full tilt; 0.7071 = circle, higher = octagon/square gate
-    follow: bool           # drag the centre along when the thumb goes past full travel
+    gate: str              # the gate's shape for haptics: 'octagon' (8 notches), 'square' (4 corners), 'circle' (none)
 
 
+# The centre is where the thumb lands and stays there until it lifts (revised 2026-09-26: the centre
+# no longer follows a thumb past the rim).
 PROFILES = {
-    'n64':     StickProfile('n64', travel=48, dead_zone=0.10, saturation=0.90, curve=1.4, diagonal_reach=0.86, follow=True),
-    '3ds':     StickProfile('3ds', travel=44, dead_zone=0.10, saturation=0.92, curve=1.2, diagonal_reach=0.7071, follow=True),
-    'psp':     StickProfile('psp', travel=36, dead_zone=0.12, saturation=0.90, curve=1.0, diagonal_reach=0.7071, follow=True),
-    'psx':     StickProfile('psx', travel=44, dead_zone=0.10, saturation=0.90, curve=1.3, diagonal_reach=0.95, follow=True),
-    'psx-right': StickProfile('psx-right', travel=40, dead_zone=0.12, saturation=0.90, curve=1.6, diagonal_reach=0.95, follow=True),
+    'n64':     StickProfile('n64', travel=48, dead_zone=0.10, saturation=0.90, curve=1.4, diagonal_reach=0.86, gate='octagon'),
+    '3ds':     StickProfile('3ds', travel=44, dead_zone=0.10, saturation=0.92, curve=1.2, diagonal_reach=0.7071, gate='circle'),
+    'psp':     StickProfile('psp', travel=36, dead_zone=0.12, saturation=0.90, curve=1.0, diagonal_reach=0.7071, gate='circle'),
+    'psx':     StickProfile('psx', travel=44, dead_zone=0.10, saturation=0.90, curve=1.3, diagonal_reach=0.95, gate='square'),
+    'psx-right': StickProfile('psx-right', travel=40, dead_zone=0.12, saturation=0.90, curve=1.6, diagonal_reach=0.95, gate='square'),
 }
+
+# The gate's notches (degrees; y grows downward, so 90 is down): the N64's octagon has eight, at the
+# cardinals and diagonals; the DualShock's near-square gate four, its corners; a circle none.
+NOTCHES = {
+    'octagon': (0, 45, 90, 135, 180, 225, 270, 315),
+    'square': (45, 135, 225, 315),
+    'circle': (),
+}
+NOTCH_ENTER = 8.0   # degrees from a notch that catch the stick at full tilt
+NOTCH_EXIT = 12.0   # a caught notch holds until the stick is this far from it
 
 
 def gate_scale(angle: float, diagonal_reach: float) -> float:
@@ -61,16 +73,6 @@ def stick_output(dx: float, dy: float, p: StickProfile) -> tuple[float, float]:
     return (x, y)
 
 
-def follow_centre(cx: float, cy: float, tx: float, ty: float, p: StickProfile) -> tuple[float, float]:
-    """With `follow`, a thumb past full travel drags the centre so it sits exactly at the rim."""
-    dx, dy = tx - cx, ty - cy
-    distance = math.hypot(dx, dy)
-    if not p.follow or distance <= p.travel:
-        return (cx, cy)
-    pull = 1.0 - p.travel / distance
-    return (cx + dx * pull, cy + dy * pull)
-
-
 def full_tilt(dx: float, dy: float, p: StickProfile) -> bool:
     """Where the full-tilt haptic tick fires (entering saturation)."""
     m = min(math.hypot(dx, dy) / p.travel, 1.0)
@@ -79,7 +81,28 @@ def full_tilt(dx: float, dy: float, p: StickProfile) -> bool:
     return (m - p.dead_zone) / (1.0 - p.dead_zone) >= p.saturation
 
 
+def notch(dx: float, dy: float, p: StickProfile, current: int | None = None) -> int | None:
+    """At full tilt, the index of the gate notch the stick rests in (into NOTCHES[p.gate]); None
+    below full tilt, between notches, or on a round gate. The notch held (`current`) keeps the
+    stick out to NOTCH_EXIT, so a thumb resting on a notch's edge doesn't chatter."""
+    if not full_tilt(dx, dy, p):
+        return None
+    angle = math.degrees(math.atan2(dy, dx)) % 360.0
+    notches = NOTCHES[p.gate]
+
+    def off(a: float) -> float:
+        return abs((angle - a + 180.0) % 360.0 - 180.0)
+
+    if current is not None and current < len(notches) and off(notches[current]) <= NOTCH_EXIT:
+        return current
+    for index, a in enumerate(notches):
+        if off(a) <= NOTCH_ENTER:
+            return index
+    return None
+
+
 VECTORS = [(0, 0), (3, 0), (5, 0), (12, 0), (24, 0), (40, 0), (60, 0), (0, -30), (20, 20), (34, 34), (-15, 26)]
+NOTCH_ANGLES = [0, 5, 10, 40, 45, 52, 55, 58, 90, 135, 270]
 
 if __name__ == '__main__':
     for key, p in PROFILES.items():
@@ -87,5 +110,7 @@ if __name__ == '__main__':
         for dx, dy in VECTORS:
             x, y = stick_output(dx, dy, p)
             print(f'  ({dx:>4}, {dy:>4}) -> ({x:+.4f}, {y:+.4f})  full_tilt={full_tilt(dx, dy, p)}')
-        cx, cy = follow_centre(0, 0, 80, 0, p)
-        print(f'  follow: centre (0,0), thumb (80,0) -> centre ({cx:.1f}, {cy:.1f})')
+        # Notches at full tilt (60 pt out) by angle, entering and holding (current = the angle's own notch 1).
+        for degrees in NOTCH_ANGLES:
+            dx, dy = 60 * math.cos(math.radians(degrees)), 60 * math.sin(math.radians(degrees))
+            print(f'  notch {degrees:>3}°: {notch(dx, dy, p)}  holding 1: {notch(dx, dy, p, current=1)}')

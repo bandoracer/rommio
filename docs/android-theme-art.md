@@ -223,9 +223,11 @@ Look ([player-controls.md](player-controls.md), Look):
   kept by the migration bundle's snapshot and restore; older exports read as on).
 - **Debug input log**: `PlayerInputLog` (debug builds only) records every output the surface sent
   to the core and each haptic it played; instrumentation tests read it.
-- **Portrait shoulders** (revised 2026-09-24): each side's shoulder row sits 16 dp above the top of
-  its stack (`PlayerControlAnchors.Shoulders.AboveCluster`), aligned to the stack's outer edge and
-  kept inside the rail; landscape keeps them at the top of the rails (`Shoulders.Top`).
+- **Portrait shoulders** (revised 2026-09-26): one level row 28 dp under the game
+  (`PlayerControlAnchors.Shoulders.Corners`); each side's main shoulder a bumper flush against its
+  screen edge (`PlayerTouchShape.BUMPER_LEADING` / `_TRAILING`, drawn square on that side), any
+  other inward beside it; a squeezed band pulls the row to 12 dp at its natural height. Landscape
+  keeps them at the top of the rails (`Shoulders.Top`).
 - **Per-console layouts** (player-controls.md, "Analog sticks and per-console layouts"):
   `PlayerControlPlan` has the iOS `dpadSlot` (`PRIMARY`, `ABOVE`, `BELOW`, `BESIDE` via
   `compact()`), `leftStickPrimary`, `analogControls` and `RailContent(cluster, above, below,
@@ -242,12 +244,13 @@ Look ([player-controls.md](player-controls.md), Look):
   family has no sticks.
 - **Touch sticks** (player-controls.md, "Touch sticks"): `PlayerStickProfile` (`forStick`: N64,
   3DS, PSP, PlayStation left and right; `tuned` at the control size) and `PlayerStickModel.gateScale`,
-  `output`, `followCentre` and `fullTilt` — an exact port of
+  `output`, `fullTilt` and `notch` (with `PlayerStickGate`) — an exact port of
   `scripts/touch_stick_reference.py`, pinned by `PlayerTouchModelTest` to every vector the script
-  prints (4 decimals, every profile). The tracker floats the centre where the thumb lands (clamped
-  so the travel ring stays in the zone), drags it behind a thumb past full travel (on moves, not on
-  touch-down), sends a value only when it changes, drops to zero on lift and plays one
-  `CLOCK_TICK` on entering full tilt (again only after leaving it). The ring draws at the centre and
+  prints (4 decimals, every profile). The tracker floats the centre where the thumb lands and keeps
+  it there until the thumb lifts (revised 2026-09-26: no follow), sends a value only when it
+  changes, drops to zero on lift, clicks when the stick settles into a notch of its gate at full
+  tilt (`CONTEXT_CLICK` for the N64's octagon, `KEYBOARD_TAP` for the DualShock's corners) and
+  otherwise plays one `CLOCK_TICK` on entering full tilt (again only after leaving it). The ring draws at the centre and
   brightens at full tilt (a 2.5 dp `controlInk` rim); the knob (travel × 0.95) sits at the output.
   Per game, the Controls sheet's **Stick** group (consoles with sticks; PlayStation with Analog
   controls on) sets Sensitivity (travel × 1.2 / 1 / 0.8), Dead zone (× 0.6 / 1 / 1.6) and Centre

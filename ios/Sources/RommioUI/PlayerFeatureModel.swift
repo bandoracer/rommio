@@ -657,7 +657,7 @@ public final class PlayerFeatureModel: Identifiable {
             sendDigital(key, pressed: pressed)
         case let .motion(stick, x, y):
             sendMotion(stick, x: x, y: y)
-        case .pressHaptic, .directionHaptic, .stickHaptic:
+        case .pressHaptic, .directionHaptic, .stickHaptic, .stickNotch:
             break
         }
     }

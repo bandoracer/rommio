@@ -68,6 +68,10 @@ private struct PlayerShapeView: Shape {
         case let .tab(top, bottom):
             let t = min(top, rect.height / 2), b = min(bottom, rect.height / 2)
             return Path(roundedRect: rect, cornerRadii: RectangleCornerRadii(topLeading: t, bottomLeading: b, bottomTrailing: b, topTrailing: t))
+        case let .bumper(leading, top, bottom):
+            let t = min(top, rect.height / 2), b = min(bottom, rect.height / 2)
+            return Path(roundedRect: rect, cornerRadii: RectangleCornerRadii(
+                topLeading: leading ? 0 : t, bottomLeading: leading ? 0 : b, bottomTrailing: leading ? b : 0, topTrailing: leading ? t : 0))
         }
     }
 }
@@ -142,6 +146,10 @@ final class PlayerTouchSurfaceView: UIView {
     private let selection = UISelectionFeedbackGenerator()
     /// A stick entering full tilt: one soft tick (the gate a touch stick doesn't have).
     private let stickTick = UIImpactFeedbackGenerator(style: .soft)
+    /// A stick settling into a notch of its gate: the N64 octagon's crisp click, the
+    /// DualShock square's softer corner bump.
+    private let notchClick = UIImpactFeedbackGenerator(style: .rigid)
+    private let cornerBump = UIImpactFeedbackGenerator(style: .medium)
     #if DEBUG
     private let inputLog = UILabel()
     #endif
@@ -190,7 +198,7 @@ final class PlayerTouchSurfaceView: UIView {
             self.opacity = opacity
             repaint()
         }
-        if hapticsEnabled { impact.prepare(); selection.prepare(); stickTick.prepare() }
+        if hapticsEnabled { impact.prepare(); selection.prepare(); stickTick.prepare(); notchClick.prepare(); cornerBump.prepare() }
     }
 
     private func rebuild(_ layout: PlayerTouchLayout) {
@@ -221,7 +229,7 @@ final class PlayerTouchSurfaceView: UIView {
         guard let renderer else { return }
         let pressed = tracker.pressedControls
         for (id, view) in buttons {
-            let appearance = renderer.appearance(label: view.control.spec.label, role: role(view.control))
+            let appearance = renderer.appearance(label: view.control.spec.label, role: role(view.control)).placed(view.control)
             // Faces fade only their body; legends and console rings stay at full ink.
             let faded = renderer.opacity(user: opacity, role: appearance.role)
             view.alpha = appearance.role == .face ? 1 : faded
@@ -329,6 +337,13 @@ final class PlayerTouchSurfaceView: UIView {
                 if hapticsEnabled { selection.selectionChanged(); selection.prepare() }
             case .stickHaptic:
                 if hapticsEnabled { stickTick.impactOccurred(intensity: 0.4); stickTick.prepare() }
+            case let .stickNotch(gate):
+                // The octagon's notches click; the square's corners bump more softly.
+                guard hapticsEnabled else { break }
+                switch gate {
+                case .octagon: notchClick.impactOccurred(intensity: 0.8); notchClick.prepare()
+                case .square, .circle: cornerBump.impactOccurred(intensity: 0.55); cornerBump.prepare()
+                }
             }
         }
     }
@@ -341,7 +356,7 @@ final class PlayerTouchSurfaceView: UIView {
             let isPressed = pressed.contains(id)
             let stick = tracker.stickPositions[id]
             guard isPressed != view.isPressed || stick != view.stick else { continue }
-            view.paint(renderer.appearance(label: view.control.spec.label, role: role(view.control)), pressed: isPressed, stick: stick)
+            view.paint(renderer.appearance(label: view.control.spec.label, role: role(view.control)).placed(view.control), pressed: isPressed, stick: stick)
         }
         if let dpad, dpad.held != tracker.dpadKeys {
             dpad.paint(renderer.dpad(), held: tracker.dpadKeys)

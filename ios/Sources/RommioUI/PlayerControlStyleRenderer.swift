@@ -1,4 +1,5 @@
 import SwiftUI
+import RommioPlayerKit
 
 /// What a player control is, for styling. Touch handling never looks at this.
 enum PlayerControlRole: Equatable, Sendable {
@@ -26,7 +27,20 @@ enum PlayerControlShape: Equatable, Sendable {
     case capsule
     /// Rounded more at the top than the bottom (shoulder tabs).
     case tab(top: CGFloat, bottom: CGFloat)
+    /// A tab flush against the screen's left (leading) or right edge: square on that side.
+    case bumper(leading: Bool, top: CGFloat, bottom: CGFloat)
     case rounded(CGFloat)
+}
+
+extension PlayerControlAppearance {
+    /// The appearance for where the control sits: a shoulder at a portrait corner is its
+    /// tab made flush against the screen edge.
+    func placed(_ control: PlacedPlayerControl) -> PlayerControlAppearance {
+        guard control.shape == .bumperLeading || control.shape == .bumperTrailing, case let .tab(top, bottom) = shape else { return self }
+        var appearance = self
+        appearance.shape = .bumper(leading: control.shape == .bumperLeading, top: top, bottom: bottom)
+        return appearance
+    }
 }
 
 /// A soft shadow under a frosted control.
@@ -40,7 +54,7 @@ struct PlayerControlShadow: Equatable, Sendable {
 /// touch surface's control views. Where controls go is `PlayerControlPlan`'s.
 struct PlayerControlAppearance: Equatable {
     let role: PlayerControlRole
-    let shape: PlayerControlShape
+    var shape: PlayerControlShape
     let fill: Color
     let pressedFill: Color
     let stroke: Color
@@ -74,12 +88,13 @@ struct PlayerControlAppearance: Equatable {
     }
 }
 
-/// The d-pad's drawing: a frosted disc with grooves and chevrons (Aurora) or two
-/// ink plates (pink arms over a blue offset copy) with a yellow pivot (Riso).
+/// The d-pad's drawing: a cross filling its square in both themes (revised 2026-09-26:
+/// Aurora's arms sat small inside a disc) — frosted glass with chevrons (Aurora) or two ink
+/// plates (pink arms over a blue offset copy) with a yellow pivot (Riso).
 struct PlayerDPadAppearance: Equatable {
     let twoPlate: Bool
-    let disc: Color?
-    let discStroke: Color?
+    /// The cross's keyline (Aurora's glass edge).
+    let stroke: Color?
     let frosted: Bool
     let arm: Color
     let pressedArm: Color
@@ -202,14 +217,14 @@ struct PlayerControlStyleRenderer: Equatable {
         let neutral = theme.neutralControlStyle
         if theme.shape.dpad == .twoPlateCross {
             return PlayerDPadAppearance(
-                twoPlate: true, disc: nil, discStroke: nil, frosted: false,
+                twoPlate: true, stroke: nil, frosted: false,
                 arm: palette.dpadFill.color, pressedArm: palette.dpadFill.color.mix(with: .white, by: 0.35),
                 plate: palette.dpadAltFill.color, plateOffset: misregistration, pivot: palette.pivot.color,
                 arrowInk: palette.faceInk.color.opacity(0.8), glyphs: theme.glyphs)
         }
         return PlayerDPadAppearance(
-            twoPlate: false, disc: neutral.fillColor, discStroke: neutral.borderColor, frosted: true,
-            arm: neutral.contentColor.opacity(0.16), pressedArm: theme.accentColor.opacity(0.45),
+            twoPlate: false, stroke: neutral.borderColor, frosted: true,
+            arm: neutral.fillColor, pressedArm: theme.accentColor.opacity(0.45),
             plate: nil, plateOffset: .zero, pivot: nil, arrowInk: neutral.contentColor, glyphs: theme.glyphs,
             shadow: glassShadow, rim: glassRim)
     }
@@ -269,6 +284,10 @@ extension PlayerControlShape {
             path.addArc(withCenter: CGPoint(x: rect.minX + t, y: rect.minY + t), radius: t, startAngle: .pi, endAngle: 1.5 * .pi, clockwise: true)
             path.close()
             return path
+        case let .bumper(leading, top, bottom):
+            let t = min(top, rect.height / 2), b = min(bottom, rect.height / 2)
+            return UIBezierPath(cgPath: Path(roundedRect: rect, cornerRadii: RectangleCornerRadii(
+                topLeading: leading ? 0 : t, bottomLeading: leading ? 0 : b, bottomTrailing: leading ? b : 0, topTrailing: leading ? t : 0)).cgPath)
         }
     }
 }
@@ -423,10 +442,9 @@ final class PlayerControlPainter {
     }
 }
 
-/// Paints the whole d-pad (disc or plates, arms, the held arms lit, pivot, arrows).
+/// Paints the whole d-pad (the glass or plates, arms, the held arms lit, pivot, arrows).
 @MainActor
 final class PlayerDPadPainter {
-    private let disc = CAShapeLayer()
     private let glass: PlayerGlassLayers
     private let plate = CAShapeLayer()
     private let arms = CAShapeLayer()
@@ -436,7 +454,7 @@ final class PlayerDPadPainter {
 
     init(in view: UIView) {
         glass = PlayerGlassLayers(in: view)
-        for layer in [disc, plate, arms, pressed, pivot] { view.layer.addSublayer(layer) }
+        for layer in [plate, arms, pressed, pivot] { view.layer.addSublayer(layer) }
         glass.attachRim(to: view)
         for name in ["Up", "Down", "Left", "Right"] {
             let image = UIImageView()
@@ -453,18 +471,14 @@ final class PlayerDPadPainter {
         CATransaction.setDisableActions(true)
         let side = min(bounds.width, bounds.height)
         let square = CGRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side)
-        let armWidth = side * (appearance.twoPlate ? 0.34 : 0.32)
-        let crossRect = appearance.twoPlate ? square.insetBy(dx: side * 0.02, dy: side * 0.02) : square.insetBy(dx: side * 0.13, dy: side * 0.13)
-        let cross = Self.cross(in: crossRect, arm: armWidth, radius: appearance.twoPlate ? side * 0.05 : 8)
-        if let discColor = appearance.disc {
-            let discPath = UIBezierPath(ovalIn: square)
-            disc.path = discPath.cgPath
-            disc.fillColor = UIColor(discColor).cgColor
-            disc.strokeColor = appearance.discStroke.map { UIColor($0).cgColor }
-            disc.lineWidth = 0.5
-            glass.paint(path: discPath, bounds: bounds, frosted: appearance.frosted, shadow: appearance.shadow, rim: appearance.rim)
+        // Both themes: the cross fills the square (arms 34% of the side), so each arm is a
+        // large target with room between the thumb's positions.
+        let armWidth = side * 0.34
+        let crossRect = square.insetBy(dx: side * 0.02, dy: side * 0.02)
+        let cross = Self.cross(in: crossRect, arm: armWidth, radius: appearance.twoPlate ? side * 0.05 : side * 0.08)
+        if appearance.frosted {
+            glass.paint(path: cross, bounds: bounds, frosted: true, shadow: appearance.shadow, rim: appearance.rim)
         } else {
-            disc.path = nil
             glass.paint(path: UIBezierPath(rect: .zero), bounds: bounds, frosted: false, shadow: nil, rim: nil)
         }
         if let plateColor = appearance.plate {
@@ -476,6 +490,8 @@ final class PlayerDPadPainter {
         }
         arms.path = cross.cgPath
         arms.fillColor = UIColor(appearance.arm).cgColor
+        arms.strokeColor = appearance.stroke.map { UIColor($0).cgColor }
+        arms.lineWidth = 0.5
         // The held arms light up.
         let pressedPath = UIBezierPath()
         let centre = CGPoint(x: crossRect.midX, y: crossRect.midY)
@@ -515,13 +531,12 @@ final class PlayerDPadPainter {
         CATransaction.commit()
     }
 
+    /// One plus-shaped outline (the two bars' union, so a keyline never crosses the middle).
     static func cross(in rect: CGRect, arm: CGFloat, radius: CGFloat) -> UIBezierPath {
         let centre = CGPoint(x: rect.midX, y: rect.midY)
         let vertical = UIBezierPath(roundedRect: CGRect(x: centre.x - arm / 2, y: rect.minY, width: arm, height: rect.height), cornerRadius: radius)
         let horizontal = UIBezierPath(roundedRect: CGRect(x: rect.minX, y: centre.y - arm / 2, width: rect.width, height: arm), cornerRadius: radius)
-        vertical.append(horizontal)
-        vertical.usesEvenOddFillRule = false
-        return vertical
+        return UIBezierPath(cgPath: vertical.cgPath.union(horizontal.cgPath))
     }
 }
 #endif

@@ -122,30 +122,86 @@ final class PlayerTouchModelTests: XCTestCase {
         XCTAssertEqual(select.center.y, controls.menuCenter.y, accuracy: 0.5)
     }
 
-    func testPortraitShouldersSit16PointsAboveTheirClusterAlignedToItsOuterEdge() throws {
-        for family in ["gba", "snes", "psx"] {
+    /// Portrait shoulders (revised 2026-09-26): one level row 28 pt under the game; each
+    /// side's main shoulder (L, R, L1, R1) a bumper flush against its screen edge, any other
+    /// inward beside it; the clusters below the row.
+    func testPortraitShouldersAreALevelRowOfEdgeBumpersUnderTheGame() throws {
+        for family in ["gba", "snes", "psx", "3ds"] {
             for mirrored in [false, true] {
-                let layout = stage(family, proPortrait, mirrored: mirrored)
+                // (PlayStation with its sticks: no room to stack, so one row.)
+                let layout = stage(family, proPortrait, mirrored: mirrored, analog: family == "psx")
                 let controls = try XCTUnwrap(layout.controls)
-                let dpad = try XCTUnwrap(controls.dpad)
-                let face = controls.controls.filter { $0.kind == .face }.reduce(CGRect.null) { $0.union($1.frame) }
                 let label = "\(family) mirrored=\(mirrored)"
-                for (shoulders, cluster) in [(plan(family).leftShoulders, dpad.frame), (plan(family).rightShoulders, face)] {
-                    let row = try shoulders.map { try XCTUnwrap(controls.control($0.id)) }.reduce(CGRect.null) { $0.union($1.frame) }
-                    XCTAssertEqual(row.maxY, cluster.minY - 16, accuracy: 0.5, "16 pt above the cluster: \(label)")
-                    // Aligned to the cluster's outer edge (the screen edge side).
-                    if cluster.midX < 201 {
-                        XCTAssertEqual(row.minX, cluster.minX, accuracy: 0.5, "Outer edge: \(label)")
-                    } else {
-                        XCTAssertEqual(row.maxX, cluster.maxX, accuracy: 0.5, "Outer edge: \(label)")
-                    }
-                    XCTAssertGreaterThanOrEqual(row.minY, layout.viewport.frame.maxY + 12 - 0.5, "Inside the band: \(label)")
+                let shoulders = controls.controls.filter { $0.kind == .shoulder }
+                XCTAssertFalse(shoulders.isEmpty, label)
+                let top = try XCTUnwrap(shoulders.map(\.frame.minY).min())
+                for shoulder in shoulders {
+                    XCTAssertEqual(shoulder.frame.minY, top, accuracy: 0.5, "Level: \(shoulder.id) \(label)")
+                    XCTAssertGreaterThanOrEqual(shoulder.frame.height, 40, "\(shoulder.id) \(label)")
                 }
-                if family == "gba" {
-                    XCTAssertEqual(try XCTUnwrap(controls.control("L")).frame.size, CGSize(width: 88, height: 40))
+                if family != "3ds" {
+                    XCTAssertEqual(top, layout.viewport.frame.maxY + 28, accuracy: 0.5, "28 pt under the game: \(label)")
+                }
+                let mains = shoulders.filter { ["L", "R", "L1", "R1"].contains($0.spec.label) }
+                XCTAssertEqual(mains.count, 2, label)
+                for main in mains {
+                    if main.shape == .bumperLeading {
+                        XCTAssertEqual(main.frame.minX, 0, accuracy: 0.5, "Flush left: \(main.id) \(label)")
+                    } else {
+                        XCTAssertEqual(main.shape, .bumperTrailing, label)
+                        XCTAssertEqual(main.frame.maxX, 402, accuracy: 0.5, "Flush right: \(main.id) \(label)")
+                    }
+                }
+                for other in shoulders where !mains.contains(other) { XCTAssertEqual(other.shape, .tab, label) }
+                let row = shoulders.reduce(CGRect.null) { $0.union($1.frame) }
+                for control in controls.controls where control.kind != .shoulder && control.kind != .system {
+                    XCTAssertGreaterThanOrEqual(control.frame.minY, row.maxY + 12 - 0.5, "Below the shoulders: \(control.id) \(label)")
                 }
             }
         }
+        // GBA: an 88 pt tab widened over the 20 pt margin to the edge, 44 pt tall.
+        let gba = try XCTUnwrap(stage("gba", proPortrait).controls)
+        let l = try XCTUnwrap(gba.control("L")).frame
+        XCTAssertEqual(l, CGRect(x: 0, y: l.minY, width: 108, height: 44))
+        XCTAssertEqual(try XCTUnwrap(gba.control("R")).frame.maxX, 402, accuracy: 0.5)
+    }
+
+    /// PlayStation's numbered shoulders stack, 1 above 2, when that costs the game and the
+    /// controls nothing (revised 2026-09-26); otherwise they share the row.
+    func testNumberedShouldersStackWhenThereIsRoom() throws {
+        // Portrait, no sticks: two columns of edge bumpers, L1 over L2 and R1 over R2.
+        let portrait = stage("psx", proPortrait)
+        let controls = try XCTUnwrap(portrait.controls)
+        XCTAssertEqual(portrait.viewport.frame.width, 402, accuracy: 0.5, "The game keeps the full width")
+        XCTAssertEqual(controls.metrics.scale, 1, accuracy: 0.001, "At the requested size")
+        for (top, bottom, leading) in [("L1", "L2", true), ("R1", "R2", false)] {
+            let one = try XCTUnwrap(controls.control(top)), two = try XCTUnwrap(controls.control(bottom))
+            XCTAssertEqual(one.frame.minY, portrait.viewport.frame.maxY + 28, accuracy: 0.5)
+            XCTAssertEqual(two.frame.minY, one.frame.maxY + 8, accuracy: 0.5, "\(bottom) 8 pt under \(top)")
+            for shoulder in [one, two] {
+                XCTAssertEqual(shoulder.shape, leading ? .bumperLeading : .bumperTrailing)
+                if leading { XCTAssertEqual(shoulder.frame.minX, 0, accuracy: 0.5) } else { XCTAssertEqual(shoulder.frame.maxX, 402, accuracy: 0.5) }
+            }
+        }
+        let column = controls.controls.filter { $0.kind == .shoulder }.reduce(CGRect.null) { $0.union($1.frame) }
+        for control in controls.controls where control.kind != .shoulder && control.kind != .system {
+            XCTAssertGreaterThanOrEqual(control.frame.minY, column.maxY + 12 - 0.5, "Below the shoulders: \(control.id)")
+        }
+        // With its sticks there is no room: one row.
+        let analog = try XCTUnwrap(stage("psx", proPortrait, analog: true).controls)
+        XCTAssertEqual(try XCTUnwrap(analog.control("L1")).frame.minY, try XCTUnwrap(analog.control("L2")).frame.minY, accuracy: 0.5)
+        // On the iPhone SE stacking would shrink the game: one row.
+        let se = try XCTUnwrap(stage("psx", phones[2]).controls)
+        XCTAssertEqual(try XCTUnwrap(se.control("L1")).frame.minY, try XCTUnwrap(se.control("L2")).frame.minY, accuracy: 0.5)
+        // Landscape rails, no sticks: a column at the rail's top, centred in it.
+        let landscape = try XCTUnwrap(stage("psx", proLandscape).controls)
+        let l1 = try XCTUnwrap(landscape.control("L1")).frame, l2 = try XCTUnwrap(landscape.control("L2")).frame
+        XCTAssertEqual(l2.minY, l1.maxY + 8, accuracy: 0.5)
+        XCTAssertEqual(l1.midX, l2.midX, accuracy: 0.5)
+        XCTAssertEqual(landscape.metrics.scale, 1, accuracy: 0.001)
+        // With sticks the rail has no room: one row.
+        let rail = try XCTUnwrap(stage("psx", proLandscape, analog: true).controls)
+        XCTAssertEqual(try XCTUnwrap(rail.control("L1")).frame.minY, try XCTUnwrap(rail.control("L2")).frame.minY, accuracy: 0.5)
     }
 
     func testLandscapeCentresTheGameBetweenRailsWithClustersAt60Percent() throws {
@@ -362,8 +418,8 @@ final class PlayerTouchModelTests: XCTestCase {
         XCTAssertEqual(direction(0, 13), .none, "Inside the dead zone (18% of 75 = 13.5)")
         XCTAssertEqual(direction(0, 14), .right)
         XCTAssertEqual(direction(0), .right)
-        XCTAssertEqual(direction(24), .right)
-        XCTAssertEqual(direction(26), .downRight, "Diagonal sectors are 40° wide (25°–65°)")
+        XCTAssertEqual(direction(29), .right)
+        XCTAssertEqual(direction(31), .downRight, "Diagonal sectors are 30° wide (30°–60°)")
         XCTAssertEqual(direction(45), .downRight)
         XCTAssertEqual(direction(90), .down)
         XCTAssertEqual(direction(135), .downLeft)
@@ -371,13 +427,37 @@ final class PlayerTouchModelTests: XCTestCase {
         XCTAssertEqual(direction(225), .upLeft)
         XCTAssertEqual(direction(270), .up)
         XCTAssertEqual(direction(315), .upRight)
-        XCTAssertEqual(direction(64), .downRight)
-        XCTAssertEqual(direction(66), .down)
+        XCTAssertEqual(direction(59), .downRight)
+        XCTAssertEqual(direction(61), .down)
         // Hysteresis: a held direction keeps a slightly wider sector.
-        XCTAssertEqual(direction(28, previous: .right), .right)
-        XCTAssertEqual(direction(30, previous: .right), .downRight)
+        XCTAssertEqual(direction(33, previous: .right), .right)
+        XCTAssertEqual(direction(35, previous: .right), .downRight)
         XCTAssertEqual(direction(0, 12, previous: .right), .right, "Held: the dead zone shrinks to 15%")
         XCTAssertEqual(PlayerDPadDirection.downRight.keys, [5, 7])
+    }
+
+    /// A small d-pad beside a primary stick (N64, 3DS) is four-way: every angle is one arm.
+    func testASecondaryDPadIsFourWay() throws {
+        func direction(_ degrees: Double, previous: PlayerDPadDirection = .none) -> PlayerDPadDirection {
+            let radians = degrees * .pi / 180
+            return PlayerTouchRules.dpadDirection(dx: 40 * CGFloat(cos(radians)), dy: 40 * CGFloat(sin(radians)), radius: 52,
+                                                  previous: previous, diagonals: false)
+        }
+        XCTAssertEqual(direction(44), .right)
+        XCTAssertEqual(direction(46), .down)
+        XCTAssertEqual(direction(135.5), .left)
+        XCTAssertEqual(direction(315.5), .right)
+        XCTAssertEqual(direction(48, previous: .right), .right, "Held: 4° wider")
+        for family in ["n64", "3ds"] {
+            let pad = try XCTUnwrap(stage(family, proLandscape).controls?.dpad)
+            XCTAssertTrue(pad.fourWay, family)
+        }
+        XCTAssertFalse(try XCTUnwrap(stage("snes", proLandscape).controls?.dpad).fourWay)
+        XCTAssertFalse(try XCTUnwrap(stage("psp", proLandscape).controls?.dpad).fourWay, "PSP's d-pad is its primary")
+        var tracker = PlayerTouchTracker(layout: stage("n64", proLandscape).controls!)
+        let pad = try XCTUnwrap(tracker.layout.dpad)
+        let diagonal = tracker.began(1, at: CGPoint(x: pad.center.x + 30, y: pad.center.y + 30))
+        XCTAssertEqual(diagonal.filter { if case .digital = $0 { return true }; return false }.count, 1, "One arm at a time: \(diagonal)")
     }
 
     // MARK: Tracker
@@ -506,16 +586,23 @@ final class PlayerTouchModelTests: XCTestCase {
         XCTAssertEqual(PlayerStickModel.center(for: CGPoint(x: 158, y: 2), zone: zone, travel: 48), CGPoint(x: 158, y: 2))
     }
 
-    func testAStickTouchFloatsFollowsTicksOnceAtFullTiltAndDropsToZeroOnLift() throws {
+    /// A stick's centre is where the thumb lands and stays there until it lifts (revised
+    /// 2026-09-26: no follow); the N64's octagon clicks in its notches at full tilt, and
+    /// full tilt between notches is one soft tick.
+    func testAStickCentreStaysWhereTheThumbLandedAndItsOctagonClicks() throws {
         var tracker = PlayerTouchTracker(layout: stage("n64", proLandscape).controls!)
         let stick = try XCTUnwrap(tracker.layout.control("stick0"))
         let profile = try XCTUnwrap(stick.stickProfile)
         let s = tracker.layout.metrics.scale
         XCTAssertEqual(stick.kind, .stick)
         XCTAssertEqual(profile.name, "n64")
+        XCTAssertEqual(profile.gate, .octagon)
         XCTAssertEqual(stick.travel, 48 * s, accuracy: 0.001, "N64 travel at the control size")
         let travel = Double(stick.travel)
         let down = CGPoint(x: stick.frame.minX + 70, y: stick.frame.minY + 75)
+        func at(_ degrees: Double, _ reach: Double) -> CGPoint {
+            CGPoint(x: down.x + reach * travel * cos(degrees * .pi / 180), y: down.y + reach * travel * sin(degrees * .pi / 180))
+        }
         // Touch-down there makes it the centre: no deflection, no haptic.
         XCTAssertEqual(tracker.began(1, at: down), [.motion(stick: 0, x: 0, y: 0)])
         XCTAssertEqual(tracker.stickPositions["stick0"]?.center, down)
@@ -525,24 +612,22 @@ final class PlayerTouchModelTests: XCTestCase {
         XCTAssertEqual(motionX(halfway), half.x, accuracy: 0.0001)
         XCTAssertEqual(halfway.count, 1)
         XCTAssertEqual(tracker.stickPositions["stick0"]?.fullTilt, false)
-        // Into saturation: full right and one soft tick; no second tick while it stays there.
-        XCTAssertEqual(tracker.moved(1, to: CGPoint(x: down.x + travel * 0.97, y: down.y)), [.motion(stick: 0, x: 1, y: 0), .stickHaptic])
-        XCTAssertEqual(tracker.moved(1, to: CGPoint(x: down.x + travel * 0.99, y: down.y)), [])
+        // Into saturation straight right, the octagon's 0° notch: full right and a click; none while it stays.
+        XCTAssertEqual(tracker.moved(1, to: at(0, 0.97)), [.motion(stick: 0, x: 1, y: 0), .stickNotch(.octagon)])
+        XCTAssertEqual(tracker.moved(1, to: at(0, 0.99)), [])
         XCTAssertEqual(tracker.stickPositions["stick0"]?.fullTilt, true)
-        // Far past the rim: the centre follows, so the thumb sits at the rim.
-        let far = CGPoint(x: down.x + 3 * travel, y: down.y)
-        XCTAssertEqual(tracker.moved(1, to: far), [])
-        let followed = try XCTUnwrap(tracker.stickPositions["stick0"]?.center)
-        XCTAssertEqual(Double(far.x - followed.x), travel, accuracy: 0.001)
-        XCTAssertEqual(tracker.stickPositions["stick0"]?.knob.x ?? 0, far.x, accuracy: 0.001, "The knob at the output position")
-        // Reversing responds at once: a little back from the rim is already less than full.
-        let back = CGPoint(x: far.x - travel * 0.5, y: far.y)
-        let reversed = tracker.moved(1, to: back)
-        let expected = PlayerStickModel.output(dx: travel * 0.5, dy: 0, profile)
-        XCTAssertEqual(motionX(reversed), expected.x, accuracy: 0.0001)
-        XCTAssertEqual(reversed.count, 1, "No tick on the way back")
-        // Back into full tilt after leaving it: another tick.
-        XCTAssertEqual(tracker.moved(1, to: CGPoint(x: followed.x + travel, y: far.y)), [.motion(stick: 0, x: 1, y: 0), .stickHaptic])
+        // Far past the rim: the centre stays where the thumb landed; still full right, no haptic.
+        XCTAssertEqual(tracker.moved(1, to: at(0, 3)), [])
+        XCTAssertEqual(tracker.stickPositions["stick0"]?.center, down)
+        XCTAssertEqual(tracker.stickPositions["stick0"]?.knob.x ?? 0, down.x + travel, accuracy: 0.001, "The knob at the rim")
+        // Round the rim to 22.5° (between notches): no click; on into the 45° notch: a click.
+        XCTAssertFalse(tracker.moved(1, to: at(22.5, 1.5)).contains { $0 == .stickHaptic || $0 == .stickNotch(.octagon) })
+        XCTAssertTrue(tracker.moved(1, to: at(45, 1.5)).contains(.stickNotch(.octagon)))
+        // Held within 12° of it: no second click.
+        XCTAssertFalse(tracker.moved(1, to: at(55, 1.5)).contains(.stickNotch(.octagon)))
+        // Back inside, then out between notches: the soft rim tick instead.
+        XCTAssertFalse(tracker.moved(1, to: at(0, 0.5)).contains(.stickHaptic))
+        XCTAssertEqual(tracker.moved(1, to: at(22.5, 1.2)).last, .stickHaptic)
         // A second touch in the zone doesn't take the held stick.
         XCTAssertEqual(tracker.began(2, at: stick.center), [])
         // Lift: zero at once, the ring back to the zone's centre.
@@ -557,6 +642,25 @@ final class PlayerTouchModelTests: XCTestCase {
         XCTAssertEqual(landed.x, cornerPoint.x, accuracy: 0.001)
         XCTAssertEqual(landed.y, cornerPoint.y, accuracy: 0.001)
         XCTAssertEqual(tracker.releaseAll(), [.motion(stick: 0, x: 0, y: 0)])
+    }
+
+    /// The DualShock's near-square gate bumps at its corners only; a round gate (3DS) never
+    /// clicks, only the soft tick at full tilt.
+    func testTheSquareGateBumpsAtItsCornersAndARoundGateOnlyTicks() throws {
+        func run(_ family: String, analog: Bool, _ id: String, _ degrees: Double) throws -> [PlayerTouchOutput] {
+            var tracker = PlayerTouchTracker(layout: stage(family, proLandscape, analog: analog).controls!)
+            let stick = try XCTUnwrap(tracker.layout.control(id))
+            let travel = Double(stick.travel)
+            _ = tracker.began(1, at: stick.center)
+            return tracker.moved(1, to: CGPoint(x: stick.center.x + 1.5 * travel * cos(degrees * .pi / 180),
+                                                y: stick.center.y + 1.5 * travel * sin(degrees * .pi / 180)))
+        }
+        XCTAssertEqual(try run("psx", analog: true, "stick0", 0).last, .stickHaptic, "A square's edge: the rim tick")
+        XCTAssertEqual(try run("psx", analog: true, "stick0", 45).last, .stickNotch(.square), "Its corner: the bump")
+        XCTAssertEqual(try run("psx", analog: true, "stick1", 225).last, .stickNotch(.square), "The right stick too")
+        let circle = try run("3ds", analog: false, "circlePad", 45)
+        XCTAssertEqual(circle.last, .stickHaptic)
+        XCTAssertFalse(circle.contains { if case .stickNotch = $0 { return true }; return false })
     }
 
     private func motionX(_ output: [PlayerTouchOutput]) -> Double {

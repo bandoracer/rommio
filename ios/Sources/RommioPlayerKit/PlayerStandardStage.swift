@@ -37,9 +37,10 @@ extension PlayerControlPlan {
 ///
 /// - Portrait: the game at the top, 8 pt under the camera housing: the display's full
 ///   width when that fits above the controls, otherwise inside a 12 pt border. The rest
-///   is the control band: the d-pad and face cluster at 55% of its height, 20 pt from
-///   the screen edges, shoulders 16 pt above their side's stack and aligned to its outer
-///   edge, Select · Menu · Start centred at the bottom, 12 pt above the home indicator.
+///   is the control band: the shoulders in one level row 28 pt under the game, each
+///   side's main shoulder a bumper flush against its screen edge; the d-pad and face
+///   cluster at 55% of the band's height, 20 pt from the screen edges, below the
+///   shoulders; Select · Menu · Start centred at the bottom, 12 pt above the home indicator.
 /// - Landscape: the game centred between side rails (6 pt from the camera housing); the
 ///   display's full height when the rails leave room for it, otherwise inside the
 ///   border. The clusters centred in their rails at 60% of the height, shoulders at the
@@ -96,9 +97,12 @@ struct StandardStage {
 
     /// The vertical stack on one side: what sits above the primary control's centre
     /// (half of it, a secondary above it, the shoulders) and what sits below it.
-    private func stack(dpadSide: Bool, _ metrics: PlayerControlMetrics, portrait: Bool) -> (up: CGFloat, down: CGFloat) {
+    private func stack(dpadSide: Bool, _ metrics: PlayerControlMetrics, portrait: Bool, stackedShoulders: Bool = false) -> (up: CGFloat, down: CGFloat) {
         let content = plan.rail(dpadSide: dpadSide, metrics)
-        let shoulders = content.shoulderRow.height > 0 ? content.shoulderRow.height + (portrait ? metrics.shoulderLift : 10) : 0
+        // Portrait shoulders are the corner row above both stacks (`shoulderBlock`); on a
+        // landscape rail they top the stack, one row or (stacked) a column.
+        let shoulders = content.shoulderRow.height > 0 && !portrait
+            ? plan.shoulderBlockHeight(rowHeight: content.shoulderRow.height, stacked: stackedShoulders) + 10 : 0
         // A pair of sticks lines up under the taller cluster (`PlayerControlPlan.place`).
         let lower = plan.stickPair
             ? max(plan.rail(dpadSide: true, metrics).cluster.height, plan.rail(dpadSide: false, metrics).cluster.height)
@@ -145,8 +149,21 @@ struct StandardStage {
         // Full width, edge to edge.
         let natural = safe.width / aspect
 
+        /// The corner row of shoulders: 16 pt into the band (28 pt under the game), the row
+        /// (44 pt), and 16 pt down to the stacks. On a squeezed band (the controls already at
+        /// their smallest and the game still short of its floor) it gives way: at the band's
+        /// top (12 pt under the game), at its natural height, 12 pt above the stacks.
+        /// PlayStation's numbered shoulders stack (1 above 2) when that costs the game and the
+        /// controls nothing; otherwise they share the row.
+        var compactShoulders = false
+        var stackShoulders = plan.numberedShoulders
+        func shoulderBlock(_ metrics: PlayerControlMetrics) -> CGFloat {
+            guard plan.hasShoulders else { return 0 }
+            if compactShoulders { return plan.cornerRowHeight(metrics, minimum: 0) + 12 }
+            return 16 + plan.shoulderBlockHeight(rowHeight: plan.cornerRowHeight(metrics), stacked: stackShoulders) + 16
+        }
         func band(_ metrics: PlayerControlMetrics) -> CGFloat {
-            [true, false].map { side -> CGFloat in
+            shoulderBlock(metrics) + [true, false].map { side -> CGFloat in
                 let stack = self.stack(dpadSide: side, metrics, portrait: true)
                 return stack.up + stack.down
             }.max()! + 12
@@ -164,13 +181,21 @@ struct StandardStage {
             let dpad = plan.rail(dpadSide: true, metrics), face = plan.rail(dpadSide: false, metrics)
             return dpad.width + face.width + 16 <= bounds.width - max(Self.edge, insets.left) - max(Self.edge, insets.right)
         }
-        let metrics = scaled(from: requestedScale) { !fitsAcross($0) || gameFrame($0).height < natural * Self.portraitGameFloor }
+        func fittedMetrics() -> PlayerControlMetrics {
+            scaled(from: requestedScale) { !fitsAcross($0) || gameFrame($0).height < natural * Self.portraitGameFloor }
+        }
+        var metrics = fittedMetrics()
+        if stackShoulders, gameFrame(metrics).height < natural - 0.5 || metrics.scale < requestedScale - 0.001 {
+            stackShoulders = false
+            metrics = fittedMetrics()
+        }
+        if plan.hasShoulders && gameFrame(metrics).height < natural * Self.portraitGameFloor { compactShoulders = true }
         let game = gameFrame(metrics)
         let bandTop = game.maxY + 12
         let ideal = bandTop + 0.55 * (safe.maxY - bandTop)
         func clusterY(dpadSide: Bool) -> (y: CGFloat, high: CGFloat) {
             let stack = self.stack(dpadSide: dpadSide, metrics, portrait: true)
-            let low = bandTop + stack.up
+            let low = bandTop + shoulderBlock(metrics) + stack.up
             let high = max(low, rowTop - 12 - stack.down)
             return (min(max(ideal, low), high), high)
         }
@@ -183,7 +208,8 @@ struct StandardStage {
             alignOuter: true,
             leftClusterY: mirrored ? faceY : dpadY,
             rightClusterY: mirrored ? dpadY : faceY,
-            shoulders: .aboveCluster(PlayerControlMetrics(scale: 1).shoulderLift),
+            shoulders: .corners(top: bandTop + (compactShoulders ? 0 : 16), leftEdge: bounds.minX + insets.left, rightEdge: bounds.maxX - insets.right,
+                                minHeight: compactShoulders ? 0 : 44, stacked: stackShoulders),
             utility: .row(midX: safe.midX, y: rowY, maxWidth: rightEdge - leftEdge))
         let controls = plan.place(anchors, metrics: metrics, mirrored: mirrored)
         let deck = PlayerControlDeckLayout(
@@ -225,16 +251,24 @@ struct StandardStage {
         func footHeight(_ metrics: PlayerControlMetrics) -> CGFloat {
             menuFitsUnder(metrics) ? (bareFeet ? 0 : metrics.pill.height) : max(metrics.pill.height, metrics.menu)
         }
+        /// PlayStation's numbered shoulders stack (1 above 2) at the top of the rails when the
+        /// stacks still fit at the requested size with full-size sticks; otherwise one row.
+        var stackShoulders = plan.numberedShoulders
         /// Height left over once both stacks and the feet are in (negative: too tall).
         func room(_ metrics: PlayerControlMetrics) -> CGFloat {
             let foot = footHeight(metrics)
             return available - [true, false].map { side -> CGFloat in
-                let stack = self.stack(dpadSide: side, metrics, portrait: false)
+                let stack = self.stack(dpadSide: side, metrics, portrait: false, stackedShoulders: stackShoulders)
                 return stack.up + stack.down + (foot > 0 ? 10 + foot : 0) + 4
             }.max()!
         }
         // Secondary sticks give way (to their minimum) before the controls shrink.
         func fits(_ metrics: PlayerControlMetrics) -> Bool { room(fitted(metrics, room: room)) >= -0.5 }
+        if stackShoulders {
+            var nominal = PlayerControlMetrics(scale: requestedScale)
+            nominal.secondaryStickLimit = .infinity
+            if room(nominal) < -0.5 { stackShoulders = false }
+        }
         let metrics = fitted(scaled(from: requestedScale) { !fits($0) || gameSize($0).height < naturalHeight * Self.landscapeGameFloor }, room: room)
         let size = gameSize(metrics)
         let menu = metrics.menu
@@ -260,7 +294,7 @@ struct StandardStage {
         let shoulderTop = areaTop
         let footTop = footY - footSize / 2
         func clusterY(dpadSide: Bool) -> (y: CGFloat, high: CGFloat) {
-            let stack = self.stack(dpadSide: dpadSide, metrics, portrait: false)
+            let stack = self.stack(dpadSide: dpadSide, metrics, portrait: false, stackedShoulders: stackShoulders)
             let low = shoulderTop + stack.up
             let high = max(low, footTop - (footSize > 0 ? 10 : 0) - stack.down)
             return (min(max(ideal, low), high), high)
@@ -269,7 +303,7 @@ struct StandardStage {
         let anchors = PlayerControlAnchors(
             leftRail: leftRail, rightRail: rightRail, alignOuter: false,
             leftClusterY: mirrored ? faceY : dpadY, rightClusterY: mirrored ? dpadY : faceY,
-            shoulders: .top(shoulderTop), utility: .feet(y: footY, menu: menuSpot))
+            shoulders: .top(shoulderTop, stacked: stackShoulders), utility: .feet(y: footY, menu: menuSpot))
         let controls = plan.place(anchors, metrics: metrics, mirrored: mirrored)
         let deck = PlayerControlDeckLayout(
             scale: metrics.scale, railTop: shoulderTop, railWidth: leftRail.upperBound - leftRail.lowerBound,

@@ -196,6 +196,13 @@ class PlayerTouchSurfaceState internal constructor() {
                     PlayerInputLog.record(item)
                     view?.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 }
+                // The octagon's notches click; the square's corners bump more softly.
+                is PlayerTouchOutput.NotchHaptic -> if (haptics) {
+                    PlayerInputLog.record(item)
+                    view?.performHapticFeedback(
+                        if (item.gate == PlayerStickGate.OCTAGON) HapticFeedbackConstants.CONTEXT_CLICK else HapticFeedbackConstants.KEYBOARD_TAP,
+                    )
+                }
             }
         }
     }
@@ -339,6 +346,7 @@ private fun ControlView(control: PlacedPlayerControl, visual: PlayerVisualTheme,
             visual = visual,
             opacity = opacity,
             rightSide = !control.spec.left,
+            bumper = control.shape.takeIf { it == PlayerTouchShape.BUMPER_LEADING || it == PlayerTouchShape.BUMPER_TRAILING },
             modifier = Modifier.fillMaxSize(),
         )
     }

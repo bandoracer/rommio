@@ -41,13 +41,16 @@ public enum PlayerTouchRules {
     /// D-pad dead zone as a share of the pad's radius (smaller once a direction is held).
     public static let deadZone: CGFloat = 0.18
     public static let heldDeadZone: CGFloat = 0.15
-    /// Diagonal sectors are this wide (degrees); cardinal ones take the rest (50°).
-    public static let diagonalSector: Double = 40
+    /// Diagonal sectors are this wide (degrees); cardinal ones take the rest (60°). Narrowed
+    /// from 40° (revised 2026-09-26): a thumb resting on an arm rolled into a diagonal.
+    public static let diagonalSector: Double = 30
     /// A held direction keeps its sector this much wider (degrees).
     public static let sectorHysteresis: Double = 4
 
-    /// The d-pad direction for a touch at (dx, dy) from the pad's centre.
-    public static func dpadDirection(dx: CGFloat, dy: CGFloat, radius: CGFloat, previous: PlayerDPadDirection = .none) -> PlayerDPadDirection {
+    /// The d-pad direction for a touch at (dx, dy) from the pad's centre. A four-way pad
+    /// (`diagonals` false: a small secondary pad) splits the circle into its four arms.
+    public static func dpadDirection(dx: CGFloat, dy: CGFloat, radius: CGFloat, previous: PlayerDPadDirection = .none,
+                                     diagonals: Bool = true) -> PlayerDPadDirection {
         let distance = hypot(dx, dy)
         let dead = (previous == .none ? deadZone : heldDeadZone) * max(radius, 1)
         guard distance >= dead else { return .none }
@@ -58,10 +61,12 @@ public enum PlayerTouchRules {
             return min(d, 360 - d)
         }
         func halfWidth(_ direction: PlayerDPadDirection) -> Double {
-            direction.isDiagonal ? diagonalSector / 2 : (90 - diagonalSector) / 2
+            guard diagonals else { return 45 }
+            return direction.isDiagonal ? diagonalSector / 2 : (90 - diagonalSector) / 2
         }
-        if previous != .none, delta(angle, previous.angle) <= halfWidth(previous) + sectorHysteresis { return previous }
-        return PlayerDPadDirection.allCases.dropFirst().first { delta(angle, $0.angle) <= halfWidth($0) } ?? .none
+        let candidates = PlayerDPadDirection.allCases.dropFirst().filter { diagonals || !$0.isDiagonal }
+        if candidates.contains(previous), delta(angle, previous.angle) <= halfWidth(previous) + sectorHysteresis { return previous }
+        return candidates.first { delta(angle, $0.angle) <= halfWidth($0) } ?? .none
     }
 
     /// How far a point is into a control: 0 at its centre, 1 at its drawn edge.
@@ -175,8 +180,11 @@ public enum PlayerTouchOutput: Hashable, Sendable {
     case pressHaptic
     /// The d-pad changed to a new direction (a selection tick).
     case directionHaptic
-    /// A stick entered full tilt (one soft tick).
+    /// A stick entered full tilt between notches, or on a round gate (one soft tick).
     case stickHaptic
+    /// A stick at full tilt settled into a notch of its gate (the octagon's crisp click, the
+    /// square's softer corner bump).
+    case stickNotch(PlayerStickGate)
 }
 
 /// Turns touches into ordered input. Several touches may hold controls at once; a key
@@ -188,9 +196,9 @@ public struct PlayerTouchTracker: Sendable {
         case dpad(PlayerDPadDirection)
         /// Holding these controls of a rolling kind (empty after drifting off).
         case buttons(PlayerTouchKind, [String])
-        /// A stick, its centre (set by the touch-down, dragged by follow) and whether it
-        /// is at full tilt.
-        case stick(String, center: CGPoint, fullTilt: Bool)
+        /// A stick, its centre (set by the touch-down), whether it is at full tilt, and the
+        /// gate notch it rests in.
+        case stick(String, center: CGPoint, fullTilt: Bool, notch: Int?)
     }
 
     private var touches: [Int: State] = [:]
@@ -240,7 +248,7 @@ public struct PlayerTouchTracker: Sendable {
             }
             // Floating: the touch-down is the centre; fixed: the zone's centre.
             let center = control.fixedCentre ? control.center : PlayerStickModel.center(for: point, zone: control.frame, travel: control.travel)
-            return stickMotion(touch, id, center: center, fullTilt: false, at: point, follow: false)
+            return stickMotion(touch, id, center: center, fullTilt: false, notch: nil, at: point)
         }
     }
 
@@ -249,8 +257,8 @@ public struct PlayerTouchTracker: Sendable {
         switch state {
         case .dpad:
             return moveDPad(touch, to: point)
-        case let .stick(id, center, fullTilt):
-            return stickMotion(touch, id, center: center, fullTilt: fullTilt, at: point)
+        case let .stick(id, center, fullTilt, notch):
+            return stickMotion(touch, id, center: center, fullTilt: fullTilt, notch: notch, at: point)
         case let .buttons(kind, held):
             if let next = layout.rollTarget(at: point, kind: kind, current: held) {
                 guard next != held else { return [] }
@@ -274,7 +282,7 @@ public struct PlayerTouchTracker: Sendable {
             return keysChanged(from: previous.keys, to: [], touch: touch)
         case let .buttons(_, held):
             return release(held)
-        case let .stick(id, _, _):
+        case let .stick(id, _, _, _):
             // The missing spring: zero at once.
             controlHolds[id] = nil
             stickPositions[id] = nil
@@ -299,7 +307,7 @@ public struct PlayerTouchTracker: Sendable {
         guard let pad = layout.dpad else { return [] }
         let previous = directions[touch] ?? .none
         let next = PlayerTouchRules.dpadDirection(dx: point.x - pad.center.x, dy: point.y - pad.center.y,
-                                                  radius: pad.frame.width / 2, previous: previous)
+                                                  radius: pad.frame.width / 2, previous: previous, diagonals: !pad.fourWay)
         guard next != previous else { return [] }
         directions[touch] = next
         touches[touch] = .dpad(next)
@@ -373,24 +381,21 @@ public struct PlayerTouchTracker: Sendable {
         return .motion(stick: 1, x: x, y: y)
     }
 
-    /// A stick's value for the touch (`PlayerStickModel`), sent now and only when it
-    /// changed; past full travel the centre follows the thumb. The touch keeps the stick
-    /// outside its zone until it lifts. One soft tick on entering full tilt.
-    /// (The touch-down sets the centre; follow starts with the first move.)
-    private mutating func stickMotion(_ touch: Int, _ id: String, center: CGPoint, fullTilt wasFullTilt: Bool, at point: CGPoint,
-                                      follow: Bool = true) -> [PlayerTouchOutput] {
+    /// A stick: the output for the thumb's offset from the centre, which stays where the
+    /// touch landed; the touch keeps the stick outside its zone until it lifts. Haptics: a
+    /// notch click when the stick settles into a notch of its gate at full tilt; otherwise
+    /// one soft tick on entering full tilt.
+    private mutating func stickMotion(_ touch: Int, _ id: String, center: CGPoint, fullTilt wasFullTilt: Bool, notch held: Int?,
+                                      at point: CGPoint) -> [PlayerTouchOutput] {
         guard let control = layout.control(id), let stick = control.spec.stick, let profile = control.stickProfile else { return [] }
         controlHolds[id] = 1
-        let followed = follow
-            ? PlayerStickModel.followCentre(cx: Double(center.x), cy: Double(center.y), tx: Double(point.x), ty: Double(point.y), profile)
-            : (x: Double(center.x), y: Double(center.y))
-        let centre = CGPoint(x: followed.x, y: followed.y)
-        let dx = Double(point.x) - followed.x, dy = Double(point.y) - followed.y
+        let dx = Double(point.x - center.x), dy = Double(point.y - center.y)
         let value = PlayerStickModel.output(dx: dx, dy: dy, profile)
         let fullTilt = PlayerStickModel.fullTilt(dx: dx, dy: dy, profile)
-        touches[touch] = .stick(id, center: centre, fullTilt: fullTilt)
+        let notch = PlayerStickModel.notch(dx: dx, dy: dy, profile, current: held)
+        touches[touch] = .stick(id, center: center, fullTilt: fullTilt, notch: notch)
         let travel = CGFloat(profile.travel)
-        stickPositions[id] = PlayerStickPosition(center: centre, knob: CGPoint(x: centre.x + CGFloat(value.x) * travel, y: centre.y + CGFloat(value.y) * travel),
+        stickPositions[id] = PlayerStickPosition(center: center, knob: CGPoint(x: center.x + CGFloat(value.x) * travel, y: center.y + CGFloat(value.y) * travel),
                                                  fullTilt: fullTilt)
         var output: [PlayerTouchOutput] = []
         let vector = CGVector(dx: value.x, dy: value.y)
@@ -398,7 +403,11 @@ public struct PlayerTouchTracker: Sendable {
             stickValues[stick] = vector
             output.append(.motion(stick: stick, x: value.x, y: value.y))
         }
-        if fullTilt && !wasFullTilt { output.append(.stickHaptic) }
+        if let notch, notch != held {
+            output.append(.stickNotch(profile.gate))
+        } else if fullTilt && !wasFullTilt && notch == nil {
+            output.append(.stickHaptic)
+        }
         return output
     }
 }

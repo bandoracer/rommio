@@ -25,7 +25,10 @@ screen.
   touch is 40 pt beyond it, then releases.
 - **D-pad.** The touch that starts in the pad's hit region owns the pad until it lifts,
   even outside the pad. Direction comes from the angle to the pad's centre: dead zone
-  18% of the pad's radius; 8-way, with diagonal sectors 40° wide.
+  18% of the pad's radius; 8-way, with diagonal sectors 30° wide (revised 2026-09-26
+  from 40°: a thumb resting on an arm rolled into a diagonal). A small d-pad beside a
+  primary stick (Nintendo 64, 3DS) is 4-way: each arm takes a quarter of the circle, so
+  it presses one direction at a time.
 - **Sticks** (analog), revised 2026-09-24 — see "Analog sticks and per-console layouts"
   below.
 - **Immediate, ordered input.** Presses and releases go to the core synchronously, in
@@ -46,7 +49,7 @@ Sizes scale with the control-size setting (0.8–1.3). Hit regions follow the to
 
 | Control | Drawn size |
 | --- | --- |
-| D-pad | 150 pt disc |
+| D-pad | 150 pt cross (104 pt beside a primary stick) |
 | Two-button face (A/B) | 64 pt circles, centres 76 pt apart on a 25° rise (B lower-left, A upper-right) |
 | Four-button diamond | 56 pt circles, centres 62 pt from the cluster centre |
 | Six-button (Genesis 6, arcade) | 50 pt circles |
@@ -70,14 +73,23 @@ any family (the expansion families keep their layouts but take this floor).
   the same rule applies. Nothing names the game while playing; its name is in the pause
   menu (the title strip under the game was removed on 2026-09-25).
 - **Portrait:** the game at the top. The rest of the screen, from 12 pt under the game, is
-  the control band: the d-pad (left) and face
-  cluster (right) centred at 55% of the band's height, 20 pt from the screen edges;
-  shoulders 16 pt above their side's cluster, aligned to its outer edge, so an index or
-  thumb reaches them from the cluster (revised 2026-09-24: shoulders at the band's top
-  corners sat too far from the hands); Select · Menu · Start centred at the bottom, 12
-  pt above the home indicator.
+  the control band. The shoulders are one level row 28 pt under the game (revised
+  2026-09-26: per-cluster shoulders sat at two heights and read as more buttons): each
+  side's main shoulder (L, R, L1, R1) is a bumper flush against its screen edge, square
+  on that side and rounded inward, 44 pt tall and covering the 20 pt margin; any other
+  shoulder (L2, R2, ZL, ZR, the N64's Z) sits inward beside it. PlayStation's numbered
+  shoulders stack instead, 1 above 2 against each edge (8 pt apart), when that costs the
+  game its full width or the controls their size nothing (in practice: without Analog
+  controls, on the larger phones); otherwise they share the row. Then the d-pad (left) and
+  face cluster (right) centred at 55% of the band's height, 20 pt from the screen edges,
+  at least 16 pt below the shoulders; Select · Menu · Start centred at the bottom, 12 pt
+  above the home indicator. On a squeezed band (the controls already at their smallest
+  and the game still short of its floor) the row gives way: 12 pt under the game, at the
+  shoulders' natural height, 12 pt above the stacks.
 - **Landscape:** the game centred between side rails (6 pt from the camera housing); the d-pad and the face cluster
-  centred in their rails at 60% of the height; shoulders at the top of each rail;
+  centred in their rails at 60% of the height; shoulders at the top of each rail
+  (PlayStation's stacked 1 above 2, centred in the rail, when the stacks still fit at the
+  requested size with full-size sticks);
   Select and Start at the foot of the rails; Menu bottom centre. Nothing overlaps the
   game.
 - **Left-handed** mirrors the rails, never the labels.
@@ -99,9 +111,10 @@ drifts, jitters a point or two, and overshoots. The stick is designed for that:
   edge read as instant tilt); the zone only decides which touches start the stick, and
   the ring may draw past it. On lift the output drops to zero at once (the missing
   spring) and the ring returns to the zone's centre.
-- **Follow.** Past full travel the centre is dragged behind the thumb so it sits at the
-  rim (`follow`): reversing direction responds immediately instead of crossing the
-  whole ring first, and a drifting thumb never loses the stick.
+- **The centre stays put** (revised 2026-09-26). Past full travel the output stays at
+  full tilt and the centre stays where the thumb landed; it no longer follows a thumb
+  past the rim, which let the stick wander. A drifting thumb still keeps the stick:
+  the touch owns it until it lifts.
 - **Dead zone with rescale** absorbs contact jitter (a few points) without a jump at its
   edge; **saturation** reads the outer band of travel as full tilt, because a thumb
   can't hold the exact rim; a **response curve** gives fine control near the centre
@@ -109,25 +122,30 @@ drifts, jitters a point or two, and overshoots. The stick is designed for that:
 - **Gate shape.** Each console's physical gate sets how far diagonals reach: a circle
   (3DS, PSP), an octagon (N64: 0.86 per axis at 45°), near-square (DualShock: 0.95).
   Without it, diagonals feel weak in games tuned for the hardware.
-- **Haptics** substitute for the gate: one soft tick (iOS `.soft` impact at 0.4;
-  Android `CLOCK_TICK`) when the stick enters full tilt, again only after it has left
-  it. Nothing while moving — a buzz per change is noise. L3/R3 presses tick like
-  buttons.
+- **Haptics** substitute for the gate, shaped like it (revised 2026-09-26). At full
+  tilt, the N64's octagon clicks into each of its eight notches (the cardinals and
+  diagonals; iOS `.rigid` impact at 0.8, Android `CONTEXT_CLICK`), and the DualShock's
+  near-square gate bumps at its four corners (iOS `.medium` at 0.55, Android
+  `KEYBOARD_TAP`). A notch catches the stick within 8° of it and holds it out to 12°, so
+  a thumb on a notch's edge doesn't chatter. Entering full tilt anywhere else, and on a
+  round gate (3DS, PSP) always, is one soft tick (iOS `.soft` at 0.4; Android
+  `CLOCK_TICK`), again only after leaving full tilt. Nothing else while moving — a buzz
+  per change is noise. L3/R3 presses tick like buttons.
 - The touch owns the stick until it lifts; values go to the core immediately.
 - **Visuals:** the ring draws at the centre (so the thumb can see where centre is), the
   knob at the output position, and the ring brightens at full tilt.
 
 The maths is one function set, pinned by `scripts/touch_stick_reference.py`
-(`stick_output`, `gate_scale`, `follow_centre`, `full_tilt`): both apps implement it
-and their unit tests assert the vectors that script prints, to 4 decimals.
+(`stick_output`, `gate_scale`, `full_tilt`, `notch`): both apps implement it and their
+unit tests assert the vectors that script prints, to 4 decimals.
 
-| Profile | Travel | Dead zone | Saturation | Curve | Diagonal reach | Follow |
+| Profile | Travel | Dead zone | Saturation | Curve | Diagonal reach | Gate (haptics) |
 | --- | --- | --- | --- | --- | --- | --- |
-| N64 stick | 48 pt | 10% | 90% | 1.4 | 0.86 (octagon) | on |
-| 3DS circle pad | 44 pt | 10% | 92% | 1.2 | circle | on |
-| PSP nub | 36 pt | 12% | 90% | 1.0 | circle | on |
-| PlayStation left | 44 pt | 10% | 90% | 1.3 | 0.95 (near-square) | on |
-| PlayStation right | 40 pt | 12% | 90% | 1.6 | 0.95 | on |
+| N64 stick | 48 pt | 10% | 90% | 1.4 | 0.86 (octagon) | octagon: 8 notches |
+| 3DS circle pad | 44 pt | 10% | 92% | 1.2 | circle | circle |
+| PSP nub | 36 pt | 12% | 90% | 1.0 | circle | circle |
+| PlayStation left | 44 pt | 10% | 90% | 1.3 | 0.95 (near-square) | square: 4 corners |
+| PlayStation right | 40 pt | 12% | 90% | 1.6 | 0.95 | square: 4 corners |
 
 **Per-game tuning.** The in-game Controls sheet gets a **Stick** group for consoles
 with sticks: Sensitivity (Low / Normal / High = travel × 1.2 / 1 / 0.8), Dead zone
@@ -152,7 +170,9 @@ The control surface never claims touches outside controls: a touch on a game scr
   `playerLegend` role (22 pt on two-button faces, 20 pt on diamonds) in `controlInk`.
   Console colours colour the legend and a 2 pt ring (never a faint wash that hides the
   button); the legend keeps 3:1 against the fill. Pressed: `controlPressed` fill and a
-  94% scale for 60 ms. D-pad: frosted disc, cross grooves, chevrons, the held arm lit.
+  94% scale for 60 ms. D-pad: a frosted-glass cross filling its square like Riso's (arms
+  34% of the side; revised 2026-09-26 from small grooves inside a disc), chevrons, the
+  held arm lit.
 - **Riso:** flat ink shapes as today, at the new sizes.
 - The opacity setting applies to Aurora only and never takes face buttons below 0.5.
 
@@ -188,10 +208,14 @@ Choices the spec leaves open, so Android can match:
   4 pt beyond it. The d-pad dead zone shrinks to 15% while a direction is held, and a
   held direction keeps its sector 4° wider.
 - Shoulders on one side sit side by side, each at most 88 × 40, narrower when the rail
-  is (N64: Z 92 × 48, L a narrow 64 pt tab at the corner; Z keeps its width while L gives way to 56 pt). Portrait: the row's
-  bottom is 16 pt above the top of its side's stack (N64: above the small d-pad), aligned
-  to the stack's outer edge; a row wider than its stack stays inside its half. The DS/3DS
-  band under the screens does the same; landscape rails keep them at the rail's top.
+  is (N64: Z 92 × 48, L a narrow 64 pt tab at the corner; Z keeps its width while L gives way to 56 pt). Portrait
+  (`PlayerControlAnchors.Shoulders.corners`): one row at a fixed top (28 pt under the
+  game), every shoulder the row's height (the tallest, at least 44 pt); the main shoulder
+  from the screen edge (the safe area's edge) inward over the rail's margin, the others
+  inward beside it. The DS/3DS rail stages (and the iPhone Duo) level the row 16 pt above
+  the higher of the two stacks, at the shoulders' natural height and against the safe
+  area's edges, since their bands are sized from below. Landscape rails keep them at the
+  rail's top.
 - Secondary sticks sit 10 pt under their side's cluster (a pair lines up under the
   taller one); a small d-pad sits 10 pt above (N64) or below (3DS) the primary stick.
 - Portrait: the band is from 12 pt under the game to the top of the home indicator. The
@@ -212,20 +236,22 @@ Choices the spec leaves open, so Android can match:
 Sticks and per-console layouts (iOS):
 
 - The maths is `RommioPlayerKit/PlayerTouchStick.swift`: `PlayerStickModel.output`,
-  `gateScale`, `followCentre`, `fullTilt` port the reference script line for line, and
+  `gateScale`, `fullTilt`, `notch` port the reference script line for line, and
   `PlayerTouchStickTests` holds every vector it prints (generated from its output) at
   ±0.00005 for all five profiles. `PlayerStickProfile.forStick` picks the profile (N64,
   3DS, PSP, PlayStation left and right).
 - Stick touch: the first touch in a zone owns the stick (a second touch there does
-  nothing). The touch-down sets the centre (the point clamped to the zone inset by the
-  travel; with Centre › Fixed, the zone's centre); follow starts with the first move.
-  Values go out on every change (not repeated), y down; lift sends 0,0 at once. One
-  `.soft` impact at 0.4 on entering full tilt (`fullTilt`), again only after leaving it.
+  nothing). The touch-down sets the centre (the touch point; with Centre › Fixed, the
+  zone's centre), and it stays there until the touch lifts. Values go out on every
+  change (not repeated), y down; lift sends 0,0 at once. Haptics: `.stickNotch(gate)`
+  when the stick settles into a notch (`notch`, which holds the current one out to 12°);
+  otherwise one `.soft` impact at 0.4 on entering full tilt (`fullTilt`), again only
+  after leaving it.
   The zone is the hit region (no 14 pt growth) and isn't drawn: the ring (diameter
   2 × travel) draws at the centre, the knob (0.95 × travel) at centre + output × travel,
   and at full tilt the ring gets a bright 2.5 pt edge in the control ink.
 - Travel = the profile's × Sensitivity (1.2 / 1 / 0.8) × the control size; dead zone =
-  the profile's × (0.6 / 1 / 1.6); Fixed turns follow off. The Stick group (Sensitivity,
+  the profile's × (0.6 / 1 / 1.6). The Stick group (Sensitivity,
   Dead zone, Centre, Reset) is in the in-game Controls sheet while the game shows touch
   sticks, stored per game in `player_game_controls` with the Analog setting.
 - Short landscape screens: a secondary stick's zone gives way (to 75% of 120 pt, never
@@ -255,7 +281,8 @@ The same model with the iOS names and the choices above (details in
 `PlayerStandardStage.kt` and `PlayerTouchTracker.kt` (pure, `ui/screen/player/`, pinned by
 `PlayerTouchModelTest` with the iOS phone sizes and expectations); one
 `PointerInputModifierNode` in `PlayerControlsOverlay.kt`; input through
-`PlayerEngine.sendDigital` / `sendMotion` (synchronous); haptics `VIRTUAL_KEY` / `CLOCK_TICK`;
+`PlayerEngine.sendDigital` / `sendMotion` (synchronous); haptics `VIRTUAL_KEY` / `CLOCK_TICK`
+(and the stick notches' `CONTEXT_CLICK` / `KEYBOARD_TAP`);
 the debug `PlayerInputLog` for UI tests. Android-only, for screens iOS doesn't have: the portrait
 utility row tightens on phones narrower than about 375 dp (6 dp gaps, pills down to 30 dp), a
 rail foot with three or more utilities uses 36 dp pills.
@@ -263,9 +290,9 @@ rail foot with three or more utilities uses 36 dp pills.
 Sticks and per-console layouts (Android): the iOS plan and stage names (`dpadSlot`,
 `leftStickPrimary`, `analogControls`, `compact()`, `RailContent`, `stack`, `fitted`, `level`,
 `gameScreens`) and the iOS stick names (`PlayerStickProfile.forStick` / `tuned`,
-`PlayerStickModel.output`, `gateScale`, `followCentre`, `fullTilt`, in `PlayerTouchTracker.kt`),
-pinned by `PlayerTouchModelTest` to every vector the reference script prints. Full tilt plays
-`CLOCK_TICK`. Analog controls are stored per ROM id (`analog_controls_rom_ids`) and the Stick
+`PlayerStickModel.output`, `gateScale`, `fullTilt`, `notch`, `PlayerStickGate`, in
+`PlayerTouchTracker.kt`), pinned by `PlayerTouchModelTest` to every vector the reference script
+prints. Full tilt plays `CLOCK_TICK`; a notch `CONTEXT_CLICK` (octagon) or `KEYBOARD_TAP` (square). Analog controls are stored per ROM id (`analog_controls_rom_ids`) and the Stick
 group per ROM id (`stick_tuning_<id>`) in `PlayerControlsPreferencesStore`, device-local. The 3DS
 goes through the phone stage on Android (there is no DS rail stage), so primaries that can't
 share a height at the ideal level at the lowest height both allow, and in landscape the controls

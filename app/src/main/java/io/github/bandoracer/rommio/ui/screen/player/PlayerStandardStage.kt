@@ -78,9 +78,10 @@ fun resolvePlayerStage(
  *
  * - Portrait: the game at the top, 8 dp under the camera cutout: the display's full width when that
  *   fits above the controls, otherwise inside a 12 dp border. The rest is the control band: the
- *   d-pad and face cluster at 55 % of its height, 20 dp from the screen edges, each side's
- *   shoulders 16 dp above its stack at the stack's outer edge (revised 2026-09-24), and
- *   Select · Menu · Start centred at the bottom, 12 dp above the gesture area.
+ *   shoulders in one level row 28 dp under the game, each side's main shoulder a bumper flush
+ *   against its screen edge (revised 2026-09-26); the d-pad and face cluster at 55 % of the band's
+ *   height, 20 dp from the screen edges, below the shoulders; and Select · Menu · Start centred at
+ *   the bottom, 12 dp above the gesture area.
  * - Landscape: the game centred between side rails (6 dp from the camera cutout); the display's
  *   full height when the rails leave room for it, otherwise inside the border. The clusters
  *   centred in their rails at 60 % of the height, shoulders at the top of each rail, Select and
@@ -133,9 +134,15 @@ internal class StandardStage(
      */
     private data class Stack(val up: Float, val down: Float)
 
-    private fun stack(dpadSide: Boolean, metrics: PlayerControlMetrics, portrait: Boolean): Stack {
+    private fun stack(dpadSide: Boolean, metrics: PlayerControlMetrics, portrait: Boolean, stackedShoulders: Boolean = false): Stack {
         val content = plan.rail(dpadSide, metrics)
-        val shoulders = if (content.shoulderRow.height > 0f) content.shoulderRow.height + (if (portrait) metrics.shoulderLift else 10f) else 0f
+        // Portrait shoulders are the corner row above both stacks (`shoulderBlock`); on a landscape rail
+        // they top the stack, one row or (stacked) a column.
+        val shoulders = if (content.shoulderRow.height > 0f && !portrait) {
+            plan.shoulderBlockHeight(content.shoulderRow.height, stackedShoulders) + 10f
+        } else {
+            0f
+        }
         // A pair of sticks lines up under the taller cluster (`PlayerControlPlan.place`).
         val lower = if (plan.stickPair) {
             max(plan.rail(true, metrics).cluster.height, plan.rail(false, metrics).cluster.height)
@@ -192,7 +199,20 @@ internal class StandardStage(
         // Full width, edge to edge.
         val natural = safe.width / aspect
 
-        fun band(metrics: PlayerControlMetrics): Float = listOf(true, false).maxOf { side ->
+        // The corner row of shoulders: 16 dp into the band (28 dp under the game), the row (44 dp), and
+        // 16 dp down to the stacks. On a squeezed band (the controls already at their smallest and the
+        // game still short of its floor) it gives way: at the band's top (12 dp under the game), at its
+        // natural height, 12 dp above the stacks.
+        // PlayStation's numbered shoulders stack (1 above 2) when that costs the game and the controls
+        // nothing; otherwise they share the row.
+        var compactShoulders = false
+        var stackShoulders = plan.numberedShoulders
+        fun shoulderBlock(metrics: PlayerControlMetrics): Float = when {
+            !plan.hasShoulders -> 0f
+            compactShoulders -> plan.cornerRowHeight(metrics, minimum = 0f) + 12f
+            else -> 16f + plan.shoulderBlockHeight(plan.cornerRowHeight(metrics), stackShoulders) + 16f
+        }
+        fun band(metrics: PlayerControlMetrics): Float = shoulderBlock(metrics) + listOf(true, false).maxOf { side ->
             val stack = stack(side, metrics, portrait = true)
             stack.up + stack.down
         } + 12f
@@ -211,14 +231,20 @@ internal class StandardStage(
         fun fitsAcross(metrics: PlayerControlMetrics): Boolean =
             plan.rail(true, metrics).width + plan.rail(false, metrics).width + 16f <=
                 bounds.width - max(EDGE, insets.left) - max(EDGE, insets.right)
-        val metrics = scaled(requestedScale) { !fitsAcross(it) || gameFrame(it).height < natural * PORTRAIT_GAME_FLOOR }
+        fun fittedMetrics(): PlayerControlMetrics = scaled(requestedScale) { !fitsAcross(it) || gameFrame(it).height < natural * PORTRAIT_GAME_FLOOR }
+        var metrics = fittedMetrics()
+        if (stackShoulders && (gameFrame(metrics).height < natural - 0.5f || metrics.scale < requestedScale - 0.001f)) {
+            stackShoulders = false
+            metrics = fittedMetrics()
+        }
+        if (plan.hasShoulders && gameFrame(metrics).height < natural * PORTRAIT_GAME_FLOOR) compactShoulders = true
         val game = gameFrame(metrics)
         val bandTop = game.bottom + 12f
         val ideal = bandTop + 0.55f * (safe.bottom - bandTop)
         fun clusterY(dpadSide: Boolean): Clamp {
             // The shoulders ride above the stack: it never rises so far that they leave the band.
             val stack = stack(dpadSide, metrics, portrait = true)
-            val low = bandTop + stack.up
+            val low = bandTop + shoulderBlock(metrics) + stack.up
             val high = max(low, rowTop - 12f - stack.down)
             return Clamp(min(max(ideal, low), high), low, high)
         }
@@ -231,7 +257,10 @@ internal class StandardStage(
             alignOuter = true,
             leftClusterY = if (mirrored) faceY else dpadY,
             rightClusterY = if (mirrored) dpadY else faceY,
-            shoulders = PlayerControlAnchors.Shoulders.AboveCluster(PlayerControlMetrics(1f).shoulderLift),
+            shoulders = PlayerControlAnchors.Shoulders.Corners(
+                top = bandTop + if (compactShoulders) 0f else 16f, leftEdge = bounds.left + insets.left, rightEdge = bounds.right - insets.right,
+                minHeight = if (compactShoulders) 0f else 44f, stacked = stackShoulders,
+            ),
             utility = PlayerControlAnchors.Utility.Row(midX = safe.center.x, y = rowY, maxWidth = rightEdge - leftEdge),
         )
         return PlayerStage(game, isPortrait = true, controls = plan.place(anchors, metrics, mirrored).copy(gameScreens = listOf(game)))
@@ -269,16 +298,20 @@ internal class StandardStage(
         fun menuFitsUnder(metrics: PlayerControlMetrics): Boolean = available - gameSize(metrics).height >= metrics.menu + 16f
         fun footHeight(metrics: PlayerControlMetrics): Float =
             if (menuFitsUnder(metrics)) (if (bareFeet) 0f else metrics.pill.height) else max(metrics.pill.height, metrics.menu)
+        // PlayStation's numbered shoulders stack (1 above 2) at the top of the rails when the stacks
+        // still fit at the requested size with full-size sticks; otherwise one row.
+        var stackShoulders = plan.numberedShoulders
         // Height left over once both stacks and the feet are in (negative: too tall).
         fun room(metrics: PlayerControlMetrics): Float {
             val foot = footHeight(metrics)
             return available - listOf(true, false).maxOf { side ->
-                val stack = stack(side, metrics, portrait = false)
+                val stack = stack(side, metrics, portrait = false, stackedShoulders = stackShoulders)
                 stack.up + stack.down + (if (foot > 0f) 10f + foot else 0f) + 4f
             }
         }
         // Secondary sticks give way (to their minimum) before the controls shrink.
         fun fits(metrics: PlayerControlMetrics): Boolean = room(fitted(metrics, ::room)) >= -0.5f
+        if (stackShoulders && room(PlayerControlMetrics(requestedScale).withSecondaryStickLimit(Float.POSITIVE_INFINITY)) < -0.5f) stackShoulders = false
         val ideal = bounds.top + 0.6f * bounds.height
         val shoulderTop = areaTop
         // Each side's primary control: at 60 % of the height, between the shoulders and the feet.
@@ -286,7 +319,7 @@ internal class StandardStage(
             val footSize = footHeight(metrics)
             val footTop = areaBottom - 4f - footSize
             fun clusterY(dpadSide: Boolean): Clamp {
-                val stack = stack(dpadSide, metrics, portrait = false)
+                val stack = stack(dpadSide, metrics, portrait = false, stackedShoulders = stackShoulders)
                 val low = shoulderTop + stack.up
                 val high = max(low, footTop - (if (footSize > 0f) 10f else 0f) - stack.down)
                 return Clamp(min(max(ideal, low), high), low, high)
@@ -331,7 +364,7 @@ internal class StandardStage(
             alignOuter = false,
             leftClusterY = if (mirrored) faceY else dpadY,
             rightClusterY = if (mirrored) dpadY else faceY,
-            shoulders = PlayerControlAnchors.Shoulders.Top(shoulderTop),
+            shoulders = PlayerControlAnchors.Shoulders.Top(shoulderTop, stacked = stackShoulders),
             utility = PlayerControlAnchors.Utility.Feet(y = footY, menu = menuSpot),
         )
         return PlayerStage(game, isPortrait = false, controls = plan.place(anchors, metrics, mirrored).copy(gameScreens = listOf(game)))

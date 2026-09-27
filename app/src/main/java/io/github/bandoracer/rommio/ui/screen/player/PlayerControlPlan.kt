@@ -48,6 +48,8 @@ enum class PlayerFaceArrangement {
 /** The drawn outline of a control. */
 enum class PlayerTouchShape {
     CIRCLE, CAPSULE, TAB,
+    /** A shoulder flush against the screen's left (leading) or right edge: flat on that side (portrait corners). */
+    BUMPER_LEADING, BUMPER_TRAILING,
     /** An analog stick's square zone: touches anywhere in it take the stick. */
     ZONE,
 }
@@ -159,6 +161,8 @@ data class PlacedPlayerControl(
     val stickProfile: PlayerStickProfile? = null,
     /** Sticks: the centre stays at the zone's centre (the game's Centre: Fixed). */
     val fixedCentre: Boolean = false,
+    /** A d-pad beside a primary stick (Nintendo 64, 3DS): four directions, no diagonals. */
+    val fourWay: Boolean = false,
 ) {
     /** Sticks: thumb travel for full tilt (dp), before saturation. */
     val travel: Float get() = stickProfile?.travel?.toFloat() ?: 0f
@@ -208,10 +212,15 @@ data class PlayerControlAnchors(
     val utility: Utility,
 ) {
     sealed interface Shoulders {
-        /** The top of the rails (landscape). */
-        data class Top(val y: Float) : Shoulders
-        /** A lift above the top of their side's stack, aligned to its outer edge (portrait, revised 2026-09-24). */
-        data class AboveCluster(val lift: Float) : Shoulders
+        /** The top of the rails (landscape); [stacked]: numbered shoulders in a column, 1 above 2, centred in the rail. */
+        data class Top(val y: Float, val stacked: Boolean = false) : Shoulders
+        /**
+         * Portrait (revised 2026-09-26): one level row at [top] (null: 16 dp above the higher of the two
+         * stacks), at least [minHeight] tall. Each side's main shoulder (L, R, L1, R1) is a bumper flush
+         * against its screen edge ([leftEdge], [rightEdge]), covering the rail's margin; any other shoulder
+         * sits inward beside it.
+         */
+        data class Corners(val top: Float?, val leftEdge: Float, val rightEdge: Float, val minHeight: Float, val stacked: Boolean = false) : Shoulders
     }
 
     sealed interface Utility {
@@ -264,6 +273,19 @@ data class PlayerControlPlan(
         get() = listOfNotNull(dpad) + face + leftShoulders + rightShoulders + listOfNotNull(leftStick, rightStick) + utilities
 
     val hasShoulders: Boolean get() = leftShoulders.isNotEmpty() || rightShoulders.isNotEmpty()
+    /** Numbered shoulders (PlayStation's L1/L2, R1/R2) stack, 1 above 2, when a stage has room. */
+    val numberedShoulders: Boolean
+        get() {
+            val labels = (leftShoulders + rightShoulders).map { it.label }.toSet()
+            return labels.containsAll(listOf("L1", "L2")) || labels.containsAll(listOf("R1", "R2"))
+        }
+    val shoulderStackRows: Int get() = if (numberedShoulders) max(leftShoulders.size, rightShoulders.size) else 1
+
+    /** The height the shoulders take: one row, or the stack of [shoulderStackRows]. */
+    fun shoulderBlockHeight(rowHeight: Float, stacked: Boolean): Float {
+        val rows = if (stacked) shoulderStackRows else 1
+        return rows * rowHeight + (rows - 1) * SHOULDER_STACK_GAP
+    }
     val hasSticks: Boolean get() = leftStick != null || rightStick != null
     /** A pair of secondary sticks lines up under the taller cluster. */
     internal val stickPair: Boolean get() = leftStick != null && rightStick != null && !leftStickPrimary
@@ -373,6 +395,15 @@ data class PlayerControlPlan(
         if (family == "n64" && spec.id == "Z") metrics.zTab else metrics.shoulder
 
     /** One side's shoulder row: widths (narrower to fit [available]) and height. A large tab keeps its width while the others give way to 56 dp. */
+    /**
+     * The portrait corner row's height ([PlayerControlAnchors.Shoulders.Corners]): the tallest shoulder, at
+     * least [minimum] (44 dp on a phone's band, which plans room for it); every shoulder in the row takes it.
+     */
+    fun cornerRowHeight(metrics: PlayerControlMetrics, minimum: Float = 44f): Float {
+        val heights = (leftShoulders + rightShoulders).map { shoulderSize(it, metrics).height }
+        return heights.maxOrNull()?.let { max(minimum, it) } ?: 0f
+    }
+
     internal fun shoulderRow(specs: List<PlayerControlSpec>, available: Float, metrics: PlayerControlMetrics): Pair<List<Float>, Float> {
         if (specs.isEmpty()) return emptyList<Float>() to 0f
         val sizes = specs.map { shoulderSize(it, metrics) }
@@ -514,7 +545,7 @@ data class PlayerControlPlan(
                     DPadSlot.BESIDE -> Offset(dpadPrimaryX + (dpadContent.cluster.width / 2 + gap + side / 2) * (if (dpadOnLeft) 1 else -1), dpadY)
                     else -> Offset(dpadPrimaryX, primaryBottom + gap + side / 2)
                 }
-                placed += PlacedPlayerControl(spec, square(centre, side), PlayerTouchShape.CIRCLE)
+                placed += PlacedPlayerControl(spec, square(centre, side), PlayerTouchShape.CIRCLE, fourWay = true)
             }
         } else {
             dpad?.let { placed += PlacedPlayerControl(it, square(Offset(dpadPrimaryX, dpadY), metrics.dpad), PlayerTouchShape.CIRCLE) }
@@ -543,17 +574,36 @@ data class PlayerControlPlan(
             placed += placedStick(spec, square(Offset(facePrimaryX, top + gap + side / 2), side))
         }
 
-        // Shoulders: the top of each rail (landscape), or just above their side's stack, aligned
-        // to its outer edge (portrait), where a thumb or index finger reaches them from the cluster.
-        // ([stackX]: the centre of the primary control and anything beside it.)
-        fun shoulders(specs: List<PlayerControlSpec>, rail: ClosedFloatingPointRange<Float>, onLeft: Boolean, content: RailContent, clusterY: Float, stackX: Float) {
+        // Shoulders: the top of each rail (landscape), or the portrait corners.
+        fun stackTop(content: RailContent, clusterY: Float): Float = clusterY - content.cluster.height / 2 - content.aboveHeight(metrics)
+        val levelTop = min(stackTop(dpadContent, dpadY), stackTop(faceContent, faceY)) - metrics.shoulderLift - cornerRowHeight(metrics, minimum = 0f)
+        fun shoulders(specs: List<PlayerControlSpec>, rail: ClosedFloatingPointRange<Float>, onLeft: Boolean) {
             if (specs.isEmpty()) return
             val (widths, rowHeight) = shoulderRow(specs, rail.endInclusive - rail.start, metrics)
             val total = widths.sum() + (specs.size - 1) * metrics.shoulderGap
             val top: Float
             val startX: Float
+            val main = specs.indexOfFirst { it.label in setOf("L", "R", "L1", "R1") }.coerceAtLeast(0)
+            val outward = listOf(main) + specs.indices.filter { it != main }
             when (val shoulders = anchors.shoulders) {
                 is PlayerControlAnchors.Shoulders.Top -> {
+                    if (shoulders.stacked && specs.size > 1) {
+                        // A column in the rail, the main shoulder on top.
+                        val railWidth = rail.endInclusive - rail.start
+                        var rowTop = shoulders.y
+                        outward.forEach { index ->
+                            val size = shoulderSize(specs[index], metrics)
+                            val width = min(size.width, railWidth)
+                            val x = when {
+                                !anchors.alignOuter -> (rail.start + rail.endInclusive) / 2 - width / 2
+                                onLeft -> rail.start
+                                else -> rail.endInclusive - width
+                            }
+                            placed += PlacedPlayerControl(specs[index], Rect(x, rowTop, x + width, rowTop + size.height), PlayerTouchShape.TAB)
+                            rowTop += size.height + SHOULDER_STACK_GAP
+                        }
+                        return
+                    }
                     top = shoulders.y
                     startX = if (anchors.alignOuter) {
                         if (onLeft) rail.start else rail.endInclusive - total
@@ -561,13 +611,37 @@ data class PlayerControlPlan(
                         (rail.start + rail.endInclusive) / 2 - total / 2
                     }
                 }
-                is PlayerControlAnchors.Shoulders.AboveCluster -> {
-                    val stackTop = clusterY - content.cluster.height / 2 - content.aboveHeight(metrics)
-                    top = stackTop - shoulders.lift - rowHeight
-                    val stackWidth = max(content.block, content.above?.width ?: 0f)
-                    val aligned = if (onLeft) stackX - stackWidth / 2 else stackX + stackWidth / 2 - total
-                    // A row wider than its stack stays inside the rail.
-                    startX = min(max(aligned, rail.start), max(rail.start, rail.endInclusive - total))
+                is PlayerControlAnchors.Shoulders.Corners -> {
+                    // From the edge inward: the main shoulder as a bumper (over the rail's margin), then the others.
+                    val edge = if (onLeft) shoulders.leftEdge else shoulders.rightEdge
+                    val margin = max(0f, if (onLeft) rail.start - shoulders.leftEdge else shoulders.rightEdge - rail.endInclusive)
+                    val height = cornerRowHeight(metrics, minimum = shoulders.minHeight)
+                    val rowTop = shoulders.top ?: levelTop
+                    val bumper = if (onLeft) PlayerTouchShape.BUMPER_LEADING else PlayerTouchShape.BUMPER_TRAILING
+                    if (shoulders.stacked) {
+                        // A column against the edge, the main shoulder on top; every one a bumper.
+                        val railWidth = rail.endInclusive - rail.start
+                        outward.forEachIndexed { n, index ->
+                            val width = min(shoulderSize(specs[index], metrics).width, railWidth) + margin
+                            val x = if (onLeft) edge else edge - width
+                            val y = rowTop + n * (height + SHOULDER_STACK_GAP)
+                            placed += PlacedPlayerControl(specs[index], Rect(x, y, x + width, y + height), bumper)
+                        }
+                        return
+                    }
+                    var offset = 0f
+                    (listOf(main) + specs.indices.filter { it != main }).forEachIndexed { n, index ->
+                        val width = widths[index] + if (n == 0) margin else 0f
+                        val x = if (onLeft) edge + offset else edge - offset - width
+                        val shape = when {
+                            n > 0 -> PlayerTouchShape.TAB
+                            onLeft -> PlayerTouchShape.BUMPER_LEADING
+                            else -> PlayerTouchShape.BUMPER_TRAILING
+                        }
+                        placed += PlacedPlayerControl(specs[index], Rect(x, rowTop, x + width, rowTop + height), shape)
+                        offset += width + metrics.shoulderGap
+                    }
+                    return
                 }
             }
             var x = startX
@@ -577,8 +651,8 @@ data class PlayerControlPlan(
                 x += width + metrics.shoulderGap
             }
         }
-        shoulders(leftShoulders, dpadRail, dpadOnLeft, dpadContent, dpadY, dpadBlockX)
-        shoulders(rightShoulders, faceRail, !dpadOnLeft, faceContent, faceY, facePrimaryX)
+        shoulders(leftShoulders, dpadRail, dpadOnLeft)
+        shoulders(rightShoulders, faceRail, !dpadOnLeft)
 
         // Select · Menu · Start.
         val pill = metrics.pill
@@ -659,6 +733,8 @@ data class PlayerControlPlan(
     }
 
     companion object {
+        /** The gap between stacked shoulders. */
+        const val SHOULDER_STACK_GAP = 8f
         /**
          * The family's plan, or null when it has no touch controls. [analogControls]: PlayStation's
          * per-game Analog controls; [stickTuning]: the game's stick tuning.

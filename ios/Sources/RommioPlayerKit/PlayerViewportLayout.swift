@@ -267,10 +267,13 @@ public func resolvePlayerStageLayout(
         } else {
             utility = .feet(y: deck.utilityY, menu: railPlan.menuOnLeadingFoot ? .leadingFoot : .trailingFoot)
         }
-        // Portrait (a band under the game, DS and 3DS): shoulders 16 pt above their
-        // side's stack; landscape rails: at the top of the rail.
+        // Portrait (a band under the game, DS and 3DS): the corner row, level above the
+        // higher stack, main shoulders flush against the safe area's edges; landscape rails:
+        // the rail's top.
+        let pane = max(0, min(stage.trailingPaneWidth, containerSize.width * 0.6))
         let shoulders: PlayerControlAnchors.Shoulders = deck.isPortrait
-            ? .aboveCluster(PlayerControlMetrics(scale: 1).shoulderLift) : .top(deck.railTop)
+            ? .corners(top: nil, leftEdge: safeAreaInsets.left, rightEdge: containerSize.width - pane - (pane > 0 ? 0 : safeAreaInsets.right), minHeight: 0)
+            : .top(deck.railTop)
         let clusterY = deck.railTop + box.clusterCenter * deck.scale
         let anchors = PlayerControlAnchors(
             leftRail: deck.leftOrigin ... deck.leftOrigin + deck.railWidth,

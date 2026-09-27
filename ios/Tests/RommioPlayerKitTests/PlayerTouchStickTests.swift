@@ -67,13 +67,63 @@ final class PlayerTouchStickTests: XCTestCase {
         ("psx-right", -15, 26, -0.3887, 0.6737, false),
     ]
 
-    /// Centre (0, 0), thumb (80, 0) -> centre.
-    private let follows: [(String, Double, Double)] = [
-        ("n64", 32.0, 0.0),
-        ("3ds", 36.0, 0.0),
-        ("psp", 44.0, 0.0),
-        ("psx", 36.0, 0.0),
-        ("psx-right", 40.0, 0.0),
+    /// (profile, degrees at full tilt (60 pt out), notch entering, notch holding notch 1).
+    private let notches: [(String, Double, Int?, Int?)] = [
+        ("n64", 0, 0, 0),
+        ("n64", 5, 0, 0),
+        ("n64", 10, nil, nil),
+        ("n64", 40, 1, 1),
+        ("n64", 45, 1, 1),
+        ("n64", 52, 1, 1),
+        ("n64", 55, nil, 1),
+        ("n64", 58, nil, nil),
+        ("n64", 90, 2, 2),
+        ("n64", 135, 3, 3),
+        ("n64", 270, 6, 6),
+        ("3ds", 0, nil, nil),
+        ("3ds", 5, nil, nil),
+        ("3ds", 10, nil, nil),
+        ("3ds", 40, nil, nil),
+        ("3ds", 45, nil, nil),
+        ("3ds", 52, nil, nil),
+        ("3ds", 55, nil, nil),
+        ("3ds", 58, nil, nil),
+        ("3ds", 90, nil, nil),
+        ("3ds", 135, nil, nil),
+        ("3ds", 270, nil, nil),
+        ("psp", 0, nil, nil),
+        ("psp", 5, nil, nil),
+        ("psp", 10, nil, nil),
+        ("psp", 40, nil, nil),
+        ("psp", 45, nil, nil),
+        ("psp", 52, nil, nil),
+        ("psp", 55, nil, nil),
+        ("psp", 58, nil, nil),
+        ("psp", 90, nil, nil),
+        ("psp", 135, nil, nil),
+        ("psp", 270, nil, nil),
+        ("psx", 0, nil, nil),
+        ("psx", 5, nil, nil),
+        ("psx", 10, nil, nil),
+        ("psx", 40, 0, 0),
+        ("psx", 45, 0, 0),
+        ("psx", 52, 0, 0),
+        ("psx", 55, nil, nil),
+        ("psx", 58, nil, nil),
+        ("psx", 90, nil, nil),
+        ("psx", 135, 1, 1),
+        ("psx", 270, nil, nil),
+        ("psx-right", 0, nil, nil),
+        ("psx-right", 5, nil, nil),
+        ("psx-right", 10, nil, nil),
+        ("psx-right", 40, 0, 0),
+        ("psx-right", 45, 0, 0),
+        ("psx-right", 52, 0, 0),
+        ("psx-right", 55, nil, nil),
+        ("psx-right", 58, nil, nil),
+        ("psx-right", 90, nil, nil),
+        ("psx-right", 135, 1, 1),
+        ("psx-right", 270, nil, nil),
     ]
 
     func testTheProfilesMatchTheReference() {
@@ -88,7 +138,7 @@ final class PlayerTouchStickTests: XCTestCase {
         XCTAssertEqual([psx.travel, psx.deadZone, psx.saturation, psx.curve, psx.diagonalReach], [44, 0.10, 0.90, 1.3, 0.95])
         let right = PlayerStickProfile.psxRight
         XCTAssertEqual([right.travel, right.deadZone, right.saturation, right.curve, right.diagonalReach], [40, 0.12, 0.90, 1.6, 0.95])
-        XCTAssertTrue(PlayerStickProfile.all.allSatisfy(\.follow))
+        XCTAssertEqual(PlayerStickProfile.all.map(\.gate), [.octagon, .circle, .circle, .square, .square])
     }
 
     func testEveryPrintedVectorForEveryProfile() throws {
@@ -103,20 +153,18 @@ final class PlayerTouchStickTests: XCTestCase {
         }
     }
 
-    func testFollowDragsTheCentreToTheRim() throws {
-        XCTAssertEqual(follows.count, 5)
-        for (name, cx, cy) in follows {
+    /// The gate's notches (revised 2026-09-26): the octagon's eight, the square's four
+    /// corners, none on a circle; caught within 8°, held out to 12°.
+    func testEveryPrintedNotchForEveryProfile() throws {
+        XCTAssertEqual(notches.count, 5 * 11)
+        for (name, degrees, entering, holding) in notches {
             let profile = try XCTUnwrap(profiles[name])
-            let centre = PlayerStickModel.followCentre(cx: 0, cy: 0, tx: 80, ty: 0, profile)
-            XCTAssertEqual(centre.x, cx, accuracy: 0.05, name)
-            XCTAssertEqual(centre.y, cy, accuracy: 0.05, name)
-            XCTAssertEqual(80 - centre.x, profile.travel, accuracy: 0.0001, "The thumb sits at the rim: \(name)")
+            let dx = 60 * cos(degrees * .pi / 180), dy = 60 * sin(degrees * .pi / 180)
+            XCTAssertEqual(PlayerStickModel.notch(dx: dx, dy: dy, profile), entering, "\(name) \(degrees)°")
+            XCTAssertEqual(PlayerStickModel.notch(dx: dx, dy: dy, profile, current: 1), holding, "\(name) \(degrees)° holding 1")
         }
-        // Inside the travel, and without follow, the centre stays.
-        var fixed = PlayerStickProfile.n64
-        XCTAssertEqual(PlayerStickModel.followCentre(cx: 3, cy: 4, tx: 20, ty: 4, fixed).x, 3)
-        fixed.follow = false
-        XCTAssertEqual(PlayerStickModel.followCentre(cx: 0, cy: 0, tx: 80, ty: 0, fixed).x, 0)
+        // Below full tilt there is no notch, even on one.
+        XCTAssertNil(PlayerStickModel.notch(dx: 20, dy: 0, .n64))
     }
 
     func testTheGateReachesItsCornerAtFullTilt() {
@@ -131,17 +179,17 @@ final class PlayerTouchStickTests: XCTestCase {
         XCTAssertEqual(cos(Double.pi / 4) * PlayerStickModel.gateScale(angle: -3 * .pi / 4, diagonalReach: 0.95), 0.95, accuracy: 0.0001)
     }
 
-    func testTuningScalesTravelAndDeadZoneAndFixesTheCentre() {
+    func testTuningScalesTravelAndDeadZoneAndKeepsTheGate() {
         let tuned = PlayerStickProfile.n64.tuned(.init(sensitivity: .low, deadZone: .large, centre: .fixed), scale: 0.9)
         XCTAssertEqual(tuned.travel, 48 * 1.2 * 0.9, accuracy: 0.0001)
         XCTAssertEqual(tuned.deadZone, 0.16, accuracy: 0.0001)
-        XCTAssertFalse(tuned.follow)
+        XCTAssertEqual(tuned.gate, .octagon)
         XCTAssertEqual(tuned.saturation, 0.90)
         XCTAssertEqual(tuned.curve, 1.4)
         let high = PlayerStickProfile.psp.tuned(.init(sensitivity: .high, deadZone: .small), scale: 1)
         XCTAssertEqual(high.travel, 36 * 0.8, accuracy: 0.0001)
         XCTAssertEqual(high.deadZone, 0.12 * 0.6, accuracy: 0.0001)
-        XCTAssertTrue(high.follow)
+        XCTAssertEqual(high.gate, .circle)
         XCTAssertEqual(PlayerStickProfile.n64.tuned(.standard, scale: 1), PlayerStickProfile.n64)
         XCTAssertEqual(PlayerStickProfile.forStick(family: "n64", stick: 0), .n64)
         XCTAssertEqual(PlayerStickProfile.forStick(family: "3ds", stick: 0), .threeDS)

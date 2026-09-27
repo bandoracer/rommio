@@ -32,6 +32,9 @@ public enum PlayerFaceArrangement: String, Hashable, Sendable {
 /// The drawn outline of a control.
 public enum PlayerTouchShape: String, Hashable, Sendable {
     case circle, capsule, tab
+    /// A shoulder flush against the screen's left (leading) or right edge: flat on that side,
+    /// rounded on the inner end (portrait corners).
+    case bumperLeading, bumperTrailing
     /// An analog stick's square zone: touches anywhere in it take the stick.
     case zone
 }
@@ -162,6 +165,21 @@ public struct PlayerControlPlan: Hashable, Sendable {
     }
 
     public var hasShoulders: Bool { !leftShoulders.isEmpty || !rightShoulders.isEmpty }
+    /// Numbered shoulders (PlayStation's L1/L2, R1/R2) stack, 1 above 2, when a stage has
+    /// room: `shoulderStackRows` rows instead of one.
+    public var numberedShoulders: Bool {
+        let labels = Set((leftShoulders + rightShoulders).map(\.label))
+        return labels.isSuperset(of: ["L1", "L2"]) || labels.isSuperset(of: ["R1", "R2"])
+    }
+    public var shoulderStackRows: Int { numberedShoulders ? max(leftShoulders.count, rightShoulders.count) : 1 }
+    /// The gap between stacked shoulders.
+    public static let shoulderStackGap: CGFloat = 8
+
+    /// The height the shoulders take: one row, or the stack of `shoulderStackRows`.
+    public func shoulderBlockHeight(rowHeight: CGFloat, stacked: Bool) -> CGFloat {
+        let rows = CGFloat(stacked ? shoulderStackRows : 1)
+        return rows * rowHeight + (rows - 1) * Self.shoulderStackGap
+    }
     public var hasSticks: Bool { leftStick != nil || rightStick != nil }
     /// A pair of secondary sticks lines up under the taller cluster.
     var stickPair: Bool { leftStick != nil && rightStick != nil && !leftStickPrimary }
@@ -325,6 +343,16 @@ extension PlayerControlPlan {
         }
     }
 
+    /// The portrait corner row's height (`PlayerControlAnchors.Shoulders.corners`): the
+    /// tallest shoulder, at least `minimum` (44 pt on a phone's band, which plans room for
+    /// it; a squeezed band and the rail stages keep the natural height); every shoulder in
+    /// the row takes this height.
+    public func cornerRowHeight(_ metrics: PlayerControlMetrics, minimum: CGFloat = 44) -> CGFloat {
+        let heights = (leftShoulders + rightShoulders).map { shoulderSize($0, metrics).height }
+        guard let tallest = heights.max() else { return 0 }
+        return max(minimum, tallest)
+    }
+
     /// One side's shoulder row: widths (narrower to fit `available`) and height. A
     /// large tab (Nintendo 64's Z) keeps its width while the others give way to 56 pt.
     func shoulderRow(_ specs: [PlayerControlSpec], available: CGFloat, _ metrics: PlayerControlMetrics) -> (widths: [CGFloat], height: CGFloat) {
@@ -401,8 +429,11 @@ public struct PlacedPlayerControl: Hashable, Sendable, Identifiable {
     public let shape: PlayerTouchShape
     /// Sticks: the console profile with the game's tuning and the control size.
     public var stickProfile: PlayerStickProfile? = nil
-    /// Sticks: the centre stays at the zone's centre (no floating, no follow).
+    /// Sticks: the centre stays at the zone's centre (not where the thumb lands).
     public var fixedCentre = false
+    /// A d-pad beside a primary stick (Nintendo 64, 3DS): four directions, no diagonals, so
+    /// a thumb on the small pad presses one arm at a time.
+    public var fourWay = false
     /// Sticks: thumb travel for full tilt (points).
     public var travel: CGFloat { CGFloat(stickProfile?.travel ?? 0) }
     public var id: String { spec.id }
@@ -461,10 +492,15 @@ public struct PlayerControlAnchors: Hashable, Sendable {
     public var utility: Utility
 
     public enum Shoulders: Hashable, Sendable {
-        /// The top of the rails (landscape, rail stages).
-        case top(CGFloat)
-        /// A lift above the top of their side's stack, aligned to its outer edge (portrait).
-        case aboveCluster(CGFloat)
+        /// The top of the rails (landscape, rail stages); `stacked`: numbered shoulders in a
+        /// column, 1 above 2, centred in the rail.
+        case top(CGFloat, stacked: Bool = false)
+        /// Portrait: one level row at `top` (nil: 16 pt above the higher of the two stacks),
+        /// at least `minHeight` tall. Each side's main shoulder (L, R, L1, R1) is a bumper
+        /// flush against its screen edge (`leftEdge`, `rightEdge`), covering the rail's
+        /// margin; any other shoulder sits inward beside it — or, `stacked`, below it, also
+        /// flush against the edge (numbered shoulders: 1 above 2).
+        case corners(top: CGFloat?, leftEdge: CGFloat, rightEdge: CGFloat, minHeight: CGFloat, stacked: Bool = false)
     }
 
     public enum Utility: Hashable, Sendable {
@@ -526,7 +562,9 @@ extension PlayerControlPlan {
                 case .beside: CGPoint(x: dpadPrimaryX + (dpadContent.cluster.width / 2 + gap + side / 2) * (dpadOnLeft ? 1 : -1), y: dpadY)
                 default: CGPoint(x: dpadPrimaryX, y: primaryBottom + gap + side / 2)
                 }
-                placed.append(PlacedPlayerControl(spec: dpad, frame: square(centre, side), shape: .circle))
+                var small = PlacedPlayerControl(spec: dpad, frame: square(centre, side), shape: .circle)
+                small.fourWay = true
+                placed.append(small)
             }
         } else {
             if let dpad {
@@ -557,26 +595,63 @@ extension PlayerControlPlan {
             placed.append(stickControl(stick, square(CGPoint(x: facePrimaryX, y: top + gap + side / 2), side)))
         }
 
-        // Shoulders: the top of each rail (landscape), or just above their side's stack,
-        // aligned to its outer edge (portrait).
-        func shoulders(_ specs: [PlayerControlSpec], rail: ClosedRange<CGFloat>, onLeft: Bool, content: RailContent, clusterY: CGFloat, stackX: CGFloat) {
-            // (`stackX`: the centre of the primary control and anything beside it.)
+        // Shoulders: the top of each rail (landscape), or the portrait corners.
+        func stackTop(_ content: RailContent, _ clusterY: CGFloat) -> CGFloat {
+            clusterY - content.cluster.height / 2 - content.aboveHeight(metrics)
+        }
+        let levelTop = min(stackTop(dpadContent, dpadY), stackTop(faceContent, faceY)) - metrics.shoulderLift - cornerRowHeight(metrics, minimum: 0)
+        func shoulders(_ specs: [PlayerControlSpec], rail: ClosedRange<CGFloat>, onLeft: Bool) {
             guard !specs.isEmpty else { return }
             let row = shoulderRow(specs, available: rail.upperBound - rail.lowerBound, metrics)
             let total = row.widths.reduce(0, +) + CGFloat(specs.count - 1) * metrics.shoulderGap
             let top: CGFloat
             let startX: CGFloat
             switch anchors.shoulders {
-            case let .top(y):
+            case let .top(y, stacked) where stacked && specs.count > 1:
+                // A column in the rail, the main shoulder on top.
+                let main = specs.firstIndex { ["L", "R", "L1", "R1"].contains($0.label) } ?? 0
+                let railWidth = rail.upperBound - rail.lowerBound
+                var rowTop = y
+                for index in [main] + specs.indices.filter({ $0 != main }) {
+                    let size = shoulderSize(specs[index], metrics)
+                    let width = min(size.width, railWidth)
+                    let x = anchors.alignOuter ? (onLeft ? rail.lowerBound : rail.upperBound - width) : (rail.lowerBound + rail.upperBound) / 2 - width / 2
+                    placed.append(PlacedPlayerControl(spec: specs[index], frame: CGRect(x: x, y: rowTop, width: width, height: size.height), shape: .tab))
+                    rowTop += size.height + Self.shoulderStackGap
+                }
+                return
+            case let .top(y, _):
                 top = y
                 startX = anchors.alignOuter ? (onLeft ? rail.lowerBound : rail.upperBound - total) : (rail.lowerBound + rail.upperBound) / 2 - total / 2
-            case let .aboveCluster(lift):
-                let stackTop = clusterY - content.cluster.height / 2 - content.aboveHeight(metrics)
-                top = stackTop - lift - row.height
-                let stackWidth = max(content.block, content.above?.width ?? 0)
-                let aligned = onLeft ? stackX - stackWidth / 2 : stackX + stackWidth / 2 - total
-                // A row wider than its stack stays inside the rail.
-                startX = min(max(aligned, rail.lowerBound), max(rail.lowerBound, rail.upperBound - total))
+            case let .corners(cornerTop, leftEdge, rightEdge, minHeight, stacked):
+                // From the edge inward: the main shoulder as a bumper (over the rail's margin),
+                // then the others in their order.
+                let main = specs.firstIndex { ["L", "R", "L1", "R1"].contains($0.label) } ?? 0
+                let edge = onLeft ? leftEdge : rightEdge
+                let margin = max(0, onLeft ? rail.lowerBound - leftEdge : rightEdge - rail.upperBound)
+                let height = cornerRowHeight(metrics, minimum: minHeight)
+                let rowTop = cornerTop ?? levelTop
+                if stacked {
+                    // A column against the edge, the main shoulder on top; every one a bumper.
+                    let railWidth = rail.upperBound - rail.lowerBound
+                    for (n, index) in ([main] + specs.indices.filter { $0 != main }).enumerated() {
+                        let width = min(shoulderSize(specs[index], metrics).width, railWidth) + margin
+                        let x = onLeft ? edge : edge - width
+                        let y = rowTop + CGFloat(n) * (height + Self.shoulderStackGap)
+                        placed.append(PlacedPlayerControl(spec: specs[index], frame: CGRect(x: x, y: y, width: width, height: height),
+                                                          shape: onLeft ? .bumperLeading : .bumperTrailing))
+                    }
+                    return
+                }
+                var offset: CGFloat = 0
+                for (n, index) in ([main] + specs.indices.filter { $0 != main }).enumerated() {
+                    let width = row.widths[index] + (n == 0 ? margin : 0)
+                    let x = onLeft ? edge + offset : edge - offset - width
+                    let shape: PlayerTouchShape = n > 0 ? .tab : onLeft ? .bumperLeading : .bumperTrailing
+                    placed.append(PlacedPlayerControl(spec: specs[index], frame: CGRect(x: x, y: rowTop, width: width, height: height), shape: shape))
+                    offset += width + metrics.shoulderGap
+                }
+                return
             }
             var x = startX
             for (spec, width) in zip(specs, row.widths) {
@@ -585,8 +660,8 @@ extension PlayerControlPlan {
                 x += width + metrics.shoulderGap
             }
         }
-        shoulders(leftShoulders, rail: dpadRail, onLeft: dpadOnLeft, content: dpadContent, clusterY: dpadY, stackX: dpadBlockX)
-        shoulders(rightShoulders, rail: faceRail, onLeft: !dpadOnLeft, content: faceContent, clusterY: faceY, stackX: facePrimaryX)
+        shoulders(leftShoulders, rail: dpadRail, onLeft: dpadOnLeft)
+        shoulders(rightShoulders, rail: faceRail, onLeft: !dpadOnLeft)
 
         // Select · Menu · Start.
         let pill = metrics.pill

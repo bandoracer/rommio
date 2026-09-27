@@ -28,6 +28,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -100,6 +101,8 @@ fun PlayerControlGraphic(
     opacity: Float = PlayerStyle.DEFAULT_OPACITY,
     glyph: PlayerGlyph? = if (kind == PlayerControlKind.MENU) PlayerGlyph.MENU else glyphForLabel(label),
     rightSide: Boolean = false,
+    /** A shoulder at a portrait corner: flat against this screen edge ([PlayerTouchShape.BUMPER_LEADING] or `_TRAILING`). */
+    bumper: PlayerTouchShape? = null,
 ) {
     val style = visual.style
     val colors = visual.styleFor(kind, label)
@@ -113,7 +116,7 @@ fun PlayerControlGraphic(
         val h = constraints.maxHeight.toFloat()
         val pressShift = if (style.isInk && pressed) with(density) { style.plateOffset.toPx() } else 0f
         Canvas(Modifier.fillMaxSize()) {
-            val shape = controlShape(kind, style, size)
+            val shape = controlShape(kind, style, size, bumper)
             if (style.frosted) {
                 drawFrosted(
                     shape, colors, style, pressed,
@@ -192,7 +195,7 @@ private const val REFERENCE_FACE = 64f
  * The control's outline: its whole box (the box is the drawn frame the touch model hit-tests;
  * Riso's plate prints outside it).
  */
-private fun DrawScope.controlShape(kind: PlayerControlKind, style: PlayerStyle, box: Size): RoundRect {
+private fun DrawScope.controlShape(kind: PlayerControlKind, style: PlayerStyle, box: Size, bumper: PlayerTouchShape? = null): RoundRect {
     val w = box.width
     val h = box.height
     return when (kind) {
@@ -205,16 +208,18 @@ private fun DrawScope.controlShape(kind: PlayerControlKind, style: PlayerStyle, 
             val right = w
             val bottom = h
             val height = bottom
-            if (style.shoulderIsTab) {
+            val (top, low) = if (style.shoulderIsTab) {
                 // `.pill.sh`: border-radius 18 18 6 6 on a 36-tall tab.
-                val top = CornerRadius(min(18.dp.toPx(), height / 2))
-                val low = CornerRadius(min(6.dp.toPx(), height / 3))
-                RoundRect(0f, 0f, right, bottom, top, top, low, low)
+                CornerRadius(min(18.dp.toPx(), height / 2)) to CornerRadius(min(6.dp.toPx(), height / 3))
             } else {
                 // `.a-sh`: 14 14 20 20 on a 40-tall shoulder.
-                val top = CornerRadius(height * 0.35f)
-                val low = CornerRadius(height * 0.5f)
-                RoundRect(0f, 0f, right, bottom, top, top, low, low)
+                CornerRadius(height * 0.35f) to CornerRadius(height * 0.5f)
+            }
+            // A bumper is square against its screen edge.
+            when (bumper) {
+                PlayerTouchShape.BUMPER_LEADING -> RoundRect(0f, 0f, right, bottom, CornerRadius.Zero, top, low, CornerRadius.Zero)
+                PlayerTouchShape.BUMPER_TRAILING -> RoundRect(0f, 0f, right, bottom, top, CornerRadius.Zero, CornerRadius.Zero, low)
+                else -> RoundRect(0f, 0f, right, bottom, top, top, low, low)
             }
         }
         PlayerControlKind.TERTIARY -> RoundRect(0f, 0f, w, h, CornerRadius(h / 2))
@@ -430,7 +435,7 @@ fun PlayerDpadGraphic(
     Canvas(modifier.controlAlpha(style.controlAlpha(opacity))) {
         val s = min(size.width, size.height)
         val origin = Offset((size.width - s) / 2, (size.height - s) / 2)
-        if (style.dpadIsTwoPlate) drawTwoPlateDpad(origin, s, held, style, colors) else drawDiscDpad(origin, s, held, style, colors, visual.accentColor)
+        if (style.dpadIsTwoPlate) drawTwoPlateDpad(origin, s, held, style, colors) else drawGlassCrossDpad(origin, s, held, style, colors, visual.accentColor)
     }
 }
 
@@ -504,22 +509,50 @@ private fun DrawScope.drawTwoPlateDpad(origin: Offset, s: Float, held: Set<Playe
 }
 
 /**
- * Aurora d-pad: a frosted disc; cross grooves (arm 32 % of the side, inset 13 %, radius 8) in
- * `controlInk` 16 %; chevrons; pressed arms in the accent at 45 %.
+ * Aurora d-pad (revised 2026-09-26: the arms sat small inside a frosted disc): a frosted-glass cross
+ * filling the square like Riso's (arm 34 % of the side, inset 2 %, radius 8 %) — its soft shadow,
+ * `controlFill`, the 0.5 dp keyline and top rim on the cross's one outline; chevrons in `controlInk`;
+ * pressed arms in the accent at 45 %.
  */
-private fun DrawScope.drawDiscDpad(origin: Offset, s: Float, held: Set<PlayerDirection>, style: PlayerStyle, colors: PlayerControlStyle, accent: Color) {
-    val disc = RoundRect(origin.x, origin.y, origin.x + s, origin.y + s, CornerRadius(s / 2))
-    drawFrosted(disc, colors, style, pressed = false)
-    val inset = s * 0.13f
+private fun DrawScope.drawGlassCrossDpad(origin: Offset, s: Float, held: Set<PlayerDirection>, style: PlayerStyle, colors: PlayerControlStyle, accent: Color) {
+    val arm = s * 0.34f
+    val inset = s * 0.02f
     val span = s - inset * 2
-    val arm = s * 0.32f
-    val r = 8.dp.toPx().coerceAtMost(arm / 2)
     val left = origin.x + inset
     val top = origin.y + inset
-    drawPath(crossPath(left, top, span, arm, r), colors.contentColor.copy(alpha = 0.16f))
+    val r = s * 0.08f
+    val a = left + (span - arm) / 2
+    val c = top + (span - arm) / 2
+    // The two bars' union: one outline, so the keyline never crosses the middle.
+    val outline = Path().apply {
+        op(
+            Path().apply { addRoundRect(RoundRect(a, top, a + arm, top + span, CornerRadius(r))) },
+            Path().apply { addRoundRect(RoundRect(left, c, left + span, c + arm, CornerRadius(r))) },
+            PathOperation.Union,
+        )
+    }
+    val dark = style.dark
+    listOf(RoundRect(a, top, a + arm, top + span, CornerRadius(r)), RoundRect(left, c, left + span, c + arm, CornerRadius(r))).forEach { bar ->
+        translate(bar.left, bar.top) {
+            drawSoftShadow(
+                color = if (dark) Color.Black.copy(alpha = 0.55f) else Color(0xFF28143C).copy(alpha = 0.28f),
+                cornerRadius = r.toDp(),
+                offsetY = if (dark) 10.dp else 9.dp,
+                blur = if (dark) 28.dp else 26.dp,
+                size = Size(bar.width, bar.height),
+            )
+        }
+    }
+    drawPath(outline, colors.fillColor)
+    drawPath(outline, colors.borderColor, style = Stroke(0.5.dp.toPx()))
+    drawPath(
+        outline,
+        androidx.compose.ui.graphics.Brush.verticalGradient(0f to style.highlight, 0.12f to style.highlight.copy(alpha = 0f), startY = top, endY = top + span),
+        style = Stroke(1.dp.toPx()),
+    )
     val cross = RoundRect(left, top, left + span, top + span, CornerRadius.Zero)
     held.forEach { dir -> drawPath(pressedArm(dir, cross, arm, density).path(), accent.copy(alpha = 0.45f)) }
-    val center = Offset(origin.x + s / 2, origin.y + s / 2)
+    val center = Offset(left + span / 2, top + span / 2)
     val stroke = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
     val glyph = arm * 0.5f / 2
     val edge = arm * 0.55f
