@@ -216,8 +216,10 @@ extension EnvironmentValues {
     }
 }
 
-/// Server artwork through the shared pipeline; `placeholder` shows until (or
-/// unless) the image arrives. An image already in memory shows on the first frame.
+/// Server artwork through the shared pipeline. An image already in memory shows on the
+/// first frame; while one loads nothing is drawn (the container's quiet surface shows), and
+/// `placeholder` stands in only when there is no art or it can't be loaded (a bright
+/// placeholder flashing over every cover as a page loads read as the page jumping).
 struct ArtworkImage<Placeholder: View>: View {
     let url: URL?
     var contentMode: ContentMode = .fill
@@ -231,6 +233,7 @@ struct ArtworkImage<Placeholder: View>: View {
     @Environment(\.artworkPipeline) private var pipeline
     @Environment(\.displayScale) private var displayScale
     @State private var loaded: (url: URL, image: DecodedArtwork)?
+    @State private var failed: URL?
 
     var body: some View {
         let pixels = Int(maxPointSize * displayScale)
@@ -241,15 +244,20 @@ struct ArtworkImage<Placeholder: View>: View {
                     .resizable()
                     .aspectRatio(contentMode: contentMode)
                     .transition(.opacity)
-            } else {
+            } else if url == nil || failed == url {
                 placeholder()
+            } else {
+                // Loading: an empty box at full size, so the image fades in where it belongs
+                // (an empty stack has no size, and the arriving image would animate from zero).
+                Color.clear
             }
         }
         .task(id: url) {
             guard let url else { loaded = nil; return }
             if image == nil {
                 let decoded = await pipeline.image(for: url, maxPixelSize: pixels)
-                guard let decoded, !Task.isCancelled else { return }
+                guard !Task.isCancelled else { return }
+                guard let decoded else { failed = url; return }
                 withAnimation(.easeOut(duration: 0.2)) { loaded = (url, decoded) }
             }
             // Aurora: decoded for display (so on disk too); work out its light in the background.

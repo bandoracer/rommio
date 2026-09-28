@@ -9,7 +9,9 @@ import SwiftUI
 /// Palettes already in memory light the page on its first frame (covers decoded in
 /// Aurora prepare their light in the background). Otherwise the light arrives once
 /// and only the views that read it update; the page field crossfades
-/// (`PageBackground`), nothing else animates.
+/// (`PageBackground`), nothing else animates. When the lighting game changes, the light
+/// already shown stays until the new one is ready (its palettes and blurred cover), so
+/// the page never drops to its unlit ground on the way.
 private struct LitByModifier: ViewModifier {
     @Environment(\.rommioTheme) private var theme
     @Environment(\.artworkPipeline) private var pipeline
@@ -31,11 +33,14 @@ private struct LitByModifier: ViewModifier {
             // The system tint colours text (bar and list buttons): readable on the lit ground.
             .tint(light.readableTint)
             .task(id: key) {
-                guard theme.isGlass, !key.urls.isEmpty, pipeline.cachedPalettes(for: key.urls) == nil else { return }
+                guard theme.isGlass, !key.urls.isEmpty else { return }
+                // Remembered even when ready at once, so the next change can hold it.
+                if let light = ready(key) { loaded = (key, light); return }
                 var palettes: [CoverPalette] = []
                 for url in key.urls {
                     if let palette = await pipeline.palette(for: url) { palettes.append(palette) }
                 }
+                if let artURL { _ = await pipeline.backdrop(for: artURL, dark: theme.isDark) }
                 if !Task.isCancelled { loaded = (key, PageLight.lit(by: palettes, artURL: artURL, theme: theme)) }
             }
     }
@@ -43,8 +48,17 @@ private struct LitByModifier: ViewModifier {
     private func resolved(_ key: LightKey) -> PageLight {
         guard theme.isGlass, !key.urls.isEmpty else { return theme.unlitLight }
         if let loaded, loaded.key == key { return loaded.light }
-        if let palettes = pipeline.cachedPalettes(for: key.urls) { return PageLight.lit(by: palettes, artURL: artURL, theme: theme) }
+        if let light = ready(key) { return light }
+        // Still loading: keep the light already shown (in this theme) rather than the unlit page.
+        if let loaded, loaded.key.theme == key.theme { return loaded.light }
         return theme.unlitLight
+    }
+
+    /// The light, when its palettes and blurred cover are both in memory.
+    private func ready(_ key: LightKey) -> PageLight? {
+        guard let palettes = pipeline.cachedPalettes(for: key.urls) else { return nil }
+        if let artURL, pipeline.cachedBackdrop(for: artURL, dark: theme.isDark) == nil { return nil }
+        return PageLight.lit(by: palettes, artURL: artURL, theme: theme)
     }
 }
 
@@ -153,19 +167,24 @@ struct PageBackground: View {
         ZStack {
             if theme.isGlass {
                 theme.ground
-                AuroraField(light: light, style: !light.isLit && style != .welcome ? .quiet : style)
-                    .id(light.id)
-                    .transition(.opacity)
+                // The new light fades in over the old one (never through the ground).
+                LayeredCrossfade(value: FieldKey(light: light, style: !light.isLit && style != .welcome ? .quiet : style)) { field in
+                    AuroraField(light: field.light, style: field.style)
+                }
             } else {
                 theme.ground
                 PaperGrain()
             }
         }
-        .animation(.easeInOut(duration: 0.45), value: light.id)
         .ignoresSafeArea()
         .accessibilityHidden(true)
         .allowsHitTesting(false)
     }
+}
+
+private struct FieldKey: Equatable {
+    let light: PageLight
+    let style: PageLightStyle
 }
 
 private struct AuroraField: View {
@@ -202,25 +221,34 @@ private struct AuroraField: View {
 }
 
 /// The three radial lights of the field.
+/// Each light is a circle filled with a radial gradient, squashed to its ellipse. Shapes
+/// and gradients are drawn by the GPU; a full-screen `Canvas` rasterised on the CPU cost
+/// tens of milliseconds whenever the light changed (twice during a crossfade), a visible hitch.
 private struct FieldLights: View {
     let lights: AuroraLights
     let style: PageLightStyle
 
     var body: some View {
-        Canvas { context, canvas in
+        GeometryReader { proxy in
+            let size = proxy.size
             let colours = [lights.l1, lights.l2, lights.l3].map { $0.themeColor.color }
-            for (spot, colour) in zip(style.spots, colours) {
-                let rx = max(1, spot.radii.width * canvas.width)
-                let ry = max(1, spot.radii.height * canvas.height)
-                var layer = context
-                layer.translateBy(x: spot.centre.x * canvas.width, y: spot.centre.y * canvas.height)
-                layer.scaleBy(x: 1, y: ry / rx)
-                let rect = CGRect(x: -rx, y: -rx, width: rx * 2, height: rx * 2)
-                layer.fill(Path(ellipseIn: rect), with: .radialGradient(
-                    Gradient(stops: [.init(color: colour, location: 0), .init(color: colour.opacity(0), location: spot.fade)]),
-                    center: .zero, startRadius: 0, endRadius: rx))
+            ZStack(alignment: .topLeading) {
+                ForEach(Array(zip(style.spots, colours).enumerated()), id: \.offset) { _, light in
+                    let (spot, colour) = light
+                    let rx = max(1, spot.radii.width * size.width)
+                    let ry = max(1, spot.radii.height * size.height)
+                    Circle()
+                        .fill(RadialGradient(stops: [.init(color: colour, location: 0), .init(color: colour.opacity(0), location: spot.fade)],
+                                             center: .center, startRadius: 0, endRadius: rx))
+                        .frame(width: rx * 2, height: rx * 2)
+                        .scaleEffect(x: 1, y: ry / rx)
+                        .position(x: spot.centre.x * size.width, y: spot.centre.y * size.height)
+                }
             }
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
         }
+        // The lights blend with each other first, then as one layer with the page (as the canvas did).
+        .compositingGroup()
     }
 }
 

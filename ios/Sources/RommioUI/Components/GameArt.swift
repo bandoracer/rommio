@@ -59,6 +59,8 @@ struct GameCover: View {
         TreatedCover(url: url, maxPointSize: maxPointSize) {
             CoverPlaceholder(title: title)
         }
+        // While the art loads (Aurora), a quiet tile holds its place.
+        .background(theme.isGlass ? theme.surface : Color.clear)
         .clipShape(shape)
         .overlay {
             if theme.isRiso {

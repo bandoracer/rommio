@@ -102,7 +102,8 @@ struct LibraryContent: Equatable {
         }
         content.installedRomIDs = counted
         content.installedByPlatform = installed
-        content.inProgress = model.playFeature.snapshot.continuePlaying
+        content.inProgress = PlayContent.inPlay(romm: model.playFeature.snapshot.continuePlaying, latest: model.savesFeature.latest,
+                                                playtimes: model.statsFeature.stats.games, library: model.statsFeature.games)
         content.games = model.statsFeature.games.values
             .sorted { $0.id < $1.id }
             .map { LibraryGame(rom: $0, artworkURL: model.artworkURL(path: $0.urlCover)) }

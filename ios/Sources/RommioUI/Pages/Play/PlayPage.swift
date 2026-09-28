@@ -14,6 +14,8 @@ struct PlayGameItem: Identifiable, Hashable {
     var conflict: ConflictItem? = nil
     /// Its latest place to continue from (resume point, else a save state), from the saves reader.
     var latest: SaveEntry? = nil
+    /// A gameplay screenshot from RomM's metadata: Aurora's hero when there is no saved screen yet.
+    var screenshotURL: URL? = nil
     var id: Int { rom.id }
 
     /// "Played 2 hours ago · 1 h 05 min on this device".
@@ -67,6 +69,8 @@ struct PlayDownloadItem: Hashable {
 /// (`PlayContent.build`); both themes read the same content.
 struct PlayContent: Equatable {
     var continuePlaying: [PlayGameItem] = []
+    /// Aurora's suggestions under the games in progress (keep going, something new, quick hit).
+    var picks: [PlayPick] = []
     /// Recent saves across games (docs/play-data-local.md §3), newest first.
     var recentSaves: [RecentSaveItem] = [] {
         didSet {
@@ -129,11 +133,23 @@ struct PlayContent: Equatable {
             let played = byGame[rom.id]
             return PlayGameItem(rom: rom, artworkURL: model.artworkURL(path: rom.urlCover), lastPlayedAt: played?.lastPlayedAt,
                                 playtime: played?.playtime ?? 0, sessionCount: played?.sessionCount ?? 0,
-                                conflict: conflicts.first { $0.rom.id == rom.id }, latest: saves.latest[Int64(rom.id)])
+                                conflict: conflicts.first { $0.rom.id == rom.id }, latest: saves.latest[Int64(rom.id)],
+                                screenshotURL: (model.statsFeature.games[rom.id] ?? rom).metadata.screenshots.first.flatMap { model.artworkURL(path: $0) })
         }
         var content = PlayContent()
-        content.continuePlaying = feature.snapshot.continuePlaying.map(item)
-        content.recentSaves = saves.recent.map { entry in
+        // The games wait for this device's stats and saves (read first at launch), so the
+        // first one shown is the one that stays.
+        let ready = model.localStateReady
+        let inPlay = ready ? PlayContent.inPlay(romm: feature.snapshot.continuePlaying, latest: saves.latest, playtimes: stats.games,
+                                                 library: model.statsFeature.games) : []
+        content.continuePlaying = inPlay.map(item)
+        let tiers = Dictionary(model.libraryFeature.sections.flatMap { section in section.platforms.map { ($0.slug, section.supportTier) } },
+                               uniquingKeysWith: { first, _ in first })
+        content.picks = PlayPicks.build(library: Array(model.statsFeature.games.values), playtimes: stats.games,
+                                        continuing: inPlay, installed: installed,
+                                        playable: { tiers[$0.platformSlug].map { $0 != .unsupported } ?? false },
+                                        artwork: { model.artworkURL(path: $0.urlCover) })
+        content.recentSaves = !ready ? [] : saves.recent.map { entry in
             let rom = saves.game(entry.romId)
             return RecentSaveItem(entry: entry, rom: rom, artworkURL: model.artworkURL(path: rom.urlCover))
         }
@@ -154,10 +170,25 @@ struct PlayContent: Equatable {
         content.serverName = model.activeProfile?.label ?? "RomM"
         content.staleMessage = feature.hasRenderableContent ? feature.staleMessage : nil
         // Loading only shows in an empty state: a refresh of a full page doesn't republish it.
-        content.isLoading = feature.isLoading && content.isEmpty
-        content.errorMessage = PlayContent.errorMessage(isEmpty: content.isEmpty, isLoading: feature.isLoading,
+        content.isLoading = (feature.isLoading || !ready) && content.isEmpty
+        content.errorMessage = PlayContent.errorMessage(isEmpty: content.isEmpty, isLoading: feature.isLoading || !ready,
                                                         offline: content.isOffline, failure: feature.staleMessage)
         return content
+    }
+
+    /// Games in play, most recent first: what this device last played or saved (its saves
+    /// and sessions), then RomM's "continue playing" (the server's order, for games not
+    /// played here yet). Play's hero is the first, so it's usually a game with a saved screen.
+    static func inPlay(romm: [RomDTO], latest: [Int64: SaveEntry], playtimes: [GamePlaytime], library: [Int: RomDTO],
+                       limit: Int = 12) -> [RomDTO] {
+        var when: [Int: Date] = [:]
+        for (id, entry) in latest { when[Int(id)] = max(when[Int(id)] ?? .distantPast, entry.capturedAt) }
+        for play in playtimes { when[play.romID] = max(when[play.romID] ?? .distantPast, play.lastPlayedAt) }
+        let known = Dictionary(romm.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let device = when.sorted { lhs, rhs in lhs.value != rhs.value ? lhs.value > rhs.value : lhs.key < rhs.key }
+            .compactMap { library[$0.key] ?? known[$0.key] }
+        var seen = Set<Int>()
+        return Array((device + romm).filter { seen.insert($0.id).inserted }.prefix(limit))
     }
 
     /// The first collection the user made (then any): its games, played ones first.

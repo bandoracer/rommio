@@ -2,436 +2,327 @@ import SwiftUI
 import RommioContract
 import RommioFoundation
 
-/// Aurora Library: browse by era (release years from RomM) with a cover row, lit
-/// by the cover in focus, with platforms and support tiers as filters above the
-/// platform list and collections. Without any release years the era ruler is
-/// left out and the row shows games in progress first, then the rest.
+/// Aurora Library: every game on one wall of covers (docs/theme-layouts.md, Library).
+/// One choice orders it (Console · Series · Year · Genre · A–Z). The covers flow
+/// continuously; each group starts with a tile that names it (a console's tile opens its
+/// page), so a library of small groups stays dense. An index rail jumps between groups,
+/// density switches between three and four across, and a press and hold gives a quick
+/// look. Lit by the game you're playing; collections close the wall.
 struct AuroraLibraryLayout: View {
     @Environment(\.rommioTheme) private var theme
     let content: LibraryContent
     let actions: LibraryActions
 
-    @State private var filters = LibraryFilters()
-    @State private var focusID: Int?
-    @State private var palettes: [URL: CoverPalette] = [:]
-    @State private var initialEraApplied = false
-    @State private var memo = LibraryBrowseMemo()
+    @AppStorage("aurora.library.lens") private var lens: LibraryLens = .console
+    @AppStorage("aurora.library.columns") private var columns = 3
+    @State private var memo = LibraryWallMemo()
+
+    private static let top = "library.top"
 
     var body: some View {
-        // Worked out again only when the content or the filters change (not as the row scrolls).
-        let browse = memo.result(content: content, filters: filters)
-        let focused = browse.games.first { $0.id == focusID } ?? browse.games.first
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                if content.isEmpty {
-                    EmptyStateView(title: content.isLoading ? "Loading your library" : "No platforms yet", systemImage: "square.stack.3d.up.slash",
-                                   message: content.isLoading ? nil : content.errorMessage ?? "Pull to refresh once your server is reachable.")
-                } else {
-                    LibrarySummaryLine(text: content.summary)
-                    if content.eras.count >= 2 {
-                        LibraryEraRuler(eras: content.eras, selected: filters.era, palettes: palettes) { era in
-                            withAnimation(.smooth) { filters.era = era; focusID = nil }
+        // Grouped again only when the content or the lens changes.
+        let sections = memo.sections(content: content, lens: lens)
+        let rail = sections.count >= 4
+        let gutter = theme.spacing.gutter
+        let spacing: CGFloat = columns == 3 ? 12 : 9
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    if content.isEmpty {
+                        EmptyStateView(title: content.isLoading ? "Loading your library" : "No platforms yet", systemImage: "square.stack.3d.up.slash",
+                                       message: content.isLoading ? nil : content.errorMessage ?? "Pull to refresh once your server is reachable.")
+                            .padding(.horizontal, gutter)
+                    } else {
+                        VStack(alignment: .leading, spacing: 14) {
+                            Text(content.summary).themeText(.secondary).foregroundStyle(theme.inkSecondary)
+                                .padding(.horizontal, gutter)
+                            LibraryLensBar(lens: $lens, columns: $columns)
+                        }
+                        .padding(.bottom, 18)
+                        .id(Self.top)
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: spacing, alignment: .top), count: columns),
+                                  alignment: .leading, spacing: columns == 3 ? 18 : 12) {
+                            ForEach(sections) { section in
+                                LibraryGroupTile(section: section, compact: columns != 3, actions: actions)
+                                    .id(section.id)
+                                ForEach(section.games) { game in
+                                    LibraryWallCover(game: game, title: section.title(of: game), showsTitle: columns == 3,
+                                                     inProgress: content.inProgressIDs.contains(game.id),
+                                                     installed: content.installedRomIDs.contains(game.id),
+                                                     browseOnly: content.tierBySlug[game.rom.platformSlug] == .unsupported, actions: actions)
+                                        .id("\(section.id).\(game.id)")
+                                }
+                            }
+                        }
+                        .padding(.leading, gutter)
+                        .padding(.trailing, rail ? gutter + 24 : gutter)
+                        LibraryCollectionRow(collections: content.collections, actions: actions)
+                            .padding(.top, 30)
+                        if let staleMessage = content.staleMessage {
+                            Text(staleMessage).themeText(.caption).foregroundStyle(theme.inkSecondary)
+                                .padding(.horizontal, gutter)
                         }
                     }
-                    LibraryBrowseHeader(browse: browse, filters: filters, actions: actions)
-                        .padding(.horizontal, theme.spacing.gutter)
-                    LibraryCoverRow(browse: browse, focused: focused, focusID: $focusID, actions: actions)
-                    LibraryFacets(content: content, filters: $filters, focusID: $focusID)
-                    LibraryPlatformGroups(sections: content.sections.filter { filters.tier == nil || $0.supportTier == filters.tier },
-                                          installedByPlatform: content.installedByPlatform, actions: actions)
-                        .padding(.horizontal, theme.spacing.gutter)
-                    if filters.tier == nil && filters.platform == nil {
-                        LibraryCollectionRow(collections: content.collections, actions: actions)
-                    }
-                    if let staleMessage = content.staleMessage {
-                        Text(staleMessage).themeText(.caption).foregroundStyle(theme.inkSecondary)
-                            .padding(.horizontal, theme.spacing.gutter)
-                    }
+                }
+                .padding(.bottom, 40)
+            }
+            .overlay(alignment: .trailing) {
+                if rail {
+                    LibraryIndexRail(sections: sections) { id in proxy.scrollTo(id, anchor: .top) }
+                        .padding(.trailing, 4)
                 }
             }
-            .padding(.bottom, 40)
+            .onChange(of: lens) { _, _ in
+                // A new order starts from its first group, with the lens still in view.
+                withAnimation(.smooth(duration: 0.3)) { proxy.scrollTo(Self.top, anchor: .top) }
+            }
         }
         .themedPage(.page)
-        .litBy(focused?.artworkURL)
-        .coverPalettes(content.eras.flatMap(\.lightURLs).compactMap { $0 }, into: $palettes)
-        .onChange(of: content.eras.map(\.id) + content.inProgress.map { String($0.id) }, initial: true) { _, _ in
-            // Opens on the era of the most recent game in progress that has a year.
-            guard !initialEraApplied, content.eras.count >= 2 else { return }
-            let known = Dictionary(content.games.map { ($0.id, $0.rom) }, uniquingKeysWith: { first, _ in first })
-            let years = content.inProgress.lazy.compactMap { rom in known[rom.id]?.releaseYear ?? rom.releaseYear }
-            guard let year = years.first else { return }
-            initialEraApplied = true
-            filters.era = LibraryEra.era(of: year)
-        }
+        .litBy(content.lightURL)
+        .accessibilityIdentifier("library.wall")
     }
 }
 
-/// The browse row's filters: a platform, a support tier, an era (nil: all).
-struct LibraryFilters: Equatable {
-    var platform: PlatformDTO?
-    var tier: EmbeddedSupportTier?
-    var era: LibraryEra?
-}
-
-/// Keeps the last browse result: sorting the library again as the cover row
-/// scrolls (focus) or palettes arrive would be wasted work.
+/// The wall's sections, worked out once per content and lens (not per scroll frame).
 @MainActor
-final class LibraryBrowseMemo {
-    private var key: (games: [LibraryGame], inProgress: [RomDTO], sections: [PlatformSupportSection], installed: Set<Int>, filters: LibraryFilters)?
-    private var last: LibraryBrowseResult?
+final class LibraryWallMemo {
+    private var key: (LibraryContent, LibraryLens)?
+    private var cached: [LibraryWallSection] = []
 
-    func result(content: LibraryContent, filters: LibraryFilters) -> LibraryBrowseResult {
-        // Unchanged content shares its storage, so these comparisons are cheap.
-        if let key, let last, key.filters == filters, key.games == content.games, key.inProgress == content.inProgress,
-           key.sections == content.sections, key.installed == content.installedRomIDs {
-            return last
-        }
-        let result = LibraryBrowseResult(content: content, filters: filters)
-        key = (content.games, content.inProgress, content.sections, content.installedRomIDs, filters)
-        last = result
-        return result
+    func sections(content: LibraryContent, lens: LibraryLens) -> [LibraryWallSection] {
+        if let key, key.0 == content, key.1 == lens { return cached }
+        cached = content.wall(lens)
+        key = (content, lens)
+        return cached
     }
 }
 
-/// The games the browse row shows for the filters, and the header's figures.
-struct LibraryBrowseResult: Equatable {
-    let games: [LibraryGame]
-    /// The era's pool under the platform/tier filter ("N games · N here").
-    let eraPoolCount: Int
-    let eraHereCount: Int
-    /// "No games here from <span>" when an era is chosen.
-    let emptyEraName: String?
-    /// Games on this device on the chosen platform.
-    let platformInstalled: Int
-    let inProgressIDs: Set<Int>
+extension LibraryContent {
+    /// Games in progress (their covers carry a lit ring).
+    var inProgressIDs: Set<Int> { Set(inProgress.map(\.id)) }
 
-    init(content: LibraryContent, filters: LibraryFilters) {
-        let tierSlugs = filters.tier.map { tier in Set(content.sections.first { $0.supportTier == tier }?.platforms.map(\.slug) ?? []) }
-        let filtered = content.games.filter { game in
-            if let platform = filters.platform { return game.rom.platformID == platform.id || game.rom.platformSlug == platform.slug }
-            if let tierSlugs { return tierSlugs.contains(game.rom.platformSlug) }
-            return true
-        }
-        let progressIDs = content.inProgress.map(\.id)
-        let byID = Dictionary(filtered.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        inProgressIDs = Set(progressIDs)
-        platformInstalled = filters.platform.map(content.installed) ?? 0
-        if let era = filters.era {
-            // An era (∩ platform/tier filter): games in progress first, then by release year.
-            let pool = filtered.filter { $0.rom.releaseYear.map(era.contains) == true }
-            let sorted = pool.sorted { ($0.rom.releaseYear ?? 0, $0.rom.displayName) < ($1.rom.releaseYear ?? 0, $1.rom.displayName) }
-            let inPool = Set(pool.map(\.id))
-            let progress = progressIDs.filter { inPool.contains($0) }.compactMap { byID[$0] }
-            let progressSet = Set(progress.map(\.id))
-            games = Array((progress + sorted.filter { !progressSet.contains($0.id) }).prefix(18))
-            eraPoolCount = pool.count
-            eraHereCount = pool.filter { content.installedRomIDs.contains($0.id) }.count
-            emptyEraName = content.eras.first { $0.era == era }?.span ?? era.name
-        } else {
-            // The cached library's copy of each game in progress (it carries RomM metadata).
-            let progress = progressIDs.compactMap { byID[$0] }
-            let progressSet = Set(progress.map(\.id))
-            let rest = filtered.filter { !progressSet.contains($0.id) }
-                .sorted { $0.rom.displayName.localizedStandardCompare($1.rom.displayName) == .orderedAscending }
-            games = Array((progress + rest).prefix(18))
-            eraPoolCount = 0
-            eraHereCount = 0
-            emptyEraName = nil
-        }
+    /// Each platform's support tier by slug (browse-only covers carry an eye).
+    var tierBySlug: [String: EmbeddedSupportTier] {
+        Dictionary(platforms.map { ($0.slug, tier(of: $0)) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// The page's light: the game you're playing, else the first cover.
+    var lightURL: URL? {
+        let byID = Dictionary(games.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return inProgress.lazy.compactMap { byID[$0.id]?.artworkURL }.first ?? games.first?.artworkURL
     }
 }
 
-private struct LibrarySummaryLine: View {
+/// The lens: one glass chip per order, and the density switch beside them.
+private struct LibraryLensBar: View {
     @Environment(\.rommioTheme) private var theme
-    let text: String
+    @Binding var lens: LibraryLens
+    @Binding var columns: Int
 
     var body: some View {
-        Text(text)
-            .themeText(.secondary)
-            .foregroundStyle(theme.inkSecondary)
-            .padding(.horizontal, theme.spacing.gutter)
-    }
-}
-
-// MARK: Eras
-
-/// The era ruler: one segment per era with games, width by its count (at least
-/// 15%): a bar of its games' light, the years they span and the count.
-private struct LibraryEraRuler: View {
-    @Environment(\.rommioTheme) private var theme
-    let eras: [LibraryEraGroup]
-    let selected: LibraryEra?
-    let palettes: [URL: CoverPalette]
-    let select: (LibraryEra?) -> Void
-
-    var body: some View {
-        let total = max(1, eras.reduce(0) { $0 + $1.games.count })
-        GeometryReader { proxy in
-            let gap: CGFloat = 6
-            let available = proxy.size.width - gap * CGFloat(eras.count - 1)
-            let weights = eras.map { max(0.15, Double($0.games.count) / Double(total)) }
-            let sum = weights.reduce(0, +)
-            HStack(alignment: .top, spacing: gap) {
-                ForEach(Array(eras.enumerated()), id: \.element.id) { index, group in
-                    let isSelected = selected == group.era
-                    Button {
-                        select(isSelected ? nil : group.era)
-                    } label: {
-                        LibraryEraSegment(group: group, selected: isSelected, palettes: group.lightURLs.map { $0.flatMap { palettes[$0] } })
-                            .frame(width: max(0, available * weights[index] / sum), alignment: .leading)
-                            .frame(minHeight: 48, alignment: .top)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("\(group.era.name), \(group.span), \(PlayFormat.games(group.games.count))")
-                    .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-                    .accessibilityIdentifier("library.era.\(group.era.id)")
-                }
-            }
-        }
-        .frame(height: 52)
-        .padding(.horizontal, theme.spacing.gutter)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("library.eras")
-    }
-}
-
-private struct LibraryEraSegment: View {
-    @Environment(\.rommioTheme) private var theme
-    @Environment(\.pageLight) private var light
-    let group: LibraryEraGroup
-    let selected: Bool
-    /// The palettes known so far of the era's light covers (a missing one draws the page's mark).
-    let palettes: [CoverPalette?]
-
-    var body: some View {
-        let lights = palettes.map { light.mark(for: $0) }
-        VStack(alignment: .leading, spacing: 5) {
-            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .fill(LinearGradient(colors: lights.count == 1 ? [lights[0], lights[0]] : lights, startPoint: .leading, endPoint: .trailing))
-                .opacity(selected ? 1 : 0.4)
-                .frame(height: selected ? 8 : 6)
-                .shadow(color: selected ? (lights.first ?? light.mark1).opacity(0.6) : .clear, radius: 8, y: 4)
-            Text(group.span)
-                .themeText(.bodyEmphasis, size: 12)
-                .foregroundStyle(selected ? theme.ink : theme.inkSecondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            Text(group.games.count.formatted()).themeText(.caption, size: 11).foregroundStyle(theme.inkTertiary)
-        }
-    }
-}
-
-// MARK: Browse
-
-private struct LibraryBrowseHeader: View {
-    @Environment(\.rommioTheme) private var theme
-    let browse: LibraryBrowseResult
-    let filters: LibraryFilters
-    let actions: LibraryActions
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(filters.era?.name ?? filters.platform?.name ?? filters.tier?.title ?? "All platforms")
-                    .themeText(.headline, size: filters.era == nil ? nil : 24)
-                    .foregroundStyle(theme.ink)
-                    .accessibilityAddTraits(.isHeader)
-                if filters.era != nil {
-                    // "[SLUG or tier ·] N games · N here", counted over the filtered pool.
-                    Text([filters.platform?.slug.uppercased() ?? filters.tier?.title, PlayFormat.games(browse.eraPoolCount), "\(browse.eraHereCount) here"]
-                            .compactMap { $0 }.joined(separator: " · "))
-                        .themeText(.caption, size: 12.5).foregroundStyle(theme.inkSecondary)
-                } else if let platform = filters.platform {
-                    Text("\(PlayFormat.games(platform.romCount)) · \(browse.platformInstalled) here")
-                        .themeText(.caption).foregroundStyle(theme.inkSecondary)
-                }
-            }
-            Spacer()
-            if let platform = filters.platform {
-                Button("See all") { actions.openPlatform(platform) }
-                    .buttonStyle(SecondaryButtonStyle())
-                    .accessibilityIdentifier("library.seeAll")
-            }
-        }
-    }
-}
-
-private struct LibraryCoverRow: View {
-    @Environment(\.rommioTheme) private var theme
-    let browse: LibraryBrowseResult
-    let focused: LibraryGame?
-    @Binding var focusID: Int?
-    let actions: LibraryActions
-
-    var body: some View {
-        if browse.games.isEmpty, let era = browse.emptyEraName {
-            Text("No games here from \(era).")
-                .themeText(.secondary).foregroundStyle(theme.inkSecondary)
-                .padding(.horizontal, theme.spacing.gutter)
-        } else if browse.games.isEmpty {
-            Text("Covers appear here as your library loads.")
-                .themeText(.secondary).foregroundStyle(theme.inkSecondary)
-                .padding(.horizontal, theme.spacing.gutter)
-        } else {
-            VStack(spacing: 18) {
-                LibraryCoverCarousel(games: browse.games, focusedID: focused?.id, focusID: $focusID, actions: actions)
-                    .frame(height: 210)
-                if let focused {
-                    LibraryFocusCaption(game: focused, inProgress: browse.inProgressIDs.contains(focused.id))
-                }
-            }
-        }
-    }
-}
-
-private struct LibraryCoverCarousel: View {
-    let games: [LibraryGame]
-    let focusedID: Int?
-    @Binding var focusID: Int?
-    let actions: LibraryActions
-
-    var body: some View {
-        GeometryReader { proxy in
-            let itemWidth: CGFloat = 150
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: -18) {
-                    ForEach(games) { game in
-                        Button { actions.openGame(game.rom) } label: {
-                            GameCover(url: game.artworkURL, title: game.rom.displayName, maxPointSize: 240)
-                                .frame(width: itemWidth, height: itemWidth * 4 / 3)
-                        }
-                        .buttonStyle(.plain)
-                        .scrollTransition(.interactive, axis: .horizontal) { view, phase in
-                            view
-                                .scaleEffect(1 - min(abs(phase.value), 1) * 0.22)
-                                .rotation3DEffect(.degrees(phase.value * -34), axis: (x: 0, y: 1, z: 0), perspective: 0.6)
-                                .opacity(1 - min(abs(phase.value), 1.5) * 0.28)
-                        }
-                        .zIndex(game.id == focusedID ? 1 : 0)
-                        .id(game.id)
-                        .accessibilityLabel(game.rom.displayName)
-                        .accessibilityIdentifier("library.cover.\(game.id)")
-                    }
-                }
-                .scrollTargetLayout()
-            }
-            .contentMargins(.horizontal, (proxy.size.width - itemWidth) / 2, for: .scrollContent)
-            .scrollTargetBehavior(.viewAligned)
-            .scrollPosition(id: $focusID, anchor: .center)
-            .scrollClipDisabled()
-        }
-    }
-}
-
-private struct LibraryFocusCaption: View {
-    @Environment(\.rommioTheme) private var theme
-    let game: LibraryGame
-    let inProgress: Bool
-
-    var body: some View {
-        VStack(spacing: 3) {
-            Text(game.rom.displayName)
-                .themeText(.headline, size: 21)
-                .foregroundStyle(theme.ink)
-                .lineLimit(1)
-            Text(line)
-                .themeText(.caption, size: 13)
-                .foregroundStyle(theme.inkSecondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, theme.spacing.gutter)
-        .accessibilityElement(children: .combine)
-    }
-
-    private var line: String {
-        var parts = [game.rom.platformSlug.uppercased()]
-        if let year = game.rom.releaseYear { parts.append(String(year)) }
-        if inProgress { parts.append("In progress") }
-        return parts.joined(separator: " · ")
-    }
-}
-
-// MARK: Filters
-
-private struct LibraryFacets: View {
-    @Environment(\.rommioTheme) private var theme
-    let content: LibraryContent
-    @Binding var filters: LibraryFilters
-    @Binding var focusID: Int?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 8) {
-                    ForEach(content.platforms.filter { filters.tier == nil || content.tier(of: $0) == filters.tier }) { platform in
-                        PlatformFacet(platform: platform, installed: content.installed(platform), selected: filters.platform == platform) {
-                            withAnimation(.smooth) {
-                                filters.platform = filters.platform == platform ? nil : platform
-                                focusID = nil
-                            }
-                        }
-                        .accessibilityIdentifier("library.facet.\(platform.slug)")
-                    }
-                }
-                .padding(.horizontal, theme.spacing.gutter)
-                .padding(.vertical, 4)
-            }
-            .scrollClipDisabled()
+        HStack(spacing: 10) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    FilterChip(title: "All", count: content.platforms.count, selected: filters.tier == nil) {
-                        withAnimation(.smooth) { filters.tier = nil }
-                    }
-                    .accessibilityIdentifier("library.filter.all")
-                    ForEach(content.sections) { section in
-                        FilterChip(title: section.supportTier.title, count: section.platforms.count, systemImage: symbol(section.supportTier),
-                                   selected: filters.tier == section.supportTier) {
-                            withAnimation(.smooth) {
-                                filters.tier = filters.tier == section.supportTier ? nil : section.supportTier
-                                if let platform = filters.platform, content.tier(of: platform) != filters.tier { filters.platform = nil }
-                                focusID = nil
-                            }
+                    ForEach(LibraryLens.allCases) { option in
+                        FilterChip(title: option.title, systemImage: option.systemImage, selected: option == lens) {
+                            withAnimation(.smooth(duration: 0.3)) { lens = option }
                         }
-                        .accessibilityIdentifier("library.filter.\(section.supportTier.rawValue.lowercased())")
+                        .accessibilityIdentifier("library.lens.\(option.rawValue)")
                     }
                 }
-                .padding(.horizontal, theme.spacing.gutter)
+                .padding(.leading, theme.spacing.gutter)
+                .padding(.trailing, 6)
             }
-        }
-    }
-
-    private func symbol(_ tier: EmbeddedSupportTier) -> String {
-        switch tier {
-        case .touchSupported: "hand.tap"
-        case .controllerSupported: "gamecontroller"
-        case .unsupported: "eye"
+            .mask {
+                // The chips fade out before the density switch rather than slide under it.
+                LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.9), .init(color: .clear, location: 1)],
+                               startPoint: .leading, endPoint: .trailing)
+            }
+            Button {
+                withAnimation(.smooth(duration: 0.3)) { columns = columns == 3 ? 4 : 3 }
+            } label: {
+                Image(systemName: columns == 3 ? "square.grid.3x3" : "square.grid.2x2")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(theme.ink)
+                    .frame(width: 44, height: 44)
+                    .background { GlassFill(shape: Circle()); GlassEdge(shape: Circle()) }
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, theme.spacing.gutter)
+            .accessibilityLabel(columns == 3 ? "Show more games" : "Show larger covers")
+            .accessibilityIdentifier("library.density")
         }
     }
 }
 
-// MARK: Platforms and collections
-
-private struct LibraryPlatformGroups: View {
+/// A group's first cell: its name and counts on glass, the size of a cover; a console's
+/// tile opens its page.
+private struct LibraryGroupTile: View {
     @Environment(\.rommioTheme) private var theme
-    let sections: [PlatformSupportSection]
-    let installedByPlatform: [String: Int]
+    @Environment(\.pageLight) private var light
+    let section: LibraryWallSection
+    let compact: Bool
     let actions: LibraryActions
 
     var body: some View {
-        LazyVStack(alignment: .leading, spacing: theme.spacing.section) {
-            ForEach(sections) { section in
-                ThemedLazyGroup(title: section.title, detail: "\(section.platforms.count)", items: section.platforms) { platform in
-                    Button { actions.openPlatform(platform) } label: {
-                        ListRow(title: platform.name,
-                                subtitle: "\(PlayFormat.games(platform.romCount)) · \(installedByPlatform[platform.slug] ?? 0) on this device",
-                                trailing: { Chevron() })
+        let shape = RoundedRectangle(cornerRadius: compact ? 9 : 12, style: .continuous)
+        let tile = VStack(alignment: .leading, spacing: 6) {
+            Color.clear
+                .aspectRatio(2 / 3, contentMode: .fit)
+                .overlay(alignment: .topLeading) {
+                    VStack(alignment: .leading, spacing: compact ? 4 : 6) {
+                        Capsule().fill(light.mark1).frame(width: compact ? 18 : 24, height: 3)
+                        // A non-breaking hyphen keeps "16-bit" whole in a narrow tile.
+                        Text(section.title.replacingOccurrences(of: "-", with: "\u{2011}"))
+                            .themeText(.headline, size: compact ? 14 : 18)
+                            .foregroundStyle(theme.ink)
+                            .lineLimit(4)
+                            .minimumScaleFactor(0.75)
+                        if let subtitle = section.subtitle {
+                            Text(subtitle).themeText(.numeral, size: compact ? 11 : 13).foregroundStyle(theme.inkSecondary)
+                        }
+                        Spacer(minLength: 0)
+                        Text(PlayFormat.games(section.platform?.romCount ?? section.games.count))
+                            .themeText(.caption, size: compact ? 11 : 12.5)
+                            .foregroundStyle(theme.inkSecondary)
+                        if section.installed > 0 {
+                            Label("\(section.installed) here", systemImage: "checkmark")
+                                .labelStyle(.titleAndIcon)
+                                .themeText(.caption, size: compact ? 10.5 : 12)
+                                .foregroundStyle(theme.inkSecondary)
+                        }
+                        if section.platform != nil && !compact {
+                            HStack(spacing: 3) {
+                                Text("Open").themeText(.bodyEmphasis, size: 12.5)
+                                Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold))
+                            }
+                            .foregroundStyle(light.readableTint)
+                            .padding(.top, 2)
+                        }
                     }
-                    .buttonStyle(RowButtonStyle())
-                    .accessibilityIdentifier("library.platform.\(platform.slug)")
+                    .padding(compact ? 9 : 12)
                 }
+                // Glass lit by the group's first cover, so the tile belongs to the wall.
+                .background {
+                    ZStack {
+                        if theme.isGlass, let url = section.games.first?.artworkURL {
+                            BlurredCover(url: url, dark: theme.isDark)
+                                .scaledToFill()
+                                .opacity(theme.isDark ? 0.75 : 0.6)
+                        }
+                        GlassFill(shape: shape)
+                    }
+                    .clipShape(shape)
+                }
+                .overlay { GlassEdge(shape: shape) }
+            if !compact {
+                // Keeps the tile's row the same height as the covers' titles.
+                Text(" \n ").themeText(.caption, size: 12.5).lineLimit(2, reservesSpace: true).hidden()
             }
         }
+        if let platform = section.platform {
+            Button { actions.openPlatform(platform) } label: { tile.contentShape(Rectangle()) }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(platform.name), \(section.detail)")
+                .accessibilityIdentifier("library.platform.\(platform.slug)")
+        } else {
+            tile
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityLabel("\(section.title), \(section.detail)")
+        }
+    }
+}
+
+/// One cover on the wall: the poster at 2:3, a lit ring while in progress, a check when
+/// on this device, an eye when browse only; its title under it at three across.
+private struct LibraryWallCover: View {
+    @Environment(\.rommioTheme) private var theme
+    @Environment(\.pageLight) private var light
+    let game: LibraryGame
+    let title: String
+    let showsTitle: Bool
+    let inProgress: Bool
+    let installed: Bool
+    let browseOnly: Bool
+    let actions: LibraryActions
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: showsTitle ? 12 : 9, style: .continuous)
+        Button { actions.openGame(game.rom) } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                Color.clear
+                    .aspectRatio(2 / 3, contentMode: .fit)
+                    .overlay {
+                        GameCover(url: game.artworkURL, title: game.rom.displayName, cornerRadius: showsTitle ? 12 : 9,
+                                  maxPointSize: showsTitle ? 200 : 150, shadow: true)
+                    }
+                    .overlay {
+                        if inProgress { shape.strokeBorder(light.mark1, lineWidth: 2.5).shadow(color: light.mark1.opacity(0.6), radius: 8) }
+                    }
+                    .overlay(alignment: .bottomTrailing) { badge.padding(6) }
+                if showsTitle {
+                    Text(title)
+                        .themeText(.caption, size: 12.5)
+                        .foregroundStyle(theme.ink)
+                        .lineLimit(2, reservesSpace: true)
+                        .multilineTextAlignment(.leading)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button("Game details", systemImage: "info.circle") { actions.openGame(game.rom) }
+        } preview: {
+            GameCover(url: game.artworkURL, title: game.rom.displayName, cornerRadius: 18, maxPointSize: 420, shadow: false)
+                .frame(width: 280, height: 420)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel([game.rom.displayName, game.rom.platformAndYear, inProgress ? "In progress" : nil,
+                             installed ? "On this device" : nil, browseOnly ? "Browse only" : nil].compactMap { $0 }.joined(separator: ", "))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("library.game.\(game.id)")
+    }
+
+    @ViewBuilder private var badge: some View {
+        if installed || browseOnly {
+            Image(systemName: installed ? "checkmark" : "eye")
+                .font(.system(size: showsTitle ? 10 : 9, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: showsTitle ? 20 : 17, height: showsTitle ? 20 : 17)
+                .background(Circle().fill(.black.opacity(0.55)))
+                .background(Circle().fill(.ultraThinMaterial).environment(\.colorScheme, .dark))
+                .overlay(Circle().strokeBorder(.white.opacity(0.35), lineWidth: 0.5))
+        }
+    }
+}
+
+/// The trailing index: one label per group; tap to jump.
+private struct LibraryIndexRail: View {
+    @Environment(\.rommioTheme) private var theme
+    let sections: [LibraryWallSection]
+    let jump: (String) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(sections) { section in
+                Button { jump(section.id) } label: {
+                    Text(section.index)
+                        .font(.system(size: 9.5, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(theme.inkSecondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                        .frame(width: 30, height: 19)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Jump to \(section.title)")
+            }
+        }
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("library.index")
     }
 }
 
@@ -462,43 +353,6 @@ private struct LibraryCollectionRow: View {
                 .scrollClipDisabled()
             }
         }
-    }
-}
-
-/// A platform as a filter: a coloured dot, its name, its count and how many
-/// are on this device; outlined in the page's light when selected.
-private struct PlatformFacet: View {
-    @Environment(\.rommioTheme) private var theme
-    @Environment(\.pageLight) private var light
-    let platform: PlatformDTO
-    let installed: Int
-    let selected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 6) {
-                    Circle().fill(selected ? light.mark1 : theme.ink.opacity(0.7)).frame(width: 8, height: 8)
-                    Text(platform.slug.uppercased()).themeText(.bodyEmphasis, size: 14).foregroundStyle(theme.ink)
-                    Text(platform.romCount.formatted()).themeText(.numeral, size: 13).foregroundStyle(theme.inkSecondary)
-                }
-                Text(installed == 0 ? "none here" : "\(installed) here")
-                    .themeText(.caption, size: 11)
-                    .foregroundStyle(theme.inkTertiary)
-                    .padding(.leading, 14)
-            }
-            .padding(.horizontal, 12)
-            .frame(minHeight: 48)
-            .background { GlassFill(shape: RoundedRectangle(cornerRadius: 16, style: .continuous)) }
-            .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(selected ? light.mark1 : theme.glassRim.opacity(theme.isDark ? 0.08 : 0.6), lineWidth: selected ? 1.5 : 0.5)
-            }
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(platform.name), \(PlayFormat.games(platform.romCount)), \(installed) on this device")
-        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 

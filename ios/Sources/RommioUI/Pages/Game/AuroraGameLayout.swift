@@ -10,14 +10,22 @@ import RommioFoundation
 struct AuroraGameLayout: View {
     @Environment(\.rommioTheme) private var theme
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.artworkPipeline) private var pipeline
+    @Environment(\.displayScale) private var displayScale
     let content: GameContent
     let actions: GameActions
+    /// The tone of the art under the status bar, and whether it has scrolled away.
+    @State private var artTop: ColorScheme?
+    @State private var scrolledPastArt = false
+    @State private var heroSize = CGSize(width: 402, height: 400)
+    @State private var topInset: CGFloat = 62
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 GameArtHero(url: content.artworkURL, title: content.rom.displayName)
                     .accessibilityIdentifier("gameDetail.hero")
+                    .onGeometryChange(for: CGSize.self) { $0.size } action: { heroSize = $0 }
                 Group {
                     if horizontalSizeClass == .regular {
                         AuroraGameRegular(content: content, actions: actions)
@@ -33,6 +41,17 @@ struct AuroraGameLayout: View {
             }
         }
         .ignoresSafeArea(edges: .top)
+        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > 120 } action: { _, past in scrolledPastArt = past }
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topInset = $0 }
+        // Over the art: no scroll-edge fade, and the status bar in the art's tone.
+        .modifier(TopEdgeEffectHidden(hidden: !scrolledPastArt))
+        .statusBarText(over: scrolledPastArt ? nil : artTop)
+        .task(id: "\(content.artworkURL?.absoluteString ?? "")#\(Int(heroSize.height))") {
+            let hero = heroSize, inset = topInset
+            artTop = await ArtTone.scheme(of: content.artworkURL, pipeline: pipeline, maxPixelSize: Int(800 * displayScale)) { image in
+                GameArtHero.statusBarBand(image: image, hero: hero, topInset: inset)
+            }
+        }
         .themedPage(.page)
         .litBy(content.artworkURL)
     }
@@ -360,6 +379,15 @@ struct GameArtHero: View {
     @Environment(\.rommioTheme) private var theme
     let url: URL?
     let title: String
+
+    /// The rows of the cover under the status bar: the cover fills the hero (cropped about
+    /// its centre), and the bar covers the hero's first `topInset` points.
+    static func statusBarBand(image: CGImage, hero: CGSize, topInset: CGFloat) -> ClosedRange<CGFloat> {
+        let aspect = CGFloat(image.width) / CGFloat(max(1, image.height))
+        let drawnHeight = max(hero.height, hero.width / max(aspect, 0.01))
+        let cropped = (drawnHeight - hero.height) / 2
+        return (cropped / drawnHeight)...((cropped + topInset) / drawnHeight)
+    }
 
     var body: some View {
         TreatedCover(url: url, maxPointSize: 800) { CoverPlaceholder(title: title) }
