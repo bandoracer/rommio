@@ -48,7 +48,20 @@ public final class PlayerFeatureModel: Identifiable {
     var isStarting = false
     var hasStarted = false
     var errorMessage: String?
-    var noticeMessage: String?
+    var noticeMessage: String? {
+        didSet { noticeOverGame = noticeMessage != nil }
+    }
+    /// Whether the notice shows over the game: confirmations of what the player did (a save
+    /// state, a load, a sync). Automatic saves (launch, every two minutes, pause, background)
+    /// only record their status for the progress panel (revised 2026-09-27: a banner every
+    /// two minutes was noise over gameplay).
+    private(set) var noticeOverGame = false
+
+    /// An automatic step's status: recorded, not shown over the game.
+    private func noteQuietly(_ message: String?) {
+        noticeMessage = message
+        noticeOverGame = false
+    }
     var primaryControlsVisible = true
     var tertiaryControlsVisible = true
     var lastSavedStateURL: URL?
@@ -237,7 +250,7 @@ public final class PlayerFeatureModel: Identifiable {
                 resolution = nil
                 try await progressOwner.resolve(reference: choice.reference, selected: choice.selected, expected: choice.expected)
             }
-            if let progressOwner { noticeMessage = try await progressOwner.launch(coldBoot: preferColdBoot, startPaused: initiallyPaused); isPaused = initiallyPaused }
+            if let progressOwner { noteQuietly(try await progressOwner.launch(coldBoot: preferColdBoot, startPaused: initiallyPaused)); isPaused = initiallyPaused }
             else { try await engine.start() }
             hasStarted = true
             sessionStartedAtEpochMS = Int64(Date().timeIntervalSince1970 * 1000)
@@ -287,7 +300,7 @@ public final class PlayerFeatureModel: Identifiable {
         bumpTertiaryControls(wakePrimary: true)
         do {
             if let progressOwner {
-                noticeMessage = try await progressOwner.capture(reason: "pause", remainPaused: true).message
+                noteQuietly(try await progressOwner.capture(reason: "pause", remainPaused: true).message)
             } else { try await engine.setPaused(true) }
             isPaused = true
             pauseSheetPresented = true
@@ -312,7 +325,8 @@ public final class PlayerFeatureModel: Identifiable {
     func quickSave() async {
         if let progressOwner {
             do {
-                noticeMessage = try await progressOwner.capture(reason: "manual", slotID: UUID().uuidString.lowercased(), remainPaused: isPaused).message
+                let result = try await progressOwner.capture(reason: "manual", slotID: UUID().uuidString.lowercased(), remainPaused: isPaused)
+                noticeMessage = result.snapshot != nil ? "Save state saved." : result.message
                 await refreshProgress()
             } catch { errorMessage = error.localizedDescription; isPaused = true }
             return
@@ -930,7 +944,7 @@ public final class PlayerFeatureModel: Identifiable {
         guard let progressOwner, hasStarted, !backgrounded else { return }
         backgrounded = true
         resumeAfterBackground = !isPaused
-        do { noticeMessage = try await progressOwner.capture(reason: "background", remainPaused: true).message; if backgrounded { isPaused = true } }
+        do { noteQuietly(try await progressOwner.capture(reason: "background", remainPaused: true).message); if backgrounded { isPaused = true } }
         catch { errorMessage = error.localizedDescription; isPaused = true; resumeAfterBackground = false }
     }
     func sceneBecameActive() async {
@@ -1036,7 +1050,7 @@ public final class PlayerFeatureModel: Identifiable {
     private func captureContinuity(syncManualSlots: Bool, sessionActive: Bool) async {
         if let progressOwner {
             guard hasStarted else { return }
-            do { noticeMessage = try await progressOwner.capture(reason: "periodic", remainPaused: isPaused).message; await refreshProgress() }
+            do { noteQuietly(try await progressOwner.capture(reason: "periodic", remainPaused: isPaused).message); await refreshProgress() }
             catch { errorMessage = error.localizedDescription; isPaused = true }
             return
         }

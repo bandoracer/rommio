@@ -297,18 +297,22 @@ private struct PlayerOverlayChrome: View {
     }
 
     var body: some View {
+        // Banners sit below the camera housing (the Dynamic Island in portrait): this layer
+        // covers the whole window, cutout included.
+        let bannerTop = safeAreaInsets.top + 10
+        let showsNotice = feature.noticeMessage != nil && feature.noticeOverGame && noticeVisible
         ZStack {
-            if let message = feature.noticeMessage, noticeVisible {
-                PlayerBanner(message: message, isError: false)
-                    .padding(.top, 16)
-                    .frame(maxHeight: .infinity, alignment: .top)
+            VStack(spacing: 8) {
+                if let message = feature.noticeMessage, showsNotice {
+                    PlayerBanner(message: message, isError: false)
+                        .transition(.opacity)
+                }
+                if let message = feature.errorMessage {
+                    PlayerBanner(message: message, isError: true)
+                }
             }
-
-            if let message = feature.errorMessage {
-                PlayerBanner(message: message, isError: true)
-                    .padding(.top, feature.noticeMessage == nil ? 16 : 72)
-                    .frame(maxHeight: .infinity, alignment: .top)
-            }
+            .padding(.top, bannerTop)
+            .frame(maxHeight: .infinity, alignment: .top)
 
             if let state = feature.controlsState, let layout = feature.touchLayout(containerSize: size, safeAreaInsets: insets) {
                 PlayerControlsOverlay(
@@ -325,11 +329,12 @@ private struct PlayerOverlayChrome: View {
                 }
             }
         }
+        .animation(.easeOut(duration: 0.2), value: showsNotice)
         .task(id: feature.noticeMessage) {
             // Keep the detail in the progress panel, without leaving a success
             // banner across the game for the rest of the session.
             noticeVisible = feature.noticeMessage != nil
-            do { try await Task.sleep(for: .seconds(3)) } catch { return }
+            do { try await Task.sleep(for: .seconds(2.5)) } catch { return }
             noticeVisible = false
         }
     }
