@@ -13,22 +13,43 @@ private struct ThemeSurfaceModifier: ViewModifier {
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: radius ?? theme.radius.card, style: .continuous)
         if theme.isGlass {
-            // The shadow is cast by the card's shape, never by its rows: `.shadow` on the
+            // The shadow is cast by the card's fill, never by its rows: `.shadow` on the
             // content re-renders a blurred copy of every row, label and chip on each frame
             // of a push or scroll (the cause of Aurora's hitches on long settings pages).
             content
                 .background {
-                    ZStack {
-                        SurfaceShadow(shape: shape, color: .black.opacity(theme.isDark ? 0.34 : 0.07),
-                                      radius: theme.isDark ? 20 : 18, y: theme.isDark ? 12 : 9)
-                        GlassFill(shape: shape, strong: strong)
-                    }
+                    CardFill(shape: shape, strong: strong)
+                        .shadow(color: .black.opacity(theme.isDark ? 0.3 : 0.1), radius: theme.isDark ? 20 : 18, y: theme.isDark ? 12 : 9)
                 }
                 .overlay { GlassEdge(shape: shape) }
         } else {
             content
                 .background(shape.fill(strong ? theme.surfaceStrong : theme.surface))
                 .overlay { shape.strokeBorder(keyline ? theme.keyline : theme.hairline, lineWidth: keyline ? theme.material.strokeWidth : 1) }
+        }
+    }
+}
+
+/// A content card's fill (Aurora): the glass's tint as a flat translucent colour, no live
+/// backdrop. Cards scroll over the page's soft light, where a live backdrop (Liquid Glass or
+/// a material) blurs the page behind every card on every frame: with ten of them Stats
+/// scrolled at about 40 fps on an iPhone Air (NavigationPassTests scroll pass, 2026-09-27),
+/// and over the already-soft field it looks nearly the same. Small controls keep `GlassFill`.
+struct CardFill<S: Shape>: View {
+    @Environment(\.rommioTheme) private var theme
+    let shape: S
+    var strong = false
+
+    var body: some View {
+        if theme.isDark {
+            shape.fill((strong ? theme.surfaceStrong : theme.surface).opacity(0.92))
+        } else {
+            // Liquid Glass brightened the milky surface to about 85–90% white by day: the
+            // strong surface (80%) matches it, a strong card adds the surface over it.
+            ZStack {
+                shape.fill(theme.surfaceStrong)
+                if strong { shape.fill(theme.surface) }
+            }
         }
     }
 }
@@ -50,28 +71,6 @@ struct GlassFill<S: Shape>: View {
                 shape.fill(fill)
             }
         }
-    }
-}
-
-/// A card's drop shadow drawn from its shape alone and cut out inside the shape, so
-/// translucent glass above it still shows the page rather than a dark fill.
-struct SurfaceShadow<S: Shape>: View {
-    let shape: S
-    let color: Color
-    let radius: CGFloat
-    let y: CGFloat
-
-    var body: some View {
-        shape.fill(Color.black)
-            .shadow(color: color, radius: radius, y: y)
-            .mask {
-                Rectangle()
-                    .padding(-(radius * 2 + abs(y)))
-                    .overlay { shape.fill(Color.black).blendMode(.destinationOut) }
-                    .compositingGroup()
-            }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
     }
 }
 

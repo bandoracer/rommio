@@ -7,7 +7,9 @@
 #   run_navigation_pass.sh --device UDID    --theme aurora|riso --scheme light|dark --team TEAM_ID [options]
 #
 # Options:
-#   --tests pass|transitions|all   what to run (default all)
+#   --tests pass|transitions|scroll|first-library|all   what to run (default all; scroll: fling
+#                                  each tab page and back, measured for hitches; first-library: a
+#                                  burst of screenshots as the Library first appears)
 #   --query TEXT                   the Search query (default "a")
 #   --iterations N                 measure iterations per transition (default 5)
 #   --out DIR                      where the result bundle and captures go
@@ -52,8 +54,13 @@ case "$TESTS" in
   transitions) only=(-only-testing:PlayerUIRunner/NavigationPassTests/testPlatformPushTransition
                      -only-testing:PlayerUIRunner/NavigationPassTests/testGamePushTransition
                      -only-testing:PlayerUIRunner/NavigationPassTests/testSettingsPushTransition) ;;
+  scroll) only=(-only-testing:PlayerUIRunner/NavigationPassTests/testPlayScroll
+                -only-testing:PlayerUIRunner/NavigationPassTests/testLibraryScroll
+                -only-testing:PlayerUIRunner/NavigationPassTests/testStatsScroll
+                -only-testing:PlayerUIRunner/NavigationPassTests/testSettingsScroll) ;;
+  first-library) only=(-only-testing:PlayerUIRunner/NavigationPassTests/testLibraryFirstAppearance) ;;
   all) only=(-only-testing:PlayerUIRunner/NavigationPassTests) ;;
-  *) echo "--tests must be pass, transitions or all" >&2; exit 2 ;;
+  *) echo "--tests must be pass, transitions, scroll, first-library or all" >&2; exit 2 ;;
 esac
 
 set +e

@@ -5,7 +5,9 @@ import XCTest
 /// its best match, Stats, and each Settings sub-page, going back after each push.
 /// Every stop is captured as an attachment. The app must stay in the foreground
 /// throughout (the pass fails at the first crash). The transition tests measure
-/// pushes with `XCTOSSignpostMetric.navigationTransitionMetric`.
+/// pushes with `XCTOSSignpostMetric.navigationTransitionMetric`; the scroll tests measure
+/// flinging each tab page down and back (`scrollDraggingMetric`, `scrollDecelerationMetric`:
+/// hitch time ratio and frame rate).
 ///
 /// Theme and appearance come from `rommio-ui-config.json` in the runner bundle
 /// (`scripts/ios/generate_player_ui_runner.rb --theme riso --scheme dark`) or
@@ -165,6 +167,44 @@ final class NavigationPassTests: XCTestCase {
         }
         assertRunning("Game pushes")
     }
+
+    // MARK: Scrolling
+
+    /// Flings a tab page to its end and back, measured for hitches.
+    private func measureScroll(_ tabLabel: String) throws {
+        try tab(tabLabel)
+        let page = app.scrollViews.firstMatch
+        XCTAssertTrue(page.waitForExistence(timeout: 10), "No scroll view on \(tabLabel)")
+        measure(metrics: [XCTOSSignpostMetric.scrollDraggingMetric, XCTOSSignpostMetric.scrollDecelerationMetric], options: measureOptions) {
+            page.swipeUp(velocity: .fast)
+            page.swipeUp(velocity: .fast)
+            page.swipeDown(velocity: .fast)
+            page.swipeDown(velocity: .fast)
+        }
+        assertRunning("\(tabLabel) scrolling")
+    }
+
+    /// The Library's first appearance after launch as a burst of screenshots for two
+    /// seconds, to see anything that moves while it loads (a layout shift).
+    func testLibraryFirstAppearance() throws {
+        let tab = app.tabBars.buttons["Library"].exists ? app.tabBars.buttons["Library"] : runner.button("Library")
+        XCTAssertTrue(tab.waitForExistence(timeout: 10))
+        let start = Date()
+        tab.tap()
+        var index = 0
+        while Date().timeIntervalSince(start) < 2 {
+            let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            shot.name = String(format: "library-first-%02d-%04dms", index, Int(Date().timeIntervalSince(start) * 1000))
+            shot.lifetime = .keepAlways
+            add(shot)
+            index += 1
+        }
+    }
+
+    func testPlayScroll() throws { try measureScroll("Play") }
+    func testLibraryScroll() throws { try measureScroll("Library") }
+    func testStatsScroll() throws { try measureScroll("Stats") }
+    func testSettingsScroll() throws { try measureScroll("Settings") }
 
     /// Settings › Cores and BIOS and back.
     func testSettingsPushTransition() throws {

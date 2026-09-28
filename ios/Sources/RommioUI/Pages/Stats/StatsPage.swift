@@ -337,12 +337,12 @@ private struct TimeByGameRow: View {
                     subtitle: "\(PlayFormat.count(game.sessionCount, "session")) · last \(PlayFormat.inline(game.lastPlayedAt))") {
                 Text(PlayFormat.duration(game.playtime)).themeText(.numeral).foregroundStyle(theme.ink)
             }
+            // (No glow: a shadow per bar was redrawn on every frame of a scroll.)
             Capsule()
                 .fill(mark)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: 4)
                 .scaleEffect(x: max(0.02, share), y: 1, anchor: .leading)
-                .shadow(color: mark.opacity(0.6), radius: 5)
                 .padding(.leading, 52)
         }
     }

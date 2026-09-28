@@ -158,7 +158,10 @@ its games, Search and its best match, Stats, and each Settings sub-page, going b
 Every stop is captured as an attachment. It is read-only (it plays, downloads and changes nothing)
 and fails at the first step after which the app is no longer running. Three more tests measure
 pushes and pops (Library › Platform, Platform › Game, Settings › Cores and BIOS) with
-`XCTOSSignpostMetric.navigationTransitionMetric`.
+`XCTOSSignpostMetric.navigationTransitionMetric`. `--tests scroll` flings Play, Library, Stats and
+Settings down and back, measured with the scroll dragging and deceleration signpost metrics (frame
+rate and hitch time per second of scrolling). `--tests first-library` taps Library straight after
+launch and keeps screenshots for two seconds, to catch anything that moves while the page loads.
 
 ```sh
 # Simulator:
@@ -167,7 +170,13 @@ scripts/ios/run_navigation_pass.sh --simulator UDID --theme riso --scheme dark
 scripts/ios/run_navigation_pass.sh --device UDID --theme aurora --scheme light --team TEAMID
 # Only the pass, or only the metrics; the Search query and measure iterations:
 scripts/ios/run_navigation_pass.sh --device UDID --theme riso --scheme light --team TEAMID --tests transitions --iterations 5
+# Scrolling on each tab page, or the Library's first appearance:
+scripts/ios/run_navigation_pass.sh --device UDID --theme aurora --scheme dark --team TEAMID --tests scroll --iterations 3
+scripts/ios/run_navigation_pass.sh --device UDID --theme aurora --scheme dark --team TEAMID --tests first-library
 ```
+
+The device must stay unlocked: a locked phone holds the run at "Unlock to Continue", and a phone
+locked again before the runner starts ends it with "Lost pending connection to the test runner".
 
 Theme and appearance reach the app as `-appearance.theme` / `-appearance.scheme` launch arguments
 (from `rommio-ui-config.json`, embedded by `generate_player_ui_runner.rb --theme --scheme`, or

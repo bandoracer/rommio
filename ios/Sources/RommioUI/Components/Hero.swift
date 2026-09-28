@@ -15,13 +15,12 @@ struct GlowingCover: View {
         let width = height * 3 / 4
         let radius = theme.isRiso ? 0 : min(22, height * 0.07)
         ZStack(alignment: .top) {
-            if theme.isGlass {
-                // The glow: the art itself, blurred and saturated, spilling below.
-                ArtworkImage(url: url, maxPointSize: 120) { CoverPlaceholder(title: title) }
+            if theme.isGlass, let url {
+                // The glow: the art itself, blurred and saturated, spilling below. Baked once
+                // by the artwork pipeline (a live `.blur` is redrawn on every frame it moves).
+                BlurredCover(url: url, dark: theme.isDark)
                     .frame(width: width * 0.86, height: height * 0.92)
-                    .saturation(1.8)
-                    .blur(radius: 26)
-                    .opacity(theme.isDark ? 0.8 : 0.55)
+                    .opacity(theme.isDark ? 0.85 : 0.6)
                     .offset(y: height * 0.14)
                     .accessibilityHidden(true)
             }
