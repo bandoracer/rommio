@@ -10,6 +10,7 @@ enum SettingsDestination: Hashable {
     case player
     case cores
     case backup
+    case haptics
 }
 
 /// Settings: account and sync at the top, then Appearance, the sub-pages,
@@ -65,6 +66,8 @@ private struct SettingsDestinationView: View {
             CoresSettingsPage(model: model, feature: feature)
         case .backup:
             ProgressRecoveryView(service: feature.progressService)
+        case .haptics:
+            HapticsPlaygroundPage()
         }
     }
 }
@@ -92,6 +95,10 @@ private struct SettingsLinks: View {
                 IconTile(systemImage: "externaldrive.fill.badge.timemachine", tone: .bad)
             }
             .accessibilityIdentifier("settings.backup")
+            NavigationRow(value: SettingsDestination.haptics, title: "Haptics playground", subtitle: "Rumble and controller feel, by touch") {
+                IconTile(systemImage: "hand.tap.fill", tone: .tint)
+            }
+            .accessibilityIdentifier("settings.haptics")
         }
     }
 }
