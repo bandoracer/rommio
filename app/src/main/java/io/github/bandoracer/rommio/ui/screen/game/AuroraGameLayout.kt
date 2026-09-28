@@ -5,6 +5,7 @@ import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,12 +13,14 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -32,6 +35,10 @@ import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,6 +46,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
@@ -47,6 +57,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import io.github.bandoracer.rommio.domain.playdata.SaveKind
+import io.github.bandoracer.rommio.ui.art.ArtTone
+import io.github.bandoracer.rommio.ui.art.CoverArt
 import io.github.bandoracer.rommio.ui.component.DisplayText
 import io.github.bandoracer.rommio.ui.component.GlassSurface
 import io.github.bandoracer.rommio.ui.component.ListDivider
@@ -67,6 +79,7 @@ import io.github.bandoracer.rommio.ui.component.dropShadow
 import io.github.bandoracer.rommio.ui.component.formatBytes
 import io.github.bandoracer.rommio.ui.component.isRegularWidth
 import io.github.bandoracer.rommio.ui.theme.RommioTheme
+import io.github.bandoracer.rommio.ui.theme.StatusBarOverArt
 import java.io.File
 
 /** Shifts content up by [amount] (overlapping what is above) without leaving a gap below. */
@@ -86,10 +99,12 @@ internal fun Modifier.overlapTop(amount: Dp): Modifier = layout { measurable, co
 fun AuroraGameLayout(content: GameContent, actions: GameActions, scroll: ScrollState) {
     val theme = RommioTheme.current
     val regular = isRegularWidth()
+    val hero = heroHeight(0.46f)
+    GameArtTone(content.coverUrl, hero, scroll)
     // The page is lit by the screen (LitPage around the layouts); the sections are small and take
     // only what they draw from [GameContent], which the model builds.
     Column(Modifier.fillMaxSize().verticalScroll(scroll)) {
-        GameArtHero(content.coverUrl, content.rom.displayName, heroHeight(0.46f))
+        GameArtHero(content.coverUrl, content.rom.displayName, hero)
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
             Column(
                 Modifier
@@ -136,6 +151,27 @@ fun AuroraGameLayout(content: GameContent, actions: GameActions, scroll: ScrollS
             }
         }
     }
+}
+
+/**
+ * Over the art, the status bar reads in the art's tone (iOS `statusBarText(over:)`): the cover
+ * fills the hero (cropped about its centre) and the bar covers its top. Once the page's bar takes
+ * the page ground ([GameTopBar], 180 dp down), the scheme's tone returns.
+ */
+@Composable
+private fun GameArtTone(coverUrl: String?, heroHeight: Dp, scroll: ScrollState) {
+    val context = LocalContext.current
+    val threshold = with(LocalDensity.current) { 180.dp.toPx() }
+    val overArt by remember(scroll, threshold) { derivedStateOf { scroll.value <= threshold } }
+    val statusBar = WindowInsets.statusBars.asPaddingValues().calculateTopPadding().value.toDouble()
+    val width = LocalConfiguration.current.screenWidthDp.toDouble()
+    val height = heroHeight.value.toDouble()
+    val dark by produceState<Boolean?>(initialValue = null, coverUrl, width, height, statusBar) {
+        value = coverUrl?.let { url ->
+            CoverArt.topIsDark(context.applicationContext, url) { w, h -> ArtTone.statusBarBand(w, h, width, height, statusBar) }
+        }
+    }
+    StatusBarOverArt(if (overArt) dark else null)
 }
 
 @OptIn(ExperimentalLayoutApi::class)

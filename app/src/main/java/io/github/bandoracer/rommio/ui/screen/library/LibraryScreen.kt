@@ -27,7 +27,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.createSavedStateHandle
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -51,10 +51,9 @@ class LibraryActions(
     val openPlatform: (PlatformDto) -> Unit,
     val openCollection: (RommCollectionDto) -> Unit,
     val openGame: (romId: Int) -> Unit,
-    /** Aurora's browse choices (the model keeps them). */
-    val togglePlatform: (Int) -> Unit = {},
-    val selectTier: (EmbeddedSupportTier?) -> Unit = {},
-    val selectEra: (id: String, selected: String?) -> Unit = { _, _ -> },
+    /** Aurora's wall: its order and density (the model keeps them on this device). */
+    val selectLens: (LibraryLens) -> Unit = {},
+    val toggleColumns: () -> Unit = {},
 )
 
 /** A support tier's section title (docs/theme-layouts.md "Library"). */
@@ -86,7 +85,7 @@ private sealed interface LibrarySelection {
 
 /**
  * Library (docs/theme-layouts.md "Library — two layouts"): platforms grouped by how they play,
- * and collections. Aurora browses covers with platforms and tiers as filters; Riso sets a
+ * and collections. Aurora sets every game on one wall of covers ordered by a lens; Riso sets a
  * contents page. On a regular width, platforms and collections sit in a narrow list beside the
  * selected one, on one shared background. The page is built by [LibraryViewModel] ([LibraryPage]).
  */
@@ -98,9 +97,18 @@ fun LibraryScreen(
     onOpenGame: (romId: Int) -> Unit,
     onCollectionSelected: (RommCollectionDto) -> Unit,
 ) {
+    val context = LocalContext.current.applicationContext
     val viewModel: LibraryViewModel = viewModel(
         factory = viewModelFactory {
-            initializer { LibraryViewModel(container.repository, container.playActivity, createSavedStateHandle()) }
+            initializer {
+                LibraryViewModel(
+                    container.repository,
+                    container.playActivity,
+                    container.savedProgress,
+                    container.localPlay,
+                    context.getSharedPreferences(LibraryViewModel.PREFERENCES, android.content.Context.MODE_PRIVATE),
+                )
+            }
         },
     )
     val page by viewModel.page.collectAsStateWithLifecycle()
@@ -109,9 +117,8 @@ fun LibraryScreen(
             openPlatform = onPlatformSelected,
             openCollection = onCollectionSelected,
             openGame = onOpenGame,
-            togglePlatform = viewModel::togglePlatform,
-            selectTier = viewModel::selectTier,
-            selectEra = viewModel::selectEra,
+            selectLens = viewModel::selectLens,
+            toggleColumns = viewModel::toggleColumns,
         )
     }
     if (isRegularWidth()) {

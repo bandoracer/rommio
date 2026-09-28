@@ -58,7 +58,8 @@ import io.github.bandoracer.rommio.ui.component.LocalPageArt
 import io.github.bandoracer.rommio.ui.component.PageArtState
 import io.github.bandoracer.rommio.ui.component.PageField
 import io.github.bandoracer.rommio.ui.component.PageFieldStyle
-import io.github.bandoracer.rommio.ui.component.rememberPageLight
+import io.github.bandoracer.rommio.ui.component.LocalShellArt
+import io.github.bandoracer.rommio.ui.component.rememberHeldLight
 import io.github.bandoracer.rommio.ui.theme.ProvidePageLight
 import io.github.bandoracer.rommio.ui.navigation.NavRoutes
 import io.github.bandoracer.rommio.ui.navigation.ShellStartRoute
@@ -123,8 +124,9 @@ fun AppShell(
             containerColor = Color.Transparent,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
-                if (destination?.route == NavRoutes.GAME) {
-                    // The Game page runs its art under a bar of its own (clear over the art).
+                val route = destination?.route ?: ShellStartRoute
+                if (route == NavRoutes.GAME || (route == NavRoutes.PLAY && theme.isGlass && !regular)) {
+                    // The Game page and Aurora's Home run their art under a bar of their own (clear over the art).
                 } else if (isTopLevel) {
                     Box(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars))
                 } else {
@@ -374,18 +376,20 @@ private val RailWidth = 88.dp
  */
 @Composable
 private fun ProvideShellLight(pageArt: PageArtState, content: @Composable () -> Unit) {
-    val light = rememberPageLight(pageArt.subject?.coverUrl)
-    ProvidePageLight(light, content)
+    // The light shown stays until the next subject's is ready; the field blurs the held light's cover.
+    val held = rememberHeldLight(pageArt.subject?.coverUrl)
+    CompositionLocalProvider(LocalShellArt provides held.artUrl) {
+        ProvidePageLight(held.light, content)
+    }
 }
 
 /** The field behind every page, lit by the declared subject (it crossfades on its own layer). */
 @Composable
 private fun ShellField(pageArt: PageArtState, backdrop: io.github.bandoracer.rommio.ui.component.GlassBackdrop?) {
-    val subject = pageArt.subject
     PageField(
         modifier = Modifier.fillMaxSize(),
-        style = subject?.style ?: PageFieldStyle.QUIET,
-        coverUrl = subject?.coverUrl,
+        style = pageArt.subject?.style ?: PageFieldStyle.QUIET,
+        coverUrl = LocalShellArt.current,
         backdrop = backdrop,
     )
 }

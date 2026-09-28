@@ -19,6 +19,7 @@ import androidx.core.graphics.drawable.toBitmap
 import coil.imageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
+import coil.size.Precision
 import coil.size.Scale
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -45,9 +46,15 @@ object CoverArt {
     /** Prints are rendered at the displayed size, capped, in steps so nearby sizes share a print. */
     private const val PRINT_MAX_SIDE = 720
     private const val PRINT_STEP = 16
+    /** A cover's tone under the status bar is read from a small decode (an average of a band). */
+    private const val TONE_DECODE_SIZE = 192
+    /** Screenshots for the Home hero: the largest side kept, and the glow's bake size. */
+    private const val SCREEN_MAX_SIDE = 1280
+    private const val SCREEN_GLOW_SIDE = 96f
 
     private val palettes = LruCache<String, List<Int>>(256)
     private val backdrops = LruCache<String, ImageBitmap>(24)
+    private val screens = LruCache<String, ScreenArt>(6)
     private val prints = object : LruCache<String, ImageBitmap>(32 * 1024 * 1024) {
         override fun sizeOf(key: String, value: ImageBitmap): Int = value.width * value.height * 4
     }
@@ -124,6 +131,58 @@ object CoverArt {
 
     private fun backdropKey(url: String, dark: Boolean) = "$url#${if (dark) "d" else "l"}"
 
+    /**
+     * Whether the top of a cover is dark where the status bar sits over it ([ArtTone]): [band]
+     * gives the rows under the bar for the decoded size. Null when the cover can't be loaded.
+     */
+    suspend fun topIsDark(context: Context, url: String, band: (width: Int, height: Int) -> ClosedFloatingPointRange<Double>): Boolean? =
+        dedupe<Boolean>("tone:$url:${band(1000, 1500)}") {
+            val bitmap = load(context, url, TONE_DECODE_SIZE, TONE_DECODE_SIZE, Scale.FIT) ?: return@dedupe null
+            val pixels = IntArray(bitmap.width * bitmap.height)
+            bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+            ArtTone.isDark(pixels, bitmap.width, bitmap.height, band(bitmap.width, bitmap.height))
+        }
+
+    fun cachedScreen(url: String): ScreenArt? = screens.get(url)
+
+    /**
+     * A RomM screenshot for Aurora's Home hero: at most [SCREEN_MAX_SIDE] px, never enlarged (pixel
+     * art stays crisp), without the letterbox the game drew ([ScreenTrim]), with a small blurred,
+     * saturated copy that lights the space around it.
+     */
+    suspend fun screen(context: Context, url: String): ScreenArt? {
+        screens.get(url)?.let { return it }
+        return dedupe("screen:$url") {
+            val source = load(context, url, SCREEN_MAX_SIDE, SCREEN_MAX_SIDE, Scale.FIT, Precision.INEXACT) ?: return@dedupe null
+            val w = source.width
+            val h = source.height
+            val pixels = IntArray(w * h)
+            source.getPixels(pixels, 0, w, 0, 0, w, h)
+            val trimmed = ScreenTrim.region(pixels, w, h)?.let { Bitmap.createBitmap(source, it.left, it.top, it.width, it.height) } ?: source
+            val scale = SCREEN_GLOW_SIDE / maxOf(trimmed.width, trimmed.height).toFloat()
+            val gw = (trimmed.width * scale).toInt().coerceAtLeast(1)
+            val gh = (trimmed.height * scale).toInt().coerceAtLeast(1)
+            val small = Bitmap.createScaledBitmap(trimmed, gw, gh, true)
+            val smallPixels = IntArray(gw * gh)
+            small.getPixels(smallPixels, 0, gw, 0, 0, gw, gh)
+            // iOS: blur 42 pt at saturation 1.35 over a hero about 600 pt tall the screen fills.
+            val glow = ArtBake.gaussianBlur(ArtBake.grade(smallPixels, 1.35, 1.0), gw, gh, gh * 0.07)
+            ScreenArt(
+                image = trimmed.asImageBitmap(),
+                glow = Bitmap.createBitmap(glow, gw, gh, Bitmap.Config.ARGB_8888).asImageBitmap(),
+            ).also { screens.put(url, it) }
+        }
+    }
+
+    /**
+     * Loads a cover into the image loader's memory cache at a display size ahead of need (Aurora's
+     * Home prepares every game in play so a tap swaps its art in at once).
+     */
+    fun prefetch(context: Context, url: String, widthPx: Int, heightPx: Int) {
+        val request = ImageRequest.Builder(context).data(url).size(widthPx, heightPx).build()
+        context.imageLoader.enqueue(request)
+    }
+
     /** Rounds a requested print size to the cache step, keeping the aspect ratio. */
     fun printSize(widthPx: Int, heightPx: Int): Pair<Int, Int> {
         val scale = minOf(1f, PRINT_MAX_SIDE / maxOf(widthPx, heightPx).coerceAtLeast(1).toFloat())
@@ -171,12 +230,16 @@ object CoverArt {
         return deferred.await() as T?
     }
 
-    private suspend fun load(context: Context, url: String, width: Int, height: Int, scale: Scale): Bitmap? {
+    private suspend fun load(context: Context, url: String, width: Int, height: Int, scale: Scale, precision: Precision = Precision.AUTOMATIC): Bitmap? {
         val request = ImageRequest.Builder(context)
             .data(url)
             .size(width, height)
             .scale(scale)
+            .precision(precision)
             .allowHardware(false)
+            // Its own memory-cache entry: a small decode here never replaces the cover a page
+            // shows at full size (the cache keeps one bitmap per key).
+            .memoryCacheKey("$url#${width}x$height")
             .build()
         val result = context.imageLoader.execute(request) as? SuccessResult ?: return null
         val drawable = result.drawable
@@ -227,6 +290,10 @@ object CoverArt {
         return hexes.takeIf { it.size == 5 }
     }
 }
+
+/** A screenshot for Aurora's Home hero: the trimmed screen, and its blurred, saturated glow. */
+@androidx.compose.runtime.Immutable
+class ScreenArt(val image: ImageBitmap, val glow: ImageBitmap)
 
 /**
  * The cover's five-colour palette (null while loading or without art). Synchronous when the

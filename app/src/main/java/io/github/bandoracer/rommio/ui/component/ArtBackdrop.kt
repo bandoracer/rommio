@@ -2,9 +2,6 @@ package io.github.bandoracer.rommio.ui.component
 
 import android.graphics.BitmapShader
 import android.graphics.Shader
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -13,7 +10,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.produceState
@@ -47,6 +46,7 @@ import io.github.bandoracer.rommio.ui.art.AuroraLight
 import io.github.bandoracer.rommio.ui.art.CoverArt
 import io.github.bandoracer.rommio.ui.art.CoverPalette
 import io.github.bandoracer.rommio.ui.art.rememberCoverPalette
+import io.github.bandoracer.rommio.ui.theme.RommioThemeValue
 import io.github.bandoracer.rommio.ui.theme.AuroraArtTokens
 import io.github.bandoracer.rommio.ui.theme.PageLight
 import io.github.bandoracer.rommio.ui.theme.ProvidePageLight
@@ -145,16 +145,62 @@ fun LitPage(coverUrl: String?, style: PageFieldStyle = PageFieldStyle.PAGE, cont
 
 /**
  * The light a cover casts on an Aurora page in the current scheme: the theme's own light in Riso,
- * without art, while the palette loads, or for a neutral (greyscale) palette.
+ * without art, or for a neutral (greyscale) palette. When the cover changes, the light already
+ * shown stays until the new one is ready ([rememberHeldLight]).
  */
 @Composable
-fun rememberPageLight(coverUrl: String?): PageLight {
+fun rememberPageLight(coverUrl: String?): PageLight = rememberHeldLight(coverUrl).light
+
+/** A page's light and the cover it was made from (blurred into the field when it is lit). */
+@Immutable
+data class HeldLight(val light: PageLight, val artUrl: String?)
+
+/**
+ * The light for [coverUrl], ready on the first frame when its palette and blurred cover are in
+ * memory. Otherwise both load, and meanwhile the light already shown (in this theme) stays, so the
+ * page never drops to its unlit ground on the way from one game's light to the next (iOS
+ * `LitByModifier`); a page with nothing shown yet is unlit until then.
+ */
+@Composable
+fun rememberHeldLight(coverUrl: String?): HeldLight {
     val theme = RommioTheme.current
-    val palette = rememberCoverPalette(if (theme.isGlass) coverUrl else null)
-    return remember(theme, palette) {
-        PageLight.of(theme, palette?.takeUnless(CoverPalette::isNeutral)?.let { AuroraLight.lights(it, theme.isDark) })
+    val context = LocalContext.current
+    val url = if (theme.isGlass) coverUrl else null
+    val memory = remember { LightMemory() }
+    val loaded by produceState<HeldLight?>(initialValue = null, theme, url) {
+        if (url == null || readyLight(theme, url) != null) return@produceState
+        val app = context.applicationContext
+        val palette = CoverArt.palette(app, url)
+        if (palette != null && !CoverPalette.isNeutral(palette)) CoverArt.backdrop(app, url, theme.isDark)
+        value = heldLight(theme, palette, url)
     }
+    val ready = when {
+        url == null -> HeldLight(theme.unlit, null)
+        else -> readyLight(theme, url) ?: loaded?.takeIf { it.artUrl == url && it.light.base == theme }
+    }
+    SideEffect { if (ready != null) memory.last = ready }
+    // Still loading: the light already shown in this theme rather than the unlit page.
+    return ready ?: memory.last?.takeIf { it.light.base == theme } ?: HeldLight(theme.unlit, null)
 }
+
+/** The last light a page showed (not state: it only answers while the next one loads). */
+private class LightMemory {
+    var last: HeldLight? = null
+}
+
+/** The light when the cover's palette (and, when lit, its blurred cover) are in memory. */
+private fun readyLight(theme: RommioThemeValue, url: String): HeldLight? {
+    val palette = CoverArt.cachedPalette(url) ?: return null
+    val light = heldLight(theme, palette, url)
+    if (light.light.isLit && CoverArt.cachedBackdrop(url, theme.isDark) == null) return null
+    return light
+}
+
+private fun heldLight(theme: RommioThemeValue, palette: List<Int>?, url: String): HeldLight =
+    HeldLight(PageLight.of(theme, palette?.takeUnless(CoverPalette::isNeutral)?.let { AuroraLight.lights(it, theme.isDark) }), url)
+
+/** The cover the shell's field blurs into its light: the held light's ([rememberHeldLight]). */
+val LocalShellArt = compositionLocalOf<String?> { null }
 
 /** A cover's vivid mark (`k1`) in the current scheme, or the page's own when it has no usable colour. */
 @Composable
@@ -176,10 +222,10 @@ private fun Int.opaque(): Color = Color(0xFF000000.toInt() or this)
  * (screen-blended in dark) and a veil back to the ground. An unlit page always uses the quiet
  * field (except welcome) with the theme's own lights.
  *
- * Only this backdrop animates when the light changes (the colours and the cover crossfade over
- * 450 ms); the animated values are read while drawing, so the animation redraws the field (and
- * the glass blur of it) without recomposing anything. It sits on its own layer, so nothing else
- * redraws it.
+ * Only this backdrop animates when the light (or the field's style) changes: the new field
+ * dissolves over the old one ([LayeredCrossfade], 450 ms), never through the ground. The fade is
+ * read while drawing, so it redraws the field (and the glass blur of it) without recomposing
+ * anything. It sits on its own layer, so nothing else redraws it.
  */
 @Composable
 fun PageField(
@@ -198,41 +244,43 @@ fun PageField(
     }
     val lit = light.isLit
     val effective = if (!lit && style != PageFieldStyle.WELCOME) PageFieldStyle.QUIET else style
-    val dark = theme.isDark
-    val motion = tween<Color>(durationMillis = 450)
-    val ground = animateColorAsState(light.ground, motion, label = "ground")
-    val l1 = animateColorAsState(light.lights.l1.opaque(), motion, label = "l1")
-    val l2 = animateColorAsState(light.lights.l2.opaque(), motion, label = "l2")
-    val l3 = animateColorAsState(light.lights.l3.opaque(), motion, label = "l3")
-    val lightOpacity = if (dark) AuroraArtTokens.lightOpacityDark else AuroraArtTokens.lightOpacityLight
     Box(
         modifier
             // Its own layer: the field (and its recording for the glass) redraws only when it changes.
             .graphicsLayer()
             .recordGlassBackdrop(backdrop, theme.material.glassBlur.dp)
-            .drawBehind { drawRect(ground.value) }
             .clipToBounds()
             .clearAndSetSemantics {},
     ) {
-        Box(Modifier.fillMaxSize().graphicsLayer { alpha = effective.opacity }) {
-            Crossfade(targetState = if (lit) coverUrl else null, animationSpec = tween(450), label = "art") { url ->
-                if (url != null) BlurredCover(url, dark)
-            }
+        LayeredCrossfade(FieldKey(light, effective, if (lit) coverUrl else null), Modifier.fillMaxSize(), durationMillis = 450) { field ->
+            FieldLayer(field, theme.isDark)
+        }
+    }
+}
+
+/** One field: a light, where its lights sit, and the cover blurred into it (lit pages only). */
+@Immutable
+private data class FieldKey(val light: PageLight, val style: PageFieldStyle, val artUrl: String?)
+
+@Composable
+private fun FieldLayer(field: FieldKey, dark: Boolean) {
+    val ground = field.light.ground
+    val lights = field.light.lights.let { listOf(it.l1.opaque(), it.l2.opaque(), it.l3.opaque()) }
+    val lightOpacity = if (dark) AuroraArtTokens.lightOpacityDark else AuroraArtTokens.lightOpacityLight
+    Box(Modifier.fillMaxSize().drawBehind { drawRect(ground) }) {
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = field.style.opacity }) {
+            field.artUrl?.let { BlurredCover(it, dark) }
             Canvas(Modifier.fillMaxSize()) {
-                val spots = effective.spots
-                val lights = listOf(l1.value, l2.value, l3.value)
                 drawIntoCanvas { canvas ->
                     val paint = Paint().apply {
                         alpha = lightOpacity
                         blendMode = if (dark) BlendMode.Screen else BlendMode.SrcOver
                     }
                     canvas.saveLayer(Rect(0f, 0f, size.width, size.height), paint)
-                    spots.zip(lights).forEach { (spot, colour) -> fieldLight(colour, spot) }
+                    field.style.spots.zip(lights).forEach { (spot, colour) -> fieldLight(colour, spot) }
                     canvas.restore()
                 }
-                val veil = effective.veil
-                val g = ground.value
-                drawRect(Brush.verticalGradient(*veil.map { (at, a) -> at to g.copy(alpha = a) }.toTypedArray()))
+                drawRect(Brush.verticalGradient(*field.style.veil.map { (at, a) -> at to ground.copy(alpha = a) }.toTypedArray()))
             }
         }
     }

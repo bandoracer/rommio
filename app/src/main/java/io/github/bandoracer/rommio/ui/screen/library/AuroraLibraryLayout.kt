@@ -1,10 +1,11 @@
 package io.github.bandoracer.rommio.ui.screen.library
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.snapping.SnapPosition
-import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,378 +13,436 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.GridOn
+import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Layers
+import androidx.compose.material.icons.outlined.SortByAlpha
 import androidx.compose.material.icons.outlined.SportsEsports
-import androidx.compose.material.icons.outlined.TouchApp
+import androidx.compose.material.icons.outlined.TheaterComedy
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.zIndex
-import io.github.bandoracer.rommio.domain.player.EmbeddedSupportTier
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import io.github.bandoracer.rommio.ui.art.CoverArt
 import io.github.bandoracer.rommio.ui.component.CollectionTile
 import io.github.bandoracer.rommio.ui.component.EmptyState
 import io.github.bandoracer.rommio.ui.component.FilterPill
 import io.github.bandoracer.rommio.ui.component.GameCover
-import io.github.bandoracer.rommio.ui.component.ListDivider
-import io.github.bandoracer.rommio.ui.component.ListGroup
-import io.github.bandoracer.rommio.ui.component.ListRow
+import io.github.bandoracer.rommio.ui.component.GlassSurface
+import io.github.bandoracer.rommio.ui.component.IconCircleButton
 import io.github.bandoracer.rommio.ui.component.LitPage
 import io.github.bandoracer.rommio.ui.component.PageFieldStyle
 import io.github.bandoracer.rommio.ui.component.PageHeader
-import io.github.bandoracer.rommio.ui.component.PlayFormat
 import io.github.bandoracer.rommio.ui.component.RoleText
 import io.github.bandoracer.rommio.ui.component.SecondaryButton
 import io.github.bandoracer.rommio.ui.component.SectionHeader
 import io.github.bandoracer.rommio.ui.component.dropShadow
-import io.github.bandoracer.rommio.ui.component.rememberCoverMark
-import io.github.bandoracer.rommio.ui.component.supportTierLabel
-import io.github.bandoracer.rommio.ui.component.themedSurface
+import io.github.bandoracer.rommio.ui.component.glassEdge
 import io.github.bandoracer.rommio.ui.theme.RommioTheme
-import kotlin.math.abs
+import kotlinx.coroutines.launch
 
 /**
- * Aurora Library: an era ruler by release year (when years place games in two or more eras),
- * then covers lit by the cover in focus, with platforms and support tiers as filters above the
- * platform list and collections. The row shows the chosen era (games in progress first, then by
- * release year), or with "All years" games in progress first, then A–Z. The browse choices and the
- * row's games come from the model ([LibraryPage]); the sections are lazy items.
+ * Aurora Library: every game on one wall of covers (docs/theme-layouts.md, Library; iOS
+ * `AuroraLibraryLayout`). One choice orders it (Console · Series · Year · Genre · A–Z). The covers
+ * flow continuously; each group starts with a tile that names it (a console's tile opens its
+ * page), so a library of small groups stays dense. An index rail jumps between groups, density
+ * switches between three and four across, and a press and hold gives a quick look. Lit by the game
+ * you're playing; collections close the wall. The model ([LibraryPage]) groups the wall.
  */
 @Composable
 fun AuroraLibraryLayout(page: LibraryPage, actions: LibraryActions) {
     val theme = RommioTheme.current
     val gutter = theme.spacing.gutter
-    val games = page.browse
-    var focusId by remember(games) { mutableStateOf(games.firstOrNull()?.id) }
-    val focused = games.firstOrNull { it.id == focusId } ?: games.firstOrNull()
-    LitPage(focused?.coverUrl, PageFieldStyle.PAGE) {
-        LazyColumn(
-            Modifier.fillMaxSize().testTag("shell.libraryList"),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 40.dp),
-        ) {
-            // A column with 22 dp between its parts.
-            val gap = Modifier.padding(top = 22.dp)
-            item(key = "header", contentType = "header") {
-                Column(Modifier.padding(horizontal = gutter), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    PageHeader(title = "Library")
-                    if (page.hasPlatforms) RoleText(page.summary, theme.type.secondary, color = theme.colors.inkSecondary)
-                }
-            }
-            if (!page.hasPlatforms) {
-                item(key = "empty", contentType = "empty") {
-                    EmptyState(
-                        title = if (page.isLoading) "Loading your library" else "No platforms yet",
-                        message = if (page.isLoading) "" else page.errorMessage ?: "Pull to refresh once your server is reachable.",
-                        icon = Icons.Outlined.VideoLibrary,
-                        modifier = gap,
-                    )
-                }
-                return@LazyColumn
-            }
-            if (page.showsRuler) {
-                item(key = "eras", contentType = "eras") { EraRuler(page, actions, gap.padding(horizontal = gutter)) }
-            }
-            item(key = "browseHeader", contentType = "browseHeader") { BrowseHeader(page, actions, gap.padding(horizontal = gutter)) }
-            item(key = "covers", contentType = "covers") {
-                CoverRow(page, games, focused, onFocus = { focusId = it }, actions, gap)
-            }
-            item(key = "facets", contentType = "facets") { Facets(page, actions, gap) }
-            page.sections.filter { page.tier == null || it.tier == page.tier }.forEachIndexed { index, section ->
-                item(key = "tier/${section.tier}", contentType = "tierGroup") {
-                    val top = if (index == 0) 22.dp else theme.spacing.section
-                    ListGroup(title = section.title, meta = section.platforms.size.toString(), modifier = Modifier.padding(top = top).padding(horizontal = gutter)) {
-                        section.platforms.forEachIndexed { rowIndex, entry ->
-                            if (rowIndex > 0) ListDivider()
-                            ListRow(
-                                title = entry.platform.name,
-                                subtitle = entry.subtitle,
-                                showChevron = true,
-                                onClick = { actions.openPlatform(entry.platform) },
-                                modifier = Modifier.testTag("library.platform.${entry.platform.slug}"),
-                            )
-                        }
-                    }
-                }
-            }
-            if (page.tier == null && page.platformFilter == null && page.collections.isNotEmpty()) {
-                item(key = "collections", contentType = "collections") { CollectionsRow(page, actions, gap) }
-            }
-            page.staleMessage?.let { message ->
-                item(key = "stale", contentType = "stale") {
-                    RoleText(message, theme.type.caption, color = theme.colors.inkSecondary, modifier = gap.padding(horizontal = gutter))
-                }
-            }
+    val compact = page.columns != 3
+    val rail = page.wall.size >= 4
+    val end = if (rail) gutter + 24.dp else gutter
+    val spacing = if (compact) 9.dp else 12.dp
+    val rowSpacing = if (compact) 12.dp else 18.dp
+    val grid = rememberLazyGridState()
+    val scope = rememberCoroutineScope()
+    var quickLook by remember { mutableStateOf<LibraryWallCover?>(null) }
+    // Each group's tile as a grid index (the header comes first), for the rail.
+    val tiles = remember(page.wall) {
+        var next = 1
+        page.wall.map { group -> next.also { next += 1 + group.covers.size } }
+    }
+    // A new order starts from its first group, with the lens still in view.
+    var shownLens by remember { mutableStateOf(page.lens) }
+    LaunchedEffect(page.lens) {
+        if (page.lens != shownLens) {
+            shownLens = page.lens
+            grid.animateScrollToItem(0)
         }
     }
-}
-
-/**
- * The era ruler: one segment per era with games, as wide as its share of the library (at least
- * 15 %): a 6 dp bar in a gradient of the era's games' `k1` at 40 % (the selected era 8 dp, full
- * strength, glowing), the years `bodyEmphasis` 12 and the count `caption` 11. Tapping the
- * selected era again shows all years.
- */
-@Composable
-private fun EraRuler(page: LibraryPage, actions: LibraryActions, modifier: Modifier) {
-    val theme = RommioTheme.current
-    val c = theme.colors
-    val total = page.eraTotal
-    Row(modifier.fillMaxWidth().padding(top = 2.dp).testTag("library.eras"), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        page.eras.forEach { era ->
-            val on = era.id == page.selectedEra
-            val lights = era.leadCovers.map { rememberCoverMark(it) }
-            Column(
-                Modifier
-                    .weight(maxOf(era.count.toFloat(), total * 0.15f))
-                    .heightIn(min = 48.dp)
-                    .clickable(role = Role.Tab) { actions.selectEra(era.id, page.selectedEra) }
-                    .semantics(mergeDescendants = true) {
-                        this.selected = on
-                        contentDescription = "${era.name}, ${era.short}, ${PlayFormat.games(era.count)}"
-                    }
-                    .padding(vertical = 4.dp)
-                    .testTag("library.era.${era.id}"),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+    LitPage(page.lightUrl, PageFieldStyle.PAGE) {
+        Box(Modifier.fillMaxSize().testTag("library.wall")) {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(page.columns),
+                state = grid,
+                modifier = Modifier.fillMaxSize().testTag("shell.libraryList"),
+                contentPadding = PaddingValues(start = gutter, end = end, top = 8.dp, bottom = 40.dp),
+                horizontalArrangement = Arrangement.spacedBy(spacing),
+                verticalArrangement = Arrangement.spacedBy(rowSpacing),
             ) {
-                // An era without covers takes the page's tint and mark (the light is read only then).
-                val first = lights.firstOrNull()
-                val light = if (first == null) RommioTheme.light else null
-                val single = first ?: light!!.tint
-                val bar = if (lights.size > 1) Brush.horizontalGradient(lights) else Brush.horizontalGradient(listOf(single, single))
-                // The selected bar grows about its centre line so the labels stay on one baseline.
-                Box(Modifier.fillMaxWidth().height(8.dp), contentAlignment = Alignment.Center) {
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(if (on) 8.dp else 6.dp)
-                            .then(if (on) Modifier.dropShadow((first ?: light!!.mark1).copy(alpha = 0.6f), 4.dp, radius = 8.dp, y = 4.dp) else Modifier)
-                            .clip(RoundedCornerShape(4.dp))
-                            .graphicsLayer { alpha = if (on) 1f else 0.4f }
-                            .background(bar),
-                    )
+                item(key = "header", contentType = "header", span = { GridItemSpan(maxLineSpan) }) {
+                    LibraryHeader(page, actions, Modifier.bleed(gutter, end))
                 }
-                RoleText(era.short, theme.type.bodyEmphasis, size = 12f, color = if (on) c.ink else c.inkSecondary, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Visible)
-                RoleText(era.countText, theme.type.caption, size = 11f, color = c.inkTertiary, maxLines = 1)
-            }
-        }
-    }
-}
-
-@Composable
-private fun BrowseHeader(page: LibraryPage, actions: LibraryActions, modifier: Modifier) {
-    val theme = RommioTheme.current
-    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            // With an era: its name (`headline` 24) and "N games · N here" for what the row draws from.
-            RoleText(
-                page.browseTitle,
-                theme.type.headline,
-                size = if (page.browseTitleIsEra) 24f else null,
-                color = theme.colors.ink,
-            )
-            page.browseDetail?.let { detail ->
-                RoleText(
-                    detail,
-                    theme.type.caption,
-                    size = if (page.browseTitleIsEra) 12.5f else null,
-                    color = theme.colors.inkSecondary,
-                )
-            }
-        }
-        page.platformFilter?.let {
-            SecondaryButton("See all", onClick = { actions.openPlatform(it.platform) }, modifier = Modifier.testTag("library.seeAll"))
-        }
-    }
-}
-
-/**
- * 150 × 200 covers overlapping by 18, snapping with the focused cover centred; each cover turns
- * away with its distance from the centre (scale 1 − 0.22|p|, rotate Y −34°·p, opacity
- * 1 − 0.28|p|). The centred cover lights the page.
- */
-@Composable
-private fun CoverRow(page: LibraryPage, games: List<BrowseGame>, focused: BrowseGame?, onFocus: (Int) -> Unit, actions: LibraryActions, modifier: Modifier) {
-    val theme = RommioTheme.current
-    if (games.isEmpty()) {
-        RoleText(
-            page.browseEmpty,
-            theme.type.secondary,
-            color = theme.colors.inkSecondary,
-            modifier = modifier.padding(horizontal = theme.spacing.gutter),
-        )
-        return
-    }
-    val density = LocalDensity.current
-    val listState = rememberLazyListState()
-    val itemWidth = 150.dp
-    val overlap = 18.dp
-    val stridePx = with(density) { (itemWidth - overlap).toPx() }
-    val centred by remember(games) {
-        derivedStateOf {
-            val info = listState.layoutInfo
-            val centre = (info.viewportStartOffset + info.viewportEndOffset) / 2f
-            info.visibleItemsInfo.minByOrNull { abs(it.offset + it.size / 2f - centre) }?.index
-        }
-    }
-    // The centred cover takes the focus (and lights the page) as the row moves onto it.
-    LaunchedEffect(games) {
-        snapshotFlow { centred }.collect { index -> index?.let { games.getOrNull(it)?.id }?.let(onFocus) }
-    }
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        BoxWithConstraints(Modifier.fillMaxWidth().height(210.dp)) {
-            val side = (maxWidth - itemWidth + overlap) / 2
-            LazyRow(
-                state = listState,
-                contentPadding = PaddingValues(horizontal = side),
-                flingBehavior = rememberSnapFlingBehavior(listState, SnapPosition.Center),
-                modifier = Modifier.fillMaxSize(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                itemsIndexed(games, key = { _, rom -> rom.id }) { index, rom ->
-                    val phase by remember(index) {
-                        derivedStateOf {
-                            val info = listState.layoutInfo
-                            val item = info.visibleItemsInfo.firstOrNull { it.index == index } ?: return@derivedStateOf 2f
-                            val centre = (info.viewportStartOffset + info.viewportEndOffset) / 2f
-                            (item.offset + item.size / 2f - centre) / stridePx
-                        }
+                if (page.isEmpty) {
+                    item(key = "empty", contentType = "empty", span = { GridItemSpan(maxLineSpan) }) {
+                        EmptyState(
+                            title = if (page.isLoading) "Loading your library" else "No platforms yet",
+                            message = if (page.isLoading) "" else page.errorMessage ?: "Pull to refresh once your server is reachable.",
+                            icon = Icons.Outlined.VideoLibrary,
+                        )
                     }
-                    Box(
-                        Modifier
-                            .zIndex(10f - abs(phase))
-                            // Covers overlap by 18 dp: each takes 132 dp of the row and draws 150.
-                            .layout { measurable, constraints ->
-                                val placeable = measurable.measure(constraints)
-                                val take = placeable.width - overlap.roundToPx()
-                                layout(take, placeable.height) { placeable.place(-overlap.roundToPx() / 2, 0) }
-                            }
-                            .graphicsLayer {
-                                val p = phase
-                                val s = 1f - minOf(abs(p), 1f) * 0.22f
-                                scaleX = s
-                                scaleY = s
-                                rotationY = p * -34f
-                                cameraDistance = 6f * density.density
-                                alpha = 1f - minOf(abs(p), 1.5f) * 0.28f
-                            }
-                            .clickable(role = Role.Button, onClickLabel = "Open ${rom.title}") { actions.openGame(rom.id) }
-                            .semantics { contentDescription = rom.title }
-                            .testTag("library.cover.${rom.id}"),
-                    ) {
-                        GameCover(rom.coverUrl, rom.title, Modifier.size(itemWidth, itemWidth * 4f / 3f), aspect = null)
+                    return@LazyVerticalGrid
+                }
+                page.wall.forEach { group ->
+                    item(key = "tile/${group.id}", contentType = "tile") { LibraryGroupTile(group, compact, actions) }
+                    items(group.covers, key = { "${group.id}/${it.id}" }, contentType = { "cover" }) { cover ->
+                        LibraryWallCoverView(cover, compact, actions, onQuickLook = { quickLook = it })
+                    }
+                }
+                if (page.collections.isNotEmpty()) {
+                    item(key = "collections", contentType = "collections", span = { GridItemSpan(maxLineSpan) }) {
+                        CollectionsRow(page, actions, Modifier.bleed(gutter, end).padding(top = 30.dp - rowSpacing))
+                    }
+                }
+                page.staleMessage?.let { message ->
+                    item(key = "stale", contentType = "stale", span = { GridItemSpan(maxLineSpan) }) {
+                        RoleText(message, theme.type.caption, color = theme.colors.inkSecondary)
                     }
                 }
             }
-        }
-        focused?.let { rom ->
-            Column(
-                Modifier.fillMaxWidth().padding(horizontal = theme.spacing.gutter).semantics(mergeDescendants = true) {},
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(3.dp),
-            ) {
-                RoleText(rom.title, theme.type.headline, size = 21f, color = theme.colors.ink, maxLines = 1, textAlign = TextAlign.Center)
-                RoleText(rom.caption, theme.type.caption, size = 13f, color = theme.colors.inkSecondary, textAlign = TextAlign.Center)
+            if (rail) {
+                LibraryIndexRail(page.wall, Modifier.align(Alignment.CenterEnd).padding(end = 4.dp)) { index ->
+                    scope.launch { grid.animateScrollToItem(tiles[index]) }
+                }
             }
         }
     }
+    quickLook?.let { cover ->
+        QuickLook(cover, onDismiss = { quickLook = null }, onOpen = {
+            quickLook = null
+            actions.openGame(cover.id)
+        })
+    }
 }
 
+/** Lets a full-width row run under the grid's side margins (the lens bar and collections scroll edge to edge). */
+private fun Modifier.bleed(start: Dp, end: Dp): Modifier = layout { measurable, constraints ->
+    val left = start.roundToPx()
+    val width = constraints.maxWidth + left + end.roundToPx()
+    val placeable = measurable.measure(constraints.copy(minWidth = width, maxWidth = width))
+    layout(constraints.maxWidth, placeable.height) { placeable.place(-left, 0) }
+}
+
+/** The page's title and summary, then the lens. */
 @Composable
-private fun Facets(page: LibraryPage, actions: LibraryActions, modifier: Modifier) {
+private fun LibraryHeader(page: LibraryPage, actions: LibraryActions, modifier: Modifier) {
     val theme = RommioTheme.current
     val gutter = theme.spacing.gutter
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(modifier) {
+        Column(Modifier.padding(horizontal = gutter), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            PageHeader(title = "Library")
+            if (page.hasPlatforms) RoleText(page.summary, theme.type.secondary, color = theme.colors.inkSecondary)
+        }
+        if (!page.isEmpty) LibraryLensBar(page.lens, page.columns, actions, Modifier.padding(top = 14.dp))
+    }
+}
+
+/** The lens: one glass chip per order, and the density switch beside them. */
+@Composable
+private fun LibraryLensBar(lens: LibraryLens, columns: Int, actions: LibraryActions, modifier: Modifier) {
+    val gutter = RommioTheme.spacing.gutter
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
         Row(
-            Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = gutter).padding(vertical = 4.dp),
+            Modifier
+                .weight(1f)
+                // The chips fade out before the density switch rather than slide under it.
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                .drawWithContent {
+                    drawContent()
+                    drawRect(Brush.horizontalGradient(0f to Color.Black, 0.9f to Color.Black, 1f to Color.Transparent), blendMode = BlendMode.DstIn)
+                }
+                .horizontalScroll(rememberScrollState())
+                .padding(start = gutter, end = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            page.facets.forEach { entry ->
-                PlatformFacet(entry, selected = page.platformFilter?.platform?.id == entry.platform.id) { actions.togglePlatform(entry.platform.id) }
+            LibraryLens.entries.forEach { option ->
+                FilterPill(
+                    option.title,
+                    selected = option == lens,
+                    onClick = { actions.selectLens(option) },
+                    icon = option.icon(),
+                    modifier = Modifier.testTag("library.lens.${option.key}"),
+                )
             }
         }
-        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = gutter), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterPill("All", selected = page.tier == null, onClick = { actions.selectTier(null) }, count = page.platforms.size, modifier = Modifier.testTag("library.filter.all"))
-            page.sections.forEach { section ->
-                FilterPill(
-                    supportTierLabel(section.tier),
-                    selected = page.tier == section.tier,
-                    onClick = { actions.selectTier(section.tier) },
-                    count = section.platforms.size,
-                    icon = when (section.tier) {
-                        EmbeddedSupportTier.TOUCH_SUPPORTED -> Icons.Outlined.TouchApp
-                        EmbeddedSupportTier.CONTROLLER_SUPPORTED -> Icons.Outlined.SportsEsports
-                        EmbeddedSupportTier.UNSUPPORTED -> Icons.Outlined.Visibility
-                    },
-                    modifier = Modifier.testTag("library.filter.${section.tier.name.lowercase()}"),
-                )
+        IconCircleButton(
+            icon = if (columns == 3) Icons.Outlined.GridOn else Icons.Outlined.GridView,
+            contentDescription = if (columns == 3) "Show more games" else "Show larger covers",
+            onClick = actions.toggleColumns,
+            size = 44.dp,
+            iconSize = 18.dp,
+            modifier = Modifier.padding(end = gutter - 2.dp).testTag("library.density"),
+        )
+    }
+}
+
+private fun LibraryLens.icon(): ImageVector = when (this) {
+    LibraryLens.CONSOLE -> Icons.Outlined.SportsEsports
+    LibraryLens.SERIES -> Icons.Outlined.Layers
+    LibraryLens.YEAR -> Icons.Outlined.CalendarMonth
+    LibraryLens.GENRE -> Icons.Outlined.TheaterComedy
+    LibraryLens.ALPHABETICAL -> Icons.Outlined.SortByAlpha
+}
+
+/**
+ * A group's first cell: its name and counts on glass, the size of a cover, lit by the group's first
+ * cover so the tile belongs to the wall; a console's tile opens its page.
+ */
+@Composable
+private fun LibraryGroupTile(group: LibraryWallGroup, compact: Boolean, actions: LibraryActions) {
+    val theme = RommioTheme.current
+    val c = theme.colors
+    val light = RommioTheme.light
+    val radius = if (compact) 9.dp else 12.dp
+    val shape = RoundedCornerShape(radius)
+    val platform = group.platform
+    Column(
+        Modifier
+            .then(
+                if (platform != null) {
+                    Modifier
+                        .clickable(role = Role.Button, onClickLabel = "Open ${platform.name}") { actions.openPlatform(platform) }
+                        .semantics(mergeDescendants = true) { contentDescription = "${platform.name}, ${group.detail}" }
+                        .testTag("library.platform.${platform.slug}")
+                } else {
+                    Modifier.clearAndSetSemantics {
+                        heading()
+                        contentDescription = "${group.title}, ${group.detail}"
+                    }
+                },
+            ),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(2f / 3f)
+                .clip(shape)
+                .drawWithContent {
+                    drawContent()
+                    glassEdge(radius.toPx(), theme.isDark)
+                },
+        ) {
+            group.tileArtUrl?.let { TileArt(it, theme.isDark) }
+            Box(Modifier.fillMaxSize().background(c.surface))
+            Column(Modifier.fillMaxSize().padding(if (compact) 9.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp)) {
+                Box(Modifier.size(if (compact) 18.dp else 24.dp, 3.dp).clip(CircleShape).background(light.mark1))
+                // A non-breaking hyphen keeps "16-bit" whole in a narrow tile.
+                RoleText(group.title.replace("-", "‑"), theme.type.headline, size = if (compact) 14f else 18f, color = c.ink, maxLines = 4)
+                group.subtitle?.let { RoleText(it, theme.type.numeral, size = if (compact) 11f else 13f, color = c.inkSecondary, maxLines = 1) }
+                Spacer(Modifier.weight(1f))
+                RoleText(group.countText, theme.type.caption, size = if (compact) 11f else 12.5f, color = c.inkSecondary, maxLines = 1)
+                if (group.installed > 0) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.Check, contentDescription = null, tint = c.inkSecondary, modifier = Modifier.size(if (compact) 10.dp else 12.dp))
+                        RoleText("${group.installed} here", theme.type.caption, size = if (compact) 10.5f else 12f, color = c.inkSecondary, maxLines = 1)
+                    }
+                }
+                if (platform != null && !compact) {
+                    Row(Modifier.padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(1.dp), verticalAlignment = Alignment.CenterVertically) {
+                        RoleText("Open", theme.type.bodyEmphasis, size = 12.5f, color = light.tintText, maxLines = 1)
+                        Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null, tint = light.tintText, modifier = Modifier.size(14.dp))
+                    }
+                }
+            }
+        }
+        if (!compact) {
+            // Keeps the tile's row the same height as the covers' titles.
+            RoleText(" ", theme.type.caption, size = 12.5f, color = Color.Transparent, maxLines = 2, minLines = 2)
+        }
+    }
+}
+
+/** A group's first cover baked into light (the page field's blurred cover), behind its tile's glass. */
+@Composable
+private fun TileArt(url: String, dark: Boolean) {
+    val context = LocalContext.current
+    val art by produceState(initialValue = CoverArt.cachedBackdrop(url, dark), url, dark) {
+        if (value == null) value = CoverArt.backdrop(context.applicationContext, url, dark)
+    }
+    art?.let { Image(it, contentDescription = null, contentScale = ContentScale.Crop, alpha = if (dark) 0.75f else 0.6f, modifier = Modifier.fillMaxSize()) }
+}
+
+/**
+ * One cover on the wall: the poster at 2:3, a lit ring while in play, a check when on this device,
+ * an eye when browse only; its title under it at three across. Press and hold for a quick look.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun LibraryWallCoverView(cover: LibraryWallCover, compact: Boolean, actions: LibraryActions, onQuickLook: (LibraryWallCover) -> Unit) {
+    val theme = RommioTheme.current
+    val radius = if (compact) 9.dp else 12.dp
+    val shape = RoundedCornerShape(radius)
+    Column(
+        Modifier
+            .combinedClickable(
+                role = Role.Button,
+                onClickLabel = "Open ${cover.title}",
+                onLongClickLabel = "Quick look",
+                onLongClick = { onQuickLook(cover) },
+                onClick = { actions.openGame(cover.id) },
+            )
+            .testTag("library.game.${cover.id}")
+            .clearAndSetSemantics {
+                contentDescription = cover.description
+                role = Role.Button
+            },
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f)) {
+            // Only a cover in play reads the page light (its ring).
+            val ring = if (cover.inProgress) RommioTheme.light.mark1 else Color.Transparent
+            GameCover(
+                cover.coverUrl,
+                cover.title,
+                modifier = Modifier.fillMaxSize().then(if (cover.inProgress) Modifier.dropShadow(ring.copy(alpha = 0.6f), radius, 8.dp, 0.dp) else Modifier),
+                cornerRadius = radius,
+                aspect = null,
+            )
+            if (cover.inProgress) Box(Modifier.fillMaxSize().border(2.5.dp, ring, shape))
+            if (cover.installed || cover.browseOnly) {
+                Box(
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(6.dp)
+                        .size(if (compact) 17.dp else 20.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .border(0.5.dp, Color.White.copy(alpha = 0.35f), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        if (cover.installed) Icons.Outlined.Check else Icons.Outlined.Visibility,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(if (compact) 10.dp else 12.dp),
+                    )
+                }
+            }
+        }
+        if (!compact) {
+            RoleText(cover.title, theme.type.caption, size = 12.5f, color = theme.colors.ink, maxLines = 2, minLines = 2)
+        }
+    }
+}
+
+/** The trailing index: one label per group; tap to jump. Labels shrink to fit a tall list. */
+@Composable
+private fun LibraryIndexRail(groups: List<LibraryWallGroup>, modifier: Modifier, jump: (Int) -> Unit) {
+    val theme = RommioTheme.current
+    BoxWithConstraints(modifier.fillMaxHeight().width(30.dp), contentAlignment = Alignment.Center) {
+        val rowHeight = minOf(19.dp, (maxHeight - 12.dp) / groups.size.coerceAtLeast(1))
+        Column(Modifier.padding(vertical = 6.dp).testTag("library.index")) {
+            groups.forEachIndexed { index, group ->
+                Box(
+                    Modifier
+                        .size(30.dp, rowHeight)
+                        .clickable(role = Role.Button, onClickLabel = "Jump to ${group.title}") { jump(index) }
+                        .semantics { contentDescription = "Jump to ${group.title}" },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        group.index,
+                        style = theme.type.numeral.style.copy(fontSize = 9.5.sp, fontWeight = FontWeight.SemiBold),
+                        color = theme.colors.inkSecondary,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                }
             }
         }
     }
 }
 
-/** A platform as a filter: a dot, its slug, count and how many are here; outlined in `mark1` when selected. */
+/** A cover pressed and held: the poster large, its name, and the way to its page. */
 @Composable
-private fun PlatformFacet(entry: LibraryPlatformItem, selected: Boolean, onClick: () -> Unit) {
+private fun QuickLook(cover: LibraryWallCover, onDismiss: () -> Unit, onOpen: () -> Unit) {
     val theme = RommioTheme.current
-    val c = theme.colors
-    val shape = RoundedCornerShape(16.dp)
-    // Only the selected facet reads the page light (its outline and dot).
-    val mark = if (selected) RommioTheme.light.mark1 else Color.Transparent
-    Column(
-        Modifier
-            .heightIn(min = 48.dp)
-            .themedSurface(theme, 16.dp, fill = c.surface, nested = true)
-            .border(if (selected) 1.5.dp else 0.dp, mark, shape)
-            .clip(shape)
-            .semantics(mergeDescendants = true) {
-                this.selected = selected
-                contentDescription = entry.description
+    Dialog(onDismissRequest = onDismiss) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            GameCover(
+                cover.coverUrl,
+                cover.title,
+                modifier = Modifier.size(280.dp, 420.dp).clickable(role = Role.Button, onClickLabel = "Open ${cover.title}", onClick = onOpen),
+                cornerRadius = 18.dp,
+                aspect = null,
+            )
+            // The strong surface: in its own window the card sits over the dimmed page, not the field.
+            GlassSurface(Modifier.width(280.dp), strong = true, contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                RoleText(cover.title, theme.type.headline, size = 18f, color = theme.colors.ink, maxLines = 2)
+                if (cover.caption.isNotEmpty()) RoleText(cover.caption, theme.type.caption, color = theme.colors.inkSecondary, maxLines = 1)
+                SecondaryButton("Game details", onClick = onOpen, icon = Icons.Outlined.Info, modifier = Modifier.testTag("library.quickLook.details"))
             }
-            .clickable(role = Role.Tab, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-            .testTag("library.facet.${entry.platform.slug}"),
-        verticalArrangement = Arrangement.spacedBy(1.dp),
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(8.dp).clip(CircleShape).background(if (selected) mark else c.ink.copy(alpha = 0.7f)))
-            RoleText(entry.platform.slug.uppercase(), theme.type.bodyEmphasis, size = 14f, color = c.ink, maxLines = 1)
-            RoleText(entry.countText, theme.type.numeral, size = 13f, color = c.inkSecondary)
         }
-        RoleText(entry.hereText, theme.type.caption, size = 11f, color = c.inkTertiary, modifier = Modifier.padding(start = 14.dp))
     }
 }
 
@@ -394,7 +453,7 @@ private fun CollectionsRow(page: LibraryPage, actions: LibraryActions, modifier:
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SectionHeader(title = "Collections", meta = page.collections.size.toString(), modifier = Modifier.padding(horizontal = gutter + 6.dp))
         Row(
-            Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = gutter).padding(top = 6.dp, bottom = 16.dp),
+            Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = gutter).padding(top = 6.dp, bottom = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             page.collections.forEach { item ->

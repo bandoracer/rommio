@@ -217,6 +217,12 @@ class AppContainer(appContext: Context, progressEngineFactory: () -> io.github.b
         thumbnails = saveThumbnails,
         formFactor = { io.github.bandoracer.rommio.data.playdata.DeviceFormFactors.resolve(appContext) },
     )
+    /** This device's stats and saves, read together before pages wait on the server (Play's games wait for them). */
+    val localPlay = io.github.bandoracer.rommio.data.playdata.LocalPlayState(
+        playActivity = playActivity,
+        savedProgress = savedProgress,
+        account = { activeVerifiedAccount()?.let { "${it.baseUrl}#${it.userId}" } },
+    )
     val coreResolver = CoreCatalogResolver(appContext, libraryStore, firmwareStore, coreArtifacts, packagedCores)
 
     /**

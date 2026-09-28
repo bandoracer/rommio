@@ -288,6 +288,10 @@ Look ([player-controls.md](player-controls.md), Look):
 
 ## Play v2 (Aurora)
 
+Compact Play v2 (the carousel of screens and the "In progress" tiles) was replaced by the Home on
+2026-09-28 ("Home and Library rebuild" below); the regular-width canvas still draws each game's
+screen as described here, and the caption lines and Recent saves are unchanged.
+
 [theme-layouts.md](theme-layouts.md) "Aurora (compact), v2": `PlayPage` carries each game's
 `platformLine` ("Super Nintendo · 1994"), `captionLine` (its latest resume point — "Automatic
 resume · 1 min ago · This phone", or a save state's name or kind — else how it was played),
@@ -302,6 +306,81 @@ follow; "In progress" carries the pager dots and the games beyond the carousel (
 152 × 114 tiles. Regular width shows the screen (480 wide) beside the caption. Recent saves use
 mosaic v2 (`SaveMosaic`, as iOS): the compact rows are built by the model (`PlaySaveDay.rows`);
 regular width uses rows of four with a short last row stretched. `PlayV2Test` pins the rules.
+
+## Home and Library rebuild (Aurora, 2026-09-28)
+
+The Android port of iOS `ae2129d` (Home and Library), `663e2e6` (local data first) and the glow part
+of `fc4f570`, following [theme-layouts.md](theme-layouts.md) Play and Library as revised
+2026-09-27. Riso layouts are unchanged; the regular-width Play canvas and Library split are as
+before.
+
+- **Games in play** (`ui/screen/play/PlayViewModel.kt` `inPlay`, as iOS `PlayContent.inPlay`):
+  this device's saves (latest capture) and sessions (last played), newest first, ties by id, then
+  RomM's continue playing; at most 12; games from the cached library (else RomM's list). Riso's
+  lead and the Library's rings and light use the same list. **Picks** (`PlayPicks.kt`, as iOS
+  `PlayPicks`, same reasons). `AuroraHomeLibraryTest` mirrors iOS `AuroraHomeLibraryTests` case for
+  case (plus the wall page's rings, badges and light).
+- **Local data first** (`data/playdata/LocalPlayState.kt`): stats and saves are read together once
+  per account (`ensureRead`) before Play asks the server; Play's games, picks and Recent saves wait
+  for `ready` and arrive in one state update (`PlayUiState.localReady`; the page is loading, with no
+  empty state or error, until then), so the hero never switches as reads land. The Library's
+  platforms and wall of covers are published together, also once `ready`, so the wall never drops
+  in after the page. Cached platforms already come back by name (`CachedPlatformDao`,
+  `ORDER BY name COLLATE NOCASE`). Not changed: the auth gate still checks the server
+  (`initializeAuth`) before the shell opens, so on a slow network the first frame of any page
+  comes after that check; the pages then draw complete from what is on the device.
+- **Home** (`AuroraPlayLayout.kt`, compact): the shell gives Aurora's compact Play no top bar
+  (`AppShell`), so the list runs under the status bar; the Downloads button floats in a 52 dp bar
+  over the art on a disc of the page ground, and the ground fades in behind the status bar once the
+  art has scrolled 35 % away. Hero height `clamp(page height × 0.78, 480, 720)` (the page runs from
+  the top of the screen to the tab bar, iOS's height + top inset). The cover art fills a box as wide
+  as the page and 1.5 × as tall, top-aligned, with the alpha mask to the caption's top
+  (`max(160, hero − 14 − caption + 8)`, the caption's height animated 350 ms and read while
+  drawing); no cover: RomM's first screenshot (`CoverArt.screen`: decoded at most 1280 px, never
+  enlarged, letterbox trimmed by `ScreenTrim`, a 96 px blurred glow baked with `ArtBake`). The art
+  dissolves between games with `LayeredCrossfade` (below); the old caption goes at once and the new
+  one fades in over 300 ms. Every game in play is prepared ahead (`PrepareInPlay`: palette, blurred
+  cover and the hero-size bitmap prefetched into Coil's memory cache; a screenshot hero's
+  screenshot). Pulled past the top (a nested-scroll connection, `HeroPull`, with half resistance and
+  a spring back), the rows follow the pull and the art grows from the top of the page down to
+  them; Android's own stretch still applies at the bottom. In play: 92 × 138 covers, the hero's
+  ringed in `mark1`; long press: Resume, Start options, Game details. Pick cards are content cards
+  (`themedSurface`, radius 22).
+- **Library wall** (`LibraryWall.kt`, `AuroraLibraryLayout.kt`): `LibraryWall.sections` is iOS
+  `LibraryContent.wall` (Console, Series, Year from `LibraryEras`, Genre, A–Z); the model builds the
+  wall per lens off the main thread (`LibraryPage.wall`). One `LazyVerticalGrid` of 3 or 4 columns;
+  group tiles over the group's first cover baked into light (`CoverArt.backdrop`); in-play ring,
+  installed check, browse-only eye; index rail with four or more groups (rows shrink to fit a tall
+  list); a lens change scrolls to the top; collections close the wall. The lens and density are
+  kept on the device in the `library-wall` SharedPreferences (`aurora.library.lens`,
+  `aurora.library.columns`). Press and hold opens a quick look (a dialog with the 280 × 420 cover,
+  its name and Game details) in place of iOS's context-menu preview. The era ruler, cover row,
+  platform facets and tier pills are gone (as on iOS).
+- **Covers while loading** (`GameCover`, `CollectionTile`): a quiet `surface` tile while the art
+  loads; the bright initials placeholder only without art or when it fails (Coil `onError`).
+  `CoverArt`'s own small decodes (palettes, backdrops, tones) use their own memory-cache keys, so
+  they never replace a cover shown at full size.
+- **Page light** (`ArtBackdrop.kt` `rememberHeldLight`): the light shown stays until the next
+  cover's palette **and** blurred backdrop are in memory (synchronous on the first frame when they
+  are), in the shell and in each `LitPage`. `PageField` now draws each field (ground, blurred cover,
+  lights, veil) as one layer and cross-dissolves whole fields with `LayeredCrossfade`
+  (`ui/component/LayeredCrossfade.kt`, 450 ms): the old field at `1 − t` and the new one at `t`,
+  summed with `BlendMode.Plus` inside one offscreen layer (Compose 1.7's graphics layers have no
+  blend mode, so the top layer is a `saveLayer` with a Plus paint), so weights always sum to one and
+  the page never dips to its ground. Replaces the 450 ms colour animation and the cover `Crossfade`.
+- **Status bar over art** (`ui/theme/StatusBarTone.kt`, `ArtTone.kt`): `StatusBarOverArt(darkArt)`
+  asks for light or dark status bar text while its page's lifecycle is resumed (so it stands down
+  under another page and while the player, a separate route, is up) and withdraws on leaving;
+  `RommioTheme` applies the newest request with `WindowInsetsControllerCompat
+  .isAppearanceLightStatusBars`, else the scheme's. The tone is the mean luminance
+  (`0.2126 R + 0.7152 G + 0.0722 B` on encoded channels, below 0.5 is dark) of the cover rows under
+  the status bar (`ArtTone.statusBarBand`, a 192 px decode). Home asks until the art has scrolled
+  35 % away; the Game page until its bar takes the page ground (180 dp, where iOS uses 120 pt:
+  Android's Game bar turns solid there). No cover (the screenshot hero): the scheme's.
+- **Glowing cover** (`GlowingCover`, Stats): the glow is the baked blurred cover at 60 % / 85 %
+  instead of a live `RenderEffect` blur (redrawn on every scroll frame, API 31+ only), as iOS.
+  Content cards are unchanged: Android's glass never blurred per frame (one cached blurred copy of
+  the field, see Components), so iOS's flat card fill was not needed.
 
 ## Performance
 

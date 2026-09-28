@@ -208,6 +208,8 @@ fun RommioTheme(
     val dark = preferences.scheme.resolveDark(isSystemInDarkTheme())
     val value = remember(preferences.theme, dark) { RommioThemeValue.of(preferences.theme, dark) }
     val view = LocalView.current
+    // Pages drawing art under the status bar ask for its text tone (StatusBarOverArt).
+    val statusBarTone = remember { StatusBarTone() }
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as? Activity)?.window ?: return@SideEffect
@@ -219,11 +221,12 @@ fun RommioTheme(
             }
             window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(value.colors.ground.toArgb()))
             val controller = WindowCompat.getInsetsController(window, view)
-            controller.isAppearanceLightStatusBars = !dark
+            controller.isAppearanceLightStatusBars = !(statusBarTone.lightText ?: dark)
             controller.isAppearanceLightNavigationBars = !dark
         }
+        ApplyStatusBarTone(view, statusBarTone, dark)
     }
-    CompositionLocalProvider(LocalRommioTheme provides value) {
+    CompositionLocalProvider(LocalRommioTheme provides value, LocalStatusBarTone provides statusBarTone) {
         MaterialTheme(
             colorScheme = value.materialColorScheme,
             typography = value.materialTypography,
@@ -231,6 +234,19 @@ fun RommioTheme(
         ) {
             CompositionLocalProvider(LocalContentColor provides value.colors.ink, content = content)
         }
+    }
+}
+
+/**
+ * The status bar's text: the tone a page asks for over its art, else the scheme's. Only this
+ * recomposes when a page asks or stands down.
+ */
+@Composable
+private fun ApplyStatusBarTone(view: android.view.View, tone: StatusBarTone, dark: Boolean) {
+    val lightText = tone.lightText ?: dark
+    SideEffect {
+        val window = (view.context as? Activity)?.window ?: return@SideEffect
+        WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !lightText
     }
 }
 

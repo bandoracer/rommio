@@ -28,6 +28,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -41,8 +43,6 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.graphicsLayer
@@ -151,7 +151,8 @@ fun GameCover(
             .alpha(if (dimmed) 0.62f else 1f)
             .clearAndSetSemantics {},
     ) {
-        CoverPlaceholder(title)
+        var failed by remember(imageUrl) { mutableStateOf(false) }
+        LoadingTile(title, show = imageUrl.isNullOrBlank() || failed)
         if (!imageUrl.isNullOrBlank()) {
             val context = LocalContext.current
             AsyncImage(
@@ -162,10 +163,21 @@ fun GameCover(
                 // A shown cover gets its palette worked out in the background, so its Game page
                 // (or any page it lights) opens lit on the first frame.
                 onSuccess = { CoverArt.warmPalette(context, imageUrl) },
+                onError = { failed = true },
             )
         }
         Box(Modifier.fillMaxSize().border(0.5.dp, c.ink.copy(alpha = if (theme.isDark) 0.14f else 0.1f), shape))
     }
+}
+
+/**
+ * Aurora's stand-in under a cover: the bright [CoverPlaceholder] when there is no art or it can't
+ * be loaded ([show]); while the art loads, a quiet `surface` tile holds its place (a bright
+ * placeholder flashing over every cover as a page loads read as the page jumping).
+ */
+@Composable
+private fun LoadingTile(title: String, show: Boolean) {
+    if (show) CoverPlaceholder(title) else Box(Modifier.fillMaxSize().background(RommioTheme.colors.surface))
 }
 
 /** The inks a Riso cover prints with, in pixels for the current density, for a cover [longestSide] long. */
@@ -292,8 +304,8 @@ fun CoverThumb(
 }
 
 /**
- * A cover presented as a lit object (Aurora `GlowingCover`, studio `.a-gs`): its own art blurred
- * r26 at saturation 1.8 glows beneath it (55 % / 80 %, 86 % × 92 % at +14 % down), a top-left
+ * A cover presented as a lit object (Aurora `GlowingCover`, studio `.a-gs`): its baked blurred
+ * cover (the §1.3 backdrop) glows beneath it (60 % / 85 %, 86 % × 92 % at +14 % down), a top-left
  * sheen, and a reflection below at 14 %. Riso prints the cover flat.
  */
 @Composable
@@ -317,20 +329,23 @@ fun GlowingCover(
         contentAlignment = Alignment.TopCenter,
     ) {
         if (theme.isGlass) {
-            val saturate = remember { ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(1.8f) }) }
-            // The glow needs a real blur (API 31+); below that the cover keeps its shadow only.
-            if (!imageUrl.isNullOrBlank() && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                AsyncImage(
-                    model = imageUrl,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    colorFilter = saturate,
-                    modifier = Modifier
-                        .requiredSize(width * 0.86f, height * 0.92f)
-                        .offset(y = height * 0.14f)
-                        .graphicsLayer { alpha = if (theme.isDark) 0.8f else 0.55f }
-                        .blur(26.dp, androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded),
-                )
+            // The glow: the cover baked into light (the page field's blurred cover, §1.3) spilling
+            // below it. A live blur is redrawn on every frame the cover moves (a scroll); the bake is
+            // worked out once, on every API level (as iOS since 2026-09-27).
+            if (!imageUrl.isNullOrBlank()) {
+                val context = LocalContext.current
+                val glow by produceState(initialValue = CoverArt.cachedBackdrop(imageUrl, theme.isDark), imageUrl, theme.isDark) {
+                    if (value == null) value = CoverArt.backdrop(context.applicationContext, imageUrl, theme.isDark)
+                }
+                glow?.let {
+                    Image(
+                        bitmap = it,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        alpha = if (theme.isDark) 0.85f else 0.6f,
+                        modifier = Modifier.requiredSize(width * 0.86f, height * 0.92f).offset(y = height * 0.14f),
+                    )
+                }
             }
             if (reflection) {
                 GameCover(
@@ -561,9 +576,16 @@ fun CollectionTile(
             .semantics(mergeDescendants = true) {},
         contentAlignment = Alignment.BottomStart,
     ) {
-        CoverPlaceholder(name)
+        var failed by remember(imageUrl) { mutableStateOf(false) }
+        LoadingTile(name, show = imageUrl.isNullOrBlank() || failed)
         if (!imageUrl.isNullOrBlank()) {
-            AsyncImage(model = imageUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+                onError = { failed = true },
+            )
         }
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.5f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.7f))))
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {

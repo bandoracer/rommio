@@ -1,19 +1,24 @@
 package io.github.bandoracer.rommio.ui.screen.library
 
+import android.content.SharedPreferences
 import androidx.compose.runtime.Immutable
-import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.bandoracer.rommio.data.playdata.LocalPlayState
+import io.github.bandoracer.rommio.data.playdata.SavedProgressRepository
 import io.github.bandoracer.rommio.data.repository.RommRepository
 import io.github.bandoracer.rommio.domain.player.EmbeddedSupportTier
+import io.github.bandoracer.rommio.domain.playdata.SaveEntry
+import io.github.bandoracer.rommio.domain.stats.PlayStats
 import io.github.bandoracer.rommio.model.CollectionKind
 import io.github.bandoracer.rommio.model.ConnectivityState
 import io.github.bandoracer.rommio.model.InstalledPlatformSummary
 import io.github.bandoracer.rommio.model.PlatformDto
 import io.github.bandoracer.rommio.model.RomDto
 import io.github.bandoracer.rommio.model.RommCollectionDto
+import io.github.bandoracer.rommio.ui.component.Fmt
 import io.github.bandoracer.rommio.ui.component.PlayFormat
-import io.github.bandoracer.rommio.ui.component.supportTierLabel
+import io.github.bandoracer.rommio.ui.screen.play.inPlay
 import io.github.bandoracer.rommio.util.resolveRemoteAssetUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,6 +27,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -43,13 +49,13 @@ data class LibraryUiState(
     val collections: List<RommCollectionDto> = emptyList(),
     val collectionPreviewCoverUrls: Map<String, List<String>> = emptyMap(),
     val errorMessage: String? = null,
-    /** The cached library, for browsing covers (Aurora). */
+    /** The cached library, for the wall of covers (Aurora). */
     val roms: List<RomDto> = emptyList(),
-    /** Games in progress, most recent first (their covers lead the browse row). */
+    /** Games in play, most recent first (their covers carry a lit ring; the first lights the page). */
     val inProgress: List<RomDto> = emptyList(),
-    /** Games with a copy on this device (for "N here"). */
+    /** Games with a copy on this device (a check on their covers, "N here"). */
     val installedRomIds: Set<Int> = emptySet(),
-    /** The cached library grouped into eras by release year (Aurora's era ruler). */
+    /** The cached library grouped into eras by release year (the wall's Year lens). */
     val eras: List<EraGroup> = emptyList(),
     /** A refresh failed while cached content is shown. */
     val staleMessage: String? = null,
@@ -78,13 +84,8 @@ data class LibraryUiState(
             ?: collectionPreviewCoverUrls["${collection.kind}:${collection.id}"]?.firstOrNull()
 }
 
-/** What the Aurora browse row draws from: an era, a platform or a tier (or everything). */
-data class LibraryBrowse(
-    val platformId: Int? = null,
-    val tier: EmbeddedSupportTier? = null,
-    /** "auto" = open on the era of the game in progress; "" = all years; else an era id. */
-    val eraChoice: String = "auto",
-)
+/** How the Aurora wall is ordered and how dense it is (kept on this device). */
+data class LibraryWallChoice(val lens: LibraryLens = LibraryLens.CONSOLE, val columns: Int = 3)
 
 // ---- The page (built once per data or choice change, off the main thread) ------------------------
 
@@ -100,9 +101,6 @@ data class LibraryPlatformItem(
     val subtitle: String,
     /** Sidebar: "12 games · 3 here". */
     val shortSubtitle: String,
-    /** Facet: the count and "N here" / "none here". */
-    val countText: String,
-    val hereText: String,
     val description: String,
 )
 
@@ -118,21 +116,41 @@ data class LibraryCollectionItem(
     val line: String,
 )
 
-/** An era on the ruler. */
+/** A cover on the Aurora wall. */
 @Immutable
-data class LibraryEraItem(
-    val id: String,
-    val name: String,
-    val short: String,
-    val count: Int,
-    val countText: String,
-    /** Up to three covers (games in progress first): the bar's lights. */
-    val leadCovers: List<String?>,
+data class LibraryWallCover(
+    val id: Int,
+    /** The title within its group (a series drops its own name). */
+    val title: String,
+    val coverUrl: String?,
+    val inProgress: Boolean,
+    val installed: Boolean,
+    val browseOnly: Boolean,
+    /** The quick look's line: "Super Nintendo · 1994". */
+    val caption: String,
+    /** Its full name and states, for accessibility. */
+    val description: String,
 )
 
-/** A cover in the browse row. */
+/** A group of the Aurora wall: the tile that names it, then its covers. */
 @Immutable
-data class BrowseGame(val id: Int, val title: String, val coverUrl: String?, val caption: String)
+data class LibraryWallGroup(
+    val id: String,
+    val title: String,
+    /** The index rail's label. */
+    val index: String,
+    val subtitle: String?,
+    /** "11 games" (a console's count is the server's). */
+    val countText: String,
+    val installed: Int,
+    /** A console's group opens its page. */
+    val platform: PlatformDto?,
+    /** "11 games · 3 on this device". */
+    val detail: String,
+    /** The group's first cover, blurred into its tile. */
+    val tileArtUrl: String?,
+    val covers: List<LibraryWallCover>,
+)
 
 /** The Library page. */
 @Immutable
@@ -146,24 +164,18 @@ data class LibraryPage(
     val sections: List<LibrarySection> = emptyList(),
     val collections: List<LibraryCollectionItem> = emptyList(),
     val collectionSections: List<Pair<String, List<LibraryCollectionItem>>> = emptyList(),
-    // Aurora's browse.
-    val eras: List<LibraryEraItem> = emptyList(),
-    val eraTotal: Int = 1,
-    val showsRuler: Boolean = false,
-    val selectedEra: String? = null,
-    val tier: EmbeddedSupportTier? = null,
-    val platformFilter: LibraryPlatformItem? = null,
-    val browseTitle: String = "All platforms",
-    val browseTitleIsEra: Boolean = false,
-    val browseDetail: String? = null,
-    val browse: List<BrowseGame> = emptyList(),
-    val browseEmpty: String = "",
-    val facets: List<LibraryPlatformItem> = emptyList(),
+    // Aurora's wall.
+    val lens: LibraryLens = LibraryLens.CONSOLE,
+    val columns: Int = 3,
+    val wall: List<LibraryWallGroup> = emptyList(),
+    /** The page's light: the game you're playing, else the library's first cover. */
+    val lightUrl: String? = null,
 ) {
     val hasPlatforms: Boolean get() = platforms.isNotEmpty()
+    val isEmpty: Boolean get() = platforms.isEmpty() && collections.isEmpty()
 
     companion object {
-        fun build(state: LibraryUiState, browse: LibraryBrowse, baseUrl: String?): LibraryPage {
+        fun build(state: LibraryUiState, choice: LibraryWallChoice, baseUrl: String?): LibraryPage {
             val numbers = state.platforms.map { it.platform.id }
             val items = state.platforms.associate { entry ->
                 val installed = state.installed(entry)
@@ -174,8 +186,6 @@ data class LibraryPage(
                     number = numbers.indexOf(entry.platform.id) + 1,
                     subtitle = "${PlayFormat.games(entry.platform.romCount)} · $installed on this device",
                     shortSubtitle = "${PlayFormat.games(entry.platform.romCount)} · $installed here",
-                    countText = java.text.NumberFormat.getIntegerInstance().format(entry.platform.romCount),
-                    hereText = if (installed == 0) "none here" else "$installed here",
                     description = "${entry.platform.name}, ${PlayFormat.games(entry.platform.romCount)}, $installed on this device",
                 )
             }
@@ -188,40 +198,47 @@ data class LibraryPage(
                 countText = PlayFormat.games(item.romCount),
                 line = item.description.ifBlank { collectionKind(item) },
             )
-            val collections = state.collections.map(::collection)
-            // Aurora's browse: the era, platform or tier the row draws from.
-            val platformFilter = state.platforms.firstOrNull { it.platform.id == browse.platformId }
-            val tier = browse.tier
-            val showsRuler = LibraryEras.showsRuler(state.eras)
-            val eraId = when {
-                !showsRuler -> null
-                browse.eraChoice == "auto" -> LibraryEras.defaultEra(state.eras, state.inProgress)
-                browse.eraChoice.isEmpty() -> null
-                else -> browse.eraChoice.takeIf { id -> state.eras.any { it.era.id == id } }
-            }
-            val era = state.eras.firstOrNull { it.era.id == eraId }
-            val pool = browsePool(state, platformFilter, tier, era)
-            val inProgressIds = state.inProgress.map { it.id }.toSet()
-            val eras = state.eras.map { group ->
-                val lead = (group.games.filter { it.id in inProgressIds } + group.games).distinctBy { it.id }.take(3)
-                LibraryEraItem(
-                    id = group.era.id,
-                    name = group.era.name,
-                    short = group.short,
-                    count = group.games.size,
-                    countText = java.text.NumberFormat.getIntegerInstance().format(group.games.size),
-                    leadCovers = lead.map { resolveRemoteAssetUrl(baseUrl, it.urlCover) },
+            fun cover(rom: RomDto) = resolveRemoteAssetUrl(baseUrl, rom.urlCover)
+            val inProgress = state.inProgress.map { it.id }.toSet()
+            val browseOnly = state.platforms.filter { it.tier == EmbeddedSupportTier.UNSUPPORTED }.map { it.platform.slug }.toSet()
+            val wall = LibraryWall.sections(state.roms, state.platforms.map { it.platform }, state.installedRomIds, state.eras, choice.lens).map { section ->
+                LibraryWallGroup(
+                    id = section.id,
+                    title = section.title,
+                    index = section.index,
+                    subtitle = section.subtitle,
+                    countText = PlayFormat.games(section.platform?.romCount ?: section.games.size),
+                    installed = section.installed,
+                    platform = section.platform,
+                    detail = section.detail,
+                    tileArtUrl = section.games.firstOrNull()?.let(::cover),
+                    covers = section.games.map { rom ->
+                        val playing = rom.id in inProgress
+                        val here = rom.id in state.installedRomIds
+                        val browse = rom.platformSlug in browseOnly
+                        val caption = Fmt.join(rom.platformName.takeIf { it.isNotBlank() }, rom.metadata.releaseYear?.toString())
+                        LibraryWallCover(
+                            id = rom.id,
+                            title = section.titleOf(rom),
+                            coverUrl = cover(rom),
+                            inProgress = playing,
+                            installed = here,
+                            browseOnly = browse,
+                            caption = caption,
+                            description = listOfNotNull(
+                                rom.displayName,
+                                caption.takeIf { it.isNotEmpty() },
+                                "In progress".takeIf { playing },
+                                "On this device".takeIf { here },
+                                "Browse only".takeIf { browse },
+                            ).joinToString(", "),
+                        )
+                    },
                 )
             }
-            val browseDetail = when {
-                era != null -> listOfNotNull(
-                    platformFilter?.platform?.slug?.uppercase() ?: tier?.let(::supportTierLabel),
-                    PlayFormat.games(pool.size),
-                    "${pool.count { it.id in state.installedRomIds }} here",
-                ).joinToString(" · ")
-                platformFilter != null -> "${PlayFormat.games(platformFilter.platform.romCount)} · ${state.installed(platformFilter)} here"
-                else -> null
-            }
+            val byId = state.roms.associateBy { it.id }
+            val lightUrl = state.inProgress.firstNotNullOfOrNull { byId[it.id]?.let(::cover) }
+                ?: state.roms.minByOrNull { it.id }?.let(::cover)
             return LibraryPage(
                 isLoading = state.isLoading,
                 isRefreshing = state.isRefreshing,
@@ -230,52 +247,13 @@ data class LibraryPage(
                 summary = state.summary,
                 platforms = state.platforms.map { items.getValue(it.platform.id) },
                 sections = sections,
-                collections = collections,
+                collections = state.collections.map(::collection),
                 collectionSections = collectionSections(state.collections).map { (title, list) -> title to list.map(::collection) },
-                eras = eras,
-                eraTotal = state.eras.sumOf { it.games.size }.coerceAtLeast(1),
-                showsRuler = showsRuler,
-                selectedEra = eraId,
-                tier = tier,
-                platformFilter = platformFilter?.let { items.getValue(it.platform.id) },
-                browseTitle = era?.era?.name ?: platformFilter?.platform?.name ?: tier?.let(::tierTitle) ?: "All platforms",
-                browseTitleIsEra = era != null,
-                browseDetail = browseDetail,
-                browse = pool.take(18).map { rom ->
-                    BrowseGame(
-                        id = rom.id,
-                        title = rom.displayName,
-                        coverUrl = resolveRemoteAssetUrl(baseUrl, rom.urlCover),
-                        caption = buildList {
-                            add(rom.platformSlug.uppercase())
-                            rom.metadata.releaseYear?.let { add(it.toString()) }
-                            if (rom.id in inProgressIds) add("In progress")
-                        }.joinToString(" · "),
-                    )
-                },
-                browseEmpty = if (era != null && state.roms.isNotEmpty()) "No games here from ${era.short}." else "Covers appear here as your library loads.",
-                facets = state.platforms.filter { tier == null || it.tier == tier }.map { items.getValue(it.platform.id) },
+                lens = choice.lens,
+                columns = choice.columns,
+                wall = wall,
+                lightUrl = lightUrl,
             )
-        }
-
-        /**
-         * The browse pool: filter (era, platform or tier), games in progress first, then the era's games
-         * by release year (the era group's order) or, with all years, A–Z. The row shows the first 18.
-         */
-        internal fun browsePool(state: LibraryUiState, platform: LibraryPlatform?, tier: EmbeddedSupportTier?, era: EraGroup?): List<RomDto> {
-            val tierSlugs = tier?.let { t -> state.platforms.filter { it.tier == t }.flatMap { listOf(it.platform.slug, it.platform.fsSlug) }.toSet() }
-            val source = era?.games ?: state.roms.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.displayName })
-            val pool = source.filter { rom ->
-                when {
-                    platform != null -> rom.platformId == platform.platform.id || rom.platformSlug == platform.platform.slug
-                    tierSlugs != null -> rom.platformSlug in tierSlugs
-                    else -> true
-                }
-            }
-            val poolIds = pool.map { it.id }.toSet()
-            val progress = state.inProgress.filter { it.id in poolIds }
-            val progressIds = progress.map { it.id }.toSet()
-            return progress + pool.filter { it.id !in progressIds }
         }
 
         private fun collectionKind(collection: RommCollectionDto): String = when (collection.kind) {
@@ -289,32 +267,35 @@ data class LibraryPage(
 class LibraryViewModel(
     private val repository: RommRepository,
     private val playActivity: io.github.bandoracer.rommio.data.stats.PlayActivityRepository? = null,
-    private val saved: SavedStateHandle = SavedStateHandle(),
+    private val savedProgress: SavedProgressRepository? = null,
+    private val localPlay: LocalPlayState? = null,
+    /** Where the wall's lens and density are kept on this device (none: not kept). */
+    private val preferences: SharedPreferences? = null,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(LibraryUiState())
     val uiState: StateFlow<LibraryUiState> = _uiState.asStateFlow()
 
-    private val browse = MutableStateFlow(
-        LibraryBrowse(
-            platformId = saved.get<Int>(PLATFORM),
-            tier = saved.get<String>(TIER)?.let { key -> EmbeddedSupportTier.entries.firstOrNull { it.name == key } },
-            eraChoice = saved.get<String>(ERA) ?: "auto",
+    private val choice = MutableStateFlow(
+        LibraryWallChoice(
+            lens = LibraryLens.of(preferences?.getString(LENS, null)),
+            columns = preferences?.getInt(COLUMNS, 3)?.takeIf { it == 3 || it == 4 } ?: 3,
         ),
     )
 
     /** The page; published only when it changes. */
     val page: StateFlow<LibraryPage> = combine(
         _uiState,
-        browse,
+        choice,
         repository.activeProfileFlow().map { it?.baseUrl }.distinctUntilChanged(),
-    ) { state, browse, baseUrl -> LibraryPage.build(state, browse, baseUrl) }
+    ) { state, choice, baseUrl -> LibraryPage.build(state, choice, baseUrl) }
         .distinctUntilChanged()
         .flowOn(Dispatchers.Default)
-        .stateIn(viewModelScope, SharingStarted.Eagerly, LibraryPage())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, LibraryPage(lens = choice.value.lens, columns = choice.value.columns))
 
     init {
+        localPlay?.let { viewModelScope.launch { it.ensureRead() } }
         viewModelScope.launch {
-            combine(
+            val platformsFlow = combine(
                 repository.observeCachedPlatforms(),
                 repository.observeInstalledPlatformSummaries(),
                 repository.observeRecentInstalledRoms(limit = 12),
@@ -331,27 +312,39 @@ class LibraryViewModel(
                     }
                     .sortedWith(compareBy<LibraryPlatform> { it.tier.ordinalForLibrary() }.thenBy { it.platform.name.lowercase() })
                 Triple(entries, recentInstalled, storage.installedGameCount)
-            }.distinctUntilChanged().collect { (entries, recentInstalled, installedCount) ->
-                _uiState.update {
-                    it.copy(
-                        platforms = entries,
-                        recentInstalled = recentInstalled,
-                        installedGameCount = installedCount,
-                        isLoading = if (entries.isNotEmpty() || recentInstalled.isNotEmpty()) false else it.isLoading,
-                    )
-                }
             }
-        }
-        viewModelScope.launch {
-            val stats = playActivity?.stats ?: kotlinx.coroutines.flow.flowOf(io.github.bandoracer.rommio.domain.stats.PlayStats())
-            combine(repository.observeCachedRoms(), repository.observeCachedHome(), stats, repository.observeInstalledLibrary()) { roms, home, played, installed ->
+            val stats = playActivity?.stats ?: flowOf(PlayStats())
+            val latest = savedProgress?.latest ?: flowOf(emptyMap<Long, SaveEntry>())
+            val ready = localPlay?.ready ?: flowOf(true)
+            val local = combine(stats, latest, ready) { played, saves, isReady -> Triple(played, saves, isReady) }
+            val gamesFlow = combine(repository.observeCachedRoms(), repository.observeCachedHome(), local, repository.observeInstalledLibrary()) { roms, home, local, installed ->
+                val (played, saves, isReady) = local
                 val byId = roms.associateBy { it.id }
-                val local = played.games.sortedByDescending { it.lastPlayedAtEpochMs }.mapNotNull { byId[it.romId.toInt()] }
-                val seen = local.map { it.id }.toMutableSet()
-                LibraryGames(roms, local + home.continuePlaying.filter { seen.add(it.id) }, installed.map { it.romId }.toSet(), LibraryEras.group(roms))
-            }.flowOn(Dispatchers.Default).distinctUntilChanged().collect { games ->
-                _uiState.update { it.copy(roms = games.roms, inProgress = games.inProgress, installedRomIds = games.installed, eras = games.eras) }
+                // The same games in play as Play's Home (this device's saves and sessions, then RomM's).
+                val inProgress = inPlay(home.continuePlaying, saves, played.games, byId::get)
+                LibraryGames(roms, inProgress, installed.map { it.romId }.toSet(), LibraryEras.group(roms), isReady)
             }
+            // The platforms and the wall of covers arrive together, once this device's play and
+            // saves are in: the page draws whole instead of the wall dropping in after it.
+            combine(platformsFlow, gamesFlow) { platforms, games -> platforms to games }
+                .flowOn(Dispatchers.Default)
+                .distinctUntilChanged()
+                .collect { (platforms, games) ->
+                    if (!games.ready) return@collect
+                    val (entries, recentInstalled, installedCount) = platforms
+                    _uiState.update {
+                        it.copy(
+                            platforms = entries,
+                            recentInstalled = recentInstalled,
+                            installedGameCount = installedCount,
+                            roms = games.roms,
+                            inProgress = games.inProgress,
+                            installedRomIds = games.installed,
+                            eras = games.eras,
+                            isLoading = if (entries.isNotEmpty() || recentInstalled.isNotEmpty()) false else it.isLoading,
+                        )
+                    }
+                }
         }
         viewModelScope.launch {
             repository.observeCachedCollections().collect { collections ->
@@ -365,27 +358,17 @@ class LibraryViewModel(
         refresh()
     }
 
-    /** Aurora: tapping a platform facet filters the row to it (again: all platforms). */
-    fun togglePlatform(id: Int) = updateBrowse { it.copy(platformId = if (it.platformId == id) null else id) }
-
-    /** Aurora: a tier pill (again, or "All": every tier); a platform outside the tier is dropped. */
-    fun selectTier(next: EmbeddedSupportTier?) = updateBrowse { current ->
-        val platform = _uiState.value.platforms.firstOrNull { it.platform.id == current.platformId }
-        current.copy(
-            tier = if (current.tier == next) null else next,
-            platformId = if (platform != null && next != null && platform.tier != next) null else current.platformId,
-        )
+    /** Aurora: the wall's order (kept on this device). */
+    fun selectLens(lens: LibraryLens) {
+        choice.update { it.copy(lens = lens) }
+        preferences?.edit()?.putString(LENS, lens.key)?.apply()
     }
 
-    /** Aurora: an era segment (the selected one again: all years). */
-    fun selectEra(id: String, selected: String?) = updateBrowse { it.copy(eraChoice = if (id == selected) "" else id) }
-
-    private fun updateBrowse(transform: (LibraryBrowse) -> LibraryBrowse) {
-        val next = transform(browse.value)
-        browse.value = next
-        saved[PLATFORM] = next.platformId
-        saved[TIER] = next.tier?.name
-        saved[ERA] = next.eraChoice
+    /** Aurora: three or four covers across (kept on this device). */
+    fun toggleColumns() {
+        val next = if (choice.value.columns == 3) 4 else 3
+        choice.update { it.copy(columns = next) }
+        preferences?.edit()?.putInt(COLUMNS, next)?.apply()
     }
 
     fun refresh() {
@@ -423,9 +406,11 @@ class LibraryViewModel(
 
     companion object {
         const val COLLECTION_ROW_LIMIT = 8
-        private const val PLATFORM = "library.platform"
-        private const val TIER = "library.tier"
-        private const val ERA = "library.era"
+
+        /** The wall's choices on this device (`SharedPreferences` file and keys). */
+        const val PREFERENCES = "library-wall"
+        private const val LENS = "aurora.library.lens"
+        private const val COLUMNS = "aurora.library.columns"
     }
 }
 
@@ -435,4 +420,11 @@ private fun EmbeddedSupportTier.ordinalForLibrary(): Int = when (this) {
     EmbeddedSupportTier.UNSUPPORTED -> 2
 }
 
-private data class LibraryGames(val roms: List<RomDto>, val inProgress: List<RomDto>, val installed: Set<Int>, val eras: List<EraGroup>)
+private data class LibraryGames(
+    val roms: List<RomDto>,
+    val inProgress: List<RomDto>,
+    val installed: Set<Int>,
+    val eras: List<EraGroup>,
+    /** This device's play and saves are in (the rings and the light come from them). */
+    val ready: Boolean,
+)

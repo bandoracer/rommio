@@ -80,13 +80,16 @@ class PlayV2Test {
         assertEquals("Save state · Slot 2 · 3 min ago · This phone", page(entry(SaveKind.SAVE_STATE, minutesAgo = 3.5, slot = 2)).captionLine)
     }
 
-    @Test fun theCarouselHoldsSixGamesAndTheRowTheRest() {
-        val games = (1..8).map { id ->
+    @Test fun thePageLoadsUntilThisDevicesPlayAndSavesAreIn() {
+        val games = (1..3).map { id ->
             InProgressGame(RomDto(id = id, name = "Game $id", platformName = "NES", platformSlug = "nes"), now - id * 60_000L, 60_000L, null, EmbeddedSupportTier.TOUCH_SUPPORTED)
         }
-        val built = PlayPage.build(PlayUiState(isLoading = false, continuePlaying = games), null, now, zone)
-        assertEquals((1..6).toList(), built.carousel.map { it.id })
-        assertEquals(listOf(7, 8), built.more.map { it.id })
+        val waiting = PlayPage.build(PlayUiState(isLoading = false), null, now, zone)
+        assertTrue("No empty state before the local reads", waiting.isLoading && !waiting.showsEmpty)
+        val ready = PlayPage.build(PlayUiState(isLoading = false, localReady = true, continuePlaying = games), null, now, zone)
+        assertEquals(listOf(1, 2, 3), ready.games.map { it.id })
+        assertEquals("1 min ago", ready.games.first().lastActive)
+        assertTrue(PlayPage.build(PlayUiState(isLoading = false, localReady = true), null, now, zone).showsEmpty)
     }
 
     // ---- Mosaic v2 ----

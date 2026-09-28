@@ -69,7 +69,7 @@ fun PlayScreen(
 ) {
     val viewModel: PlayViewModel = viewModel(
         factory = viewModelFactory {
-            initializer { PlayViewModel(container.repository, container.playActivity, container.savedProgress, container.playDataChanges) }
+            initializer { PlayViewModel(container.repository, container.playActivity, container.savedProgress, container.localPlay, container.playDataChanges) }
         },
     )
     val page by viewModel.page.collectAsStateWithLifecycle()

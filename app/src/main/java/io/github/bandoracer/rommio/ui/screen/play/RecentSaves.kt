@@ -75,14 +75,22 @@ import java.io.File
  * — a 150 dp margin with the day, date, count and a vertical light strip, then rows of four tiles
  * (≥ 180 wide; fewer on a narrower canvas), a short last row stretching its tiles.
  */
-internal fun LazyListScope.auroraRecentSaves(page: PlayPage, actions: PlayActions, regular: Boolean, gutter: Dp, section: Dp) {
+internal fun LazyListScope.auroraRecentSaves(
+    page: PlayPage,
+    actions: PlayActions,
+    regular: Boolean,
+    gutter: Dp,
+    section: Dp,
+    /** Applied to each item first (the Home's rows follow a pull past the top). */
+    itemModifier: Modifier = Modifier,
+) {
     if (page.saveDays.isEmpty()) return
     item(key = "savesHeader", contentType = "sectionHeader") {
-        SectionHeader(title = "Recent saves", meta = page.saveCount.toString(), modifier = Modifier.padding(top = section).padding(horizontal = gutter))
+        SectionHeader(title = "Recent saves", meta = page.saveCount.toString(), modifier = itemModifier.padding(top = section).padding(horizontal = gutter))
     }
     itemsIndexed(page.saveDays, key = { _, day -> "saveDay/${day.key}" }, contentType = { _, _ -> if (regular) "saveDayRow" else "saveDay" }) { index, day ->
         val top = if (index == 0) 14.dp else if (regular) 24.dp else 26.dp
-        val modifier = Modifier.padding(top = top).padding(horizontal = gutter)
+        val modifier = itemModifier.padding(top = top).padding(horizontal = gutter)
         if (regular) AuroraSaveDayRow(day, actions, modifier) else AuroraSaveDay(day, actions, modifier)
     }
 }

@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.bandoracer.rommio.data.repository.RommRepository
+import io.github.bandoracer.rommio.data.playdata.LocalPlayState
 import io.github.bandoracer.rommio.data.playdata.SavedProgressRepository
 import io.github.bandoracer.rommio.data.stats.PlayActivityRepository
 import io.github.bandoracer.rommio.domain.playdata.SaveEntry
@@ -11,6 +12,7 @@ import io.github.bandoracer.rommio.domain.playdata.SaveKind
 import io.github.bandoracer.rommio.domain.playdata.SaveSyncStatus
 import io.github.bandoracer.rommio.domain.playdata.SavedProgressRules
 import io.github.bandoracer.rommio.domain.player.EmbeddedSupportTier
+import io.github.bandoracer.rommio.domain.stats.GamePlayTotal
 import io.github.bandoracer.rommio.domain.stats.PlayStats
 import io.github.bandoracer.rommio.model.ConnectivityState
 import io.github.bandoracer.rommio.model.DownloadRecord
@@ -35,11 +37,13 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.ZoneId
 
 /** A game you have been playing, with what we know about it on this device. */
@@ -51,6 +55,9 @@ data class InProgressGame(
     val supportTier: EmbeddedSupportTier,
     val sessionCount: Int = 0,
 )
+
+/** A pick on Aurora's Home with the game as the actions start it. */
+data class PlayPickGame(val pick: PlayPick, val game: InProgressGame)
 
 /** The collection pinned on Play (Riso): the first one the user made, its known games played-first. */
 data class PinnedCollection(
@@ -95,6 +102,13 @@ data class PlayUiState(
     val staleMessage: String? = null,
     /** Each game's latest place to continue from (resume point, else a save state), by ROM id. */
     val latest: Map<Long, SaveEntry> = emptyMap(),
+    /** Aurora's suggestions under the games in play (keep going, something new, quick hit). */
+    val picks: List<PlayPickGame> = emptyList(),
+    /**
+     * This device's stats and saves have been read ([io.github.bandoracer.rommio.data.playdata.LocalPlayState]):
+     * until then the games in play and the saves wait, so the first game shown is the one that stays.
+     */
+    val localReady: Boolean = false,
 ) {
     val hasContent: Boolean get() = continuePlaying.isNotEmpty() || recentlyAdded.isNotEmpty() || recentSaves.isNotEmpty()
 }
@@ -138,6 +152,26 @@ data class PlayGame(
     val previewPath: String? = null,
     /** The latest's sync state, for the screen's chip (none when unknown). */
     val screenSync: SaveSyncStatus? = null,
+    /** A gameplay screenshot from RomM's metadata: Aurora's Home hero when the game has no cover. */
+    val screenshotUrl: String? = null,
+    /** When it was last played or saved here ("12 h ago"), under its cover in the In play row. */
+    val lastActive: String? = null,
+)
+
+/** A pick on Aurora's Home: the game, why, and what its button does. */
+@Immutable
+data class PlayPickItem(
+    val kind: PlayPick.Kind,
+    /** For the actions (Resume and Play start it; Get it opens its page). */
+    val game: InProgressGame,
+    val id: Int,
+    val title: String,
+    val coverUrl: String?,
+    val reason: String,
+    /** "Resume", "Play" or "Get it". */
+    val actionTitle: String,
+    /** Resume and Play start the game; Get it opens its page. */
+    val starts: Boolean,
 )
 
 /** A save in Recent saves. */
@@ -216,18 +250,14 @@ data class PlayPage(
     val saveDays: List<PlaySaveDay> = emptyList(),
     val saveCount: Int = 0,
     val pinned: PinnedContent? = null,
+    /** Aurora's picks, with their reasons. */
+    val picks: List<PlayPickItem> = emptyList(),
 ) {
     val lead: PlayGame? get() = games.firstOrNull()
-    /** Aurora's carousel: the first games in progress; [more] go in the row under "In progress". */
-    val carousel: List<PlayGame> get() = games.take(CAROUSEL_LIMIT)
-    val more: List<PlayGame> get() = games.drop(CAROUSEL_LIMIT)
     val briefs: List<PlayGame> get() = games.drop(1).take(4)
     val showsEmpty: Boolean get() = games.isEmpty() && saveCount == 0 && !isLoading && errorMessage == null
 
     companion object {
-        /** Games in Aurora's carousel (docs/theme-layouts.md "Play", Aurora v2). */
-        const val CAROUSEL_LIMIT = 6
-
         fun build(state: PlayUiState, baseUrl: String?, now: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): PlayPage {
             fun cover(rom: RomDto) = resolveRemoteAssetUrl(baseUrl, rom.urlCover)
             fun relative(ms: Long) = PlayFormat.relative(ms, now, zone)
@@ -257,6 +287,24 @@ data class PlayPage(
                     captionLine = latest?.let { resumeLine(it, now, zone) } ?: playedLine,
                     previewPath = latest?.thumbnailPath,
                     screenSync = latest?.sync?.takeIf { it != SaveSyncStatus.UNKNOWN },
+                    screenshotUrl = game.rom.metadata.screenshots.firstOrNull()?.let { resolveRemoteAssetUrl(baseUrl, it) },
+                    lastActive = (game.lastPlayedAtEpochMs ?: latest?.capturedAtEpochMs)?.let(::relative),
+                )
+            }
+            val picks = state.picks.map { (pick, game) ->
+                PlayPickItem(
+                    kind = pick.kind,
+                    game = game,
+                    id = pick.rom.id,
+                    title = pick.rom.displayName,
+                    coverUrl = cover(pick.rom),
+                    reason = pick.reason,
+                    actionTitle = when {
+                        pick.kind == PlayPick.Kind.KEEP_GOING -> "Resume"
+                        pick.installed -> "Play"
+                        else -> "Get it"
+                    },
+                    starts = pick.installed || pick.kind == PlayPick.Kind.KEEP_GOING,
                 )
             }
             val offline = state.offlineState.isOffline
@@ -306,7 +354,8 @@ data class PlayPage(
                 )
             }
             return PlayPage(
-                isLoading = state.isLoading,
+                // Loading until this device's stats and saves are in (the games wait for them).
+                isLoading = state.isLoading || !state.localReady,
                 hasContent = state.hasContent,
                 errorMessage = state.errorMessage,
                 staleMessage = state.staleMessage,
@@ -323,6 +372,7 @@ data class PlayPage(
                 saveDays = days,
                 saveCount = state.recentSaves.size,
                 pinned = pinned,
+                picks = picks,
             )
         }
 
@@ -393,6 +443,7 @@ class PlayViewModel(
     private val repository: RommRepository,
     private val playActivity: PlayActivityRepository,
     private val savedProgress: SavedProgressRepository,
+    private val localPlay: LocalPlayState,
     playDataChanges: Flow<Long> = emptyFlow(),
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(PlayUiState())
@@ -409,35 +460,68 @@ class PlayViewModel(
 
     init {
         viewModelScope.launch {
+            // This device's play and saves, and whether both have been read, as one input.
+            val local = combine(playActivity.stats, savedProgress.recent, savedProgress.latest, localPlay.ready) { stats, saves, latest, ready ->
+                LocalParts(stats, saves, latest, ready)
+            }
             combine(
                 repository.observeCachedHome(),
                 repository.observeCachedRoms(),
                 repository.observeInstalledLibrary(),
-                playActivity.stats,
-                savedProgress.recent,
-            ) { home, cached, installed, stats, saves ->
+                local,
+                repository.observeCachedCollections(),
+            ) { home, cached, installed, local, collections ->
                 val index = GameIndex(cached, installed)
-                val continuePlaying = buildContinuePlaying(stats, home.continuePlaying, index, repository::embeddedSupportTier)
-                val recentSaves = saves.mapNotNull { entry ->
+                val tiers = HashMap<String, EmbeddedSupportTier>()
+                // Per platform and file type, once per build (the picks ask for every game in the library).
+                val tier: (RomDto) -> EmbeddedSupportTier = { rom ->
+                    tiers.getOrPut("${rom.platformSlug}|${rom.files.firstOrNull()?.effectiveFileExtension}") { repository.embeddedSupportTier(rom) }
+                }
+                fun game(rom: RomDto): InProgressGame {
+                    val played = local.stats.games.firstOrNull { it.romId.toInt() == rom.id }
+                    return InProgressGame(rom, played?.lastPlayedAtEpochMs, played?.playedMs ?: 0L, index.installedFileId(rom.id), tier(rom), played?.sessionCount ?: 0)
+                }
+                // The games wait for this device's stats and saves (read first), so the first one
+                // shown is the one that stays.
+                val inPlay = if (local.ready) inPlay(home.continuePlaying, local.latest, local.stats.games, index::get) else emptyList()
+                val picks = if (!local.ready) emptyList() else PlayPicks.build(
+                    library = cached,
+                    playtimes = local.stats.games,
+                    continuing = inPlay,
+                    installed = index.installedRomIds,
+                    playable = { tier(it) != EmbeddedSupportTier.UNSUPPORTED },
+                ).map { PlayPickGame(it, game(it.rom)) }
+                val recentSaves = if (!local.ready) emptyList() else local.saves.mapNotNull { entry ->
                     index[entry.romId.toInt()]?.let { rom ->
-                        val fileId = index.installedFileId(rom.id)?.takeIf { repository.embeddedSupportTier(rom) != EmbeddedSupportTier.UNSUPPORTED }
+                        val fileId = index.installedFileId(rom.id)?.takeIf { tier(rom) != EmbeddedSupportTier.UNSUPPORTED }
                         RecentSaveItem(entry, rom, fileId)
                     }
                 }.take(RECENT_SAVES_LIMIT)
                 // Conflicts come from every current resume head read, not only the shown 12.
-                val conflicted = saves.filter { it.isCurrentResume && it.sync == SaveSyncStatus.CONFLICT }
+                val conflicted = local.saves.filter { it.isCurrentResume && it.sync == SaveSyncStatus.CONFLICT }
                     .groupingBy { it.romId.toInt() }.eachCount().filterValues { it > 1 }
-                PlayContentParts(continuePlaying, recentSaves, home.recentRoms, conflicted, index, stats)
-            }.combine(repository.observeCachedCollections()) { parts, collections ->
-                parts to pinnedCollection(collections, parts.index, parts.stats, repository::embeddedSupportTier)
-            }.flowOn(Dispatchers.Default).collect { (parts, pinned) ->
+                PlayContentParts(
+                    continuePlaying = inPlay.map(::game),
+                    recentSaves = recentSaves,
+                    recentlyAdded = home.recentRoms,
+                    conflicted = conflicted,
+                    latest = local.latest,
+                    picks = picks,
+                    ready = local.ready,
+                    pinned = pinnedCollection(collections, index, local.stats, tier),
+                )
+            }.flowOn(Dispatchers.Default).collect { parts ->
+                // One update: the games, their saves and screens, and the picks change together.
                 _uiState.update {
                     it.copy(
                         continuePlaying = parts.continuePlaying,
                         recentSaves = parts.recentSaves,
                         recentlyAdded = parts.recentlyAdded,
                         conflicts = parts.conflicted,
-                        pinnedCollection = pinned,
+                        pinnedCollection = parts.pinned,
+                        latest = parts.latest,
+                        picks = parts.picks,
+                        localReady = parts.ready,
                         isLoading = if (parts.continuePlaying.isNotEmpty() || parts.recentlyAdded.isNotEmpty()) false else it.isLoading,
                     )
                 }
@@ -468,10 +552,6 @@ class PlayViewModel(
             }
         }
         viewModelScope.launch {
-            // Each game's latest resume point or save state: the screens on Aurora Play.
-            savedProgress.latest.collect { latest -> _uiState.update { it.copy(latest = latest) } }
-        }
-        viewModelScope.launch {
             // Sessions closing and thumbnails landing after a game: re-read once things settle.
             playDataChanges.drop(1).debounce(400).collect { refreshActivity() }
         }
@@ -485,8 +565,11 @@ class PlayViewModel(
     }
 
     fun refresh() {
-        refreshActivity()
         viewModelScope.launch {
+            // What's on this device first (stats and saves, together), before anything waits on
+            // the server: the page draws whole from its first frame instead of filling in.
+            localPlay.ensureRead()
+            withTimeoutOrNull(LOCAL_PUBLISH_TIMEOUT_MS) { _uiState.first { it.localReady } }
             _uiState.update { it.copy(isLoading = !it.hasContent, isRefreshing = true, errorMessage = null) }
             if (repository.currentConnectivityState() != ConnectivityState.ONLINE) {
                 _uiState.update {
@@ -515,18 +598,31 @@ class PlayViewModel(
     }
 
     companion object {
-        const val CONTINUE_LIMIT = 10
+        /** Games in play on Aurora's Home (as iOS `PlayContent.inPlay`). */
+        const val CONTINUE_LIMIT = 12
         const val RECENT_SAVES_LIMIT = 12
+
+        /** How long a refresh waits for this device's reads to reach the page before asking the server. */
+        private const val LOCAL_PUBLISH_TIMEOUT_MS = 3_000L
     }
 }
+
+private data class LocalParts(
+    val stats: PlayStats,
+    val saves: List<SaveEntry>,
+    val latest: Map<Long, SaveEntry>,
+    val ready: Boolean,
+)
 
 private data class PlayContentParts(
     val continuePlaying: List<InProgressGame>,
     val recentSaves: List<RecentSaveItem>,
     val recentlyAdded: List<RomDto>,
     val conflicted: Map<Int, Int>,
-    val index: GameIndex,
-    val stats: PlayStats,
+    val latest: Map<Long, SaveEntry>,
+    val picks: List<PlayPickGame>,
+    val ready: Boolean,
+    val pinned: PinnedCollection?,
 )
 
 private data class ShellParts(
@@ -577,25 +673,25 @@ internal fun pinnedCollection(
 }
 
 /**
- * Games played on this device (most recent first), then RomM's own continue-playing list for
- * anything not already shown.
+ * Games in play, most recent first (iOS `PlayContent.inPlay`): what this device last played or
+ * saved (its sessions and its saves, by the later of the two), then RomM's "continue playing" (the
+ * server's order, for games not played here yet). Aurora's Home hero is the first, so it's usually
+ * a game with a saved screen. [library] looks games up by id (the cached library and installs).
  */
-internal fun buildContinuePlaying(
-    stats: PlayStats,
-    serverContinue: List<RomDto>,
-    index: GameIndex,
-    supportTier: (RomDto) -> EmbeddedSupportTier,
+internal fun inPlay(
+    romm: List<RomDto>,
+    latest: Map<Long, SaveEntry>,
+    playtimes: List<GamePlayTotal>,
+    library: (Int) -> RomDto?,
     limit: Int = PlayViewModel.CONTINUE_LIMIT,
-): List<InProgressGame> {
-    val local = stats.games
-        .sortedByDescending { it.lastPlayedAtEpochMs }
-        .mapNotNull { total ->
-            val rom = index[total.romId.toInt()] ?: return@mapNotNull null
-            InProgressGame(rom, total.lastPlayedAtEpochMs, total.playedMs, index.installedFileId(rom.id), supportTier(rom), total.sessionCount)
-        }
-    val seen = local.map { it.rom.id }.toMutableSet()
-    val remote = serverContinue.filter { seen.add(it.id) }.map { rom ->
-        InProgressGame(rom, null, 0L, index.installedFileId(rom.id), supportTier(rom))
-    }
-    return (local + remote).take(limit)
+): List<RomDto> {
+    val lastActive = HashMap<Int, Long>()
+    latest.forEach { (id, entry) -> lastActive.merge(id.toInt(), entry.capturedAtEpochMs) { a, b -> maxOf(a, b) } }
+    playtimes.forEach { play -> lastActive.merge(play.romId.toInt(), play.lastPlayedAtEpochMs) { a, b -> maxOf(a, b) } }
+    val known = romm.associateBy { it.id }
+    val device = lastActive.entries
+        .sortedWith(compareByDescending<Map.Entry<Int, Long>> { it.value }.thenBy { it.key })
+        .mapNotNull { library(it.key) ?: known[it.key] }
+    val seen = HashSet<Int>()
+    return (device + romm).filter { seen.add(it.id) }.take(limit)
 }
