@@ -66,7 +66,7 @@ private struct AuroraGameCompact: View {
         VStack(alignment: .leading, spacing: theme.spacing.section) {
             AuroraGameHeading(content: content, large: false)
             GameFilePicker(shows: content.showsFilePicker, options: content.fileOptions, selectedFileID: content.selectedFileID, select: actions.selectFile)
-            GameActionDeck(deck: content.deck, fileID: content.fileID, showsStartOptions: content.showsStartOptions, actions: actions)
+            GameActionDeck(deck: content.deck, fileID: content.fileID, romID: content.rom.id, showsStartOptions: content.showsStartOptions, actions: actions)
             AuroraGameTimeline(content: content, actions: actions)
             AuroraGameDetails(items: content.details)
             GameScreenshotsRow(urls: content.screenshots, gutter: theme.spacing.gutter)
@@ -88,7 +88,7 @@ private struct AuroraGameRegular: View {
                 VStack(alignment: .leading, spacing: 22) {
                     AuroraGameHeading(content: content, large: true)
                     GameFilePicker(shows: content.showsFilePicker, options: content.fileOptions, selectedFileID: content.selectedFileID, select: actions.selectFile)
-                    GameActionDeck(deck: content.deck, fileID: content.fileID, showsStartOptions: content.showsStartOptions, actions: actions)
+                    GameActionDeck(deck: content.deck, fileID: content.fileID, romID: content.rom.id, showsStartOptions: content.showsStartOptions, actions: actions)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 VStack(alignment: .leading, spacing: 18) {

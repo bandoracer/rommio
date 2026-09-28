@@ -48,7 +48,7 @@ private struct RisoGameColumn: View {
             RisoWhereYouLeftOff(content: content, actions: actions).padding(.top, 22)
             VStack(alignment: .leading, spacing: 12) {
                 GameFilePicker(shows: content.showsFilePicker, options: content.fileOptions, selectedFileID: content.selectedFileID, select: actions.selectFile)
-                GameActionDeck(deck: content.deck, fileID: content.fileID, showsStartOptions: content.showsStartOptions, actions: actions, showsNotes: false)
+                GameActionDeck(deck: content.deck, fileID: content.fileID, romID: content.rom.id, showsStartOptions: content.showsStartOptions, actions: actions, showsNotes: false)
             }
             .padding(.top, 22)
             RisoGameStory(summary: content.hero.summaryText).padding(.top, 26)
@@ -76,7 +76,7 @@ private struct RisoGameBroadsheet: View {
                         Text(standfirst).themeText(.body, size: 17).italic().foregroundStyle(theme.ink)
                     }
                     GameFilePicker(shows: content.showsFilePicker, options: content.fileOptions, selectedFileID: content.selectedFileID, select: actions.selectFile)
-                    GameActionDeck(deck: content.deck, fileID: content.fileID, showsStartOptions: content.showsStartOptions, actions: actions, showsNotes: false)
+                    GameActionDeck(deck: content.deck, fileID: content.fileID, romID: content.rom.id, showsStartOptions: content.showsStartOptions, actions: actions, showsNotes: false)
                 }
                 .frame(width: 230, alignment: .leading)
                 .padding(.trailing, 18)

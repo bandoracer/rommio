@@ -114,6 +114,12 @@ public final class RommioAppModel {
     }
 
     public var isBusy = false
+    /// The game being launched: from a Resume or Play tap until its player or its Launch
+    /// choice appears, or the launch fails. The buttons show it starting and ignore a second
+    /// tap (`LaunchButton`).
+    public private(set) var launchingRomID: Int?
+    /// A launch is preparing its player (a second one would race it for the session).
+    @ObservationIgnored private var launchInProgress = false
     public var isRefreshing = false
     public var errorMessage: String?
     public var noticeMessage: String?
@@ -898,9 +904,24 @@ public final class RommioAppModel {
         }
     }
 
+    /// Resume from Home: the launch is claimed at once, so the button shows it starting before
+    /// anything is prepared; a tap while another launch is under way does nothing.
+    func resume(_ rom: RomDTO) {
+        guard launchingRomID == nil else { return }
+        launchingRomID = rom.id
+        Task { await quickResume(rom: rom, claimed: true) }
+    }
+
     /// Resumes a Continue playing game directly from Home, using the same file
     /// choice and readiness rules as the detail page's primary Play action.
-    func quickResume(rom: RomDTO) async {
+    func quickResume(rom: RomDTO, claimed: Bool = false) async {
+        if !claimed {
+            guard launchingRomID == nil else { return }
+            launchingRomID = rom.id
+        }
+        // The launch clears it once the player or Launch choice is up; anything that stops
+        // before the launch clears it here.
+        defer { if !launchInProgress, launchingRomID == rom.id { launchingRomID = nil } }
         let detail = makeGameDetailFeature(rom: rom)
         await detail.refresh(forceRemote: false)
         guard let primary = detail.actionDeckPresentation?.primary,
@@ -1049,6 +1070,13 @@ public final class RommioAppModel {
     }
 
     func launchInstalledGame(rom: RomDTO, file: RomFileDTO) async {
+        guard !launchInProgress else { return }
+        launchInProgress = true
+        launchingRomID = rom.id
+        defer {
+            launchInProgress = false
+            launchingRomID = nil
+        }
         await performBusyOperation { model in
             try await model.presentInstalledGame(rom: rom, file: file)
         }

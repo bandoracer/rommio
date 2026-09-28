@@ -799,12 +799,9 @@ private struct AuroraPlayActionRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Button { actions.resume(game.rom) } label: {
-                Label("Resume", systemImage: "play.fill")
-            }
-            .buttonStyle(PrimaryButtonStyle())
-            .accessibilityLabel("Resume \(game.rom.displayName)")
-            .accessibilityIdentifier("play.resume.\(game.rom.id)")
+            LaunchButton(title: "Resume", romID: game.rom.id) { actions.resume(game.rom) }
+                .accessibilityLabel("Resume \(game.rom.displayName)")
+                .accessibilityIdentifier("play.resume.\(game.rom.id)")
 
             Button { actions.open(game.rom) } label: {
                 Image(systemName: "info.circle").font(.system(size: 20, weight: .regular))

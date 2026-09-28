@@ -252,7 +252,7 @@ struct GameDetailView: View {
                 if let primary = content.deck?.primary, let fileID = content.fileID,
                    primary.kind == .play || primary.kind == .downloadNow {
                     ToolbarItem(placement: .primaryAction) {
-                        GameToolbarAction(primary: primary, fileID: fileID, perform: actions.perform)
+                        GameToolbarAction(primary: primary, fileID: fileID, romID: feature.rom.id, perform: actions.perform)
                     }
                 }
             }
@@ -370,17 +370,27 @@ private struct RefreshAfterPlayer: ViewModifier {
 
 /// The toolbar's Play or Download.
 private struct GameToolbarAction: View {
+    @Environment(\.launchingRomID) private var launchingRomID
     let primary: GameDetailAction
     let fileID: Int
+    let romID: Int
     let perform: (GameDetailAction) -> Void
+    @State private var taps = 0
 
     var body: some View {
         Button {
+            taps += 1
             perform(primary)
         } label: {
-            Label(primary.kind == .play ? "Play" : "Download", systemImage: primary.kind == .play ? "play.fill" : "arrow.down.circle")
+            if primary.kind == .play {
+                LaunchToolbarLabel(title: "Play", systemImage: "play.fill", romID: romID)
+            } else {
+                Label("Download", systemImage: "arrow.down.circle")
+            }
         }
-        .disabled(!primary.enabled)
+        // The tap is felt at once; while a game starts, Play waits.
+        .sensoryFeedback(.impact(weight: .medium, intensity: 0.9), trigger: taps)
+        .disabled(!primary.enabled || (primary.kind == .play && launchingRomID != nil))
         .accessibilityIdentifier("gameDetail.toolbar.\(primary.kind.rawValue)")
     }
 }
@@ -406,6 +416,8 @@ struct GameActionDeck: View {
     @Environment(\.rommioTheme) private var theme
     let deck: GameDetailActionDeckPresentation?
     let fileID: Int?
+    /// The game, for Play's starting state (`LaunchButton`).
+    let romID: Int
     let showsStartOptions: Bool
     let actions: GameActions
     var showsNotes = true
@@ -414,12 +426,18 @@ struct GameActionDeck: View {
         if let deck, let fileID {
             VStack(alignment: .leading, spacing: 12) {
                 if let primary = deck.primary {
-                    Button { actions.perform(primary) } label: {
-                        Label(primary.title, systemImage: primary.kind == .play ? "play.fill" : primary.kind == .downloadNow ? "arrow.down.circle.fill" : "arrow.clockwise")
+                    if primary.kind == .play {
+                        LaunchButton(title: primary.title, romID: romID) { actions.perform(primary) }
+                            .disabled(!primary.enabled)
+                            .accessibilityIdentifier("gameDetail.primary.\(fileID).\(primary.kind.rawValue)")
+                    } else {
+                        Button { actions.perform(primary) } label: {
+                            Label(primary.title, systemImage: primary.kind == .downloadNow ? "arrow.down.circle.fill" : "arrow.clockwise")
+                        }
+                        .buttonStyle(PrimaryButtonStyle())
+                        .disabled(!primary.enabled)
+                        .accessibilityIdentifier("gameDetail.primary.\(fileID).\(primary.kind.rawValue)")
                     }
-                    .buttonStyle(PrimaryButtonStyle())
-                    .disabled(!primary.enabled)
-                    .accessibilityIdentifier("gameDetail.primary.\(fileID).\(primary.kind.rawValue)")
                 }
                 if showsStartOptions {
                     Button(action: actions.startOptions) {

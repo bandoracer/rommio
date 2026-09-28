@@ -270,7 +270,7 @@ struct PlayPage: View {
             // A game whose resume point is in conflict asks which to keep first.
             resume: { rom in
                 if let item = conflicts().first(where: { $0.rom.id == rom.id }) { conflict.wrappedValue = item }
-                else { Task { await model.quickResume(rom: rom) } }
+                else { model.resume(rom) }
             },
             open: { rom in path.wrappedValue.append(AppDestination.game(rom)) },
             openSave: { item in

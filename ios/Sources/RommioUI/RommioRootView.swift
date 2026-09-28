@@ -88,6 +88,7 @@ public struct RommioRootView: View {
         .rommioPlayerPresentation(model: model, bindable: bindable)
         // Pages that tint the status bar over their art stand down while a game plays.
         .environment(\.playerCoversApp, model.activePlayer != nil)
+        .environment(\.launchingRomID, model.launchingRomID)
         // Launch choice: Start options from Play and Game, and a launch that would
         // otherwise stop inside the player to ask (the player opens after it closes).
         .sheet(item: bindable.launchChoice, onDismiss: { Task { await model.launchChoiceClosed() } }) { presentation in

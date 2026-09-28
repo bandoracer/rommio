@@ -273,12 +273,9 @@ private struct RisoLeadText: View {
                     StatusChip(title: game.sessionCount == 1 ? "1 session" : "\(game.sessionCount) sessions", tone: .ok)
                 }
             }
-            Button { actions.resume(game.rom) } label: {
-                Label("Resume", systemImage: "play.fill")
-            }
-            .buttonStyle(PrimaryButtonStyle(large: true))
-            .accessibilityLabel("Resume \(game.rom.displayName)")
-            .accessibilityIdentifier("play.resume.\(game.rom.id)")
+            LaunchButton(title: "Resume", romID: game.rom.id) { actions.resume(game.rom) }
+                .accessibilityLabel("Resume \(game.rom.displayName)")
+                .accessibilityIdentifier("play.resume.\(game.rom.id)")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
