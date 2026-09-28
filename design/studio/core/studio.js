@@ -9,12 +9,15 @@
  *   Focus    one screen of one version, large, with its brief #void-home
  *   Shot     bare device for headless screenshots             #shot-void-home[-duo-open][-dark]
  *
- * Rounds: v2 is current; the first round is archived as round 1 (ids void1…).
+ * Rounds: v2 is the reference; the first round is archived as round 1 (ids void1…).
+ * Round 3 (v3) explores Aurora's Home and Library: each version sets `extends: 'aurora'`,
+ * so its screens carry both scopes (`.v-aurora .v-<id>`) and inherit Aurora's tokens
+ * and components (window.AuroraKit), and it designs only the screens it explores.
  * Devices: iPhone · Android · iPhone Duo closed · iPhone Duo open (with fold).
  * Appearance: Light · Dark · Both (pairs every frame).
  *
  * Local-only hash extras (not needed in the published page):
- *   @0.4 zoom · ~Player one flow in Canvas · +duo-open device · +dark / +both appearance · +v1 round
+ *   @0.4 zoom · ~Player one flow in Canvas · +duo-open device · +dark / +both appearance · +v1 / +v3 round
  *   ^300 scrolls every screen's content area by 300pt (review below the fold)
  * Keyboard: 1–9 versions · ←/→ screens · C V X F views · T tweaks · D device · A appearance · M motion
  */
@@ -205,7 +208,7 @@
     const s = geo.safe;
     const vbarOn = dev.vbar && kind === 'app' && version.round !== 1;
     const vars = `--safe-top:${s.top}px;--safe-bottom:${s.bottom}px;--safe-left:${s.left}px;--safe-right:${s.right}px;--scr-w:${geo.w}px;--scr-h:${geo.h}px${geo.fold ? `;--fold-x:${geo.fold.x || 0}px;--fold-y:${geo.fold.y || 0}px` : ''}`;
-    const cls = `scr v-${version.id} os-${dev.os} dev-${dev.id} kind-${kind} size-${ctx.size} scheme-${scheme}`;
+    const cls = `scr ${version.extends ? `v-${version.extends} ` : ''}v-${version.id} os-${dev.os} dev-${dev.id} kind-${kind} size-${ctx.size} scheme-${scheme}`;
     const hb = `rgba(${tone === 'dark' ? '0,0,0' : '255,255,255'},.8)`;
     return `<div class="st-dev st-dev-${dev.os} st-dev-${dev.id} st-dev-${geo.w > geo.h ? 'landscape' : 'portrait'}" data-v="${version.id}" data-s="${screen.id}" style="--dw:${geo.w}px;--dh:${geo.h}px;--dr:${dev.radius}px"${
       opts.click ? ` tabindex="0" role="button" aria-label="Open ${esc(version.name + ' ' + screen.title)}"` : ''
@@ -273,6 +276,7 @@
       else if (SCHEMES.includes(x)) state.scheme = x;
       else if (x === 'v1') state.round = 1;
       else if (x === 'v2') state.round = 2;
+      else if (x === 'v3') state.round = 3;
     }
     h = h.replace(/[@~+^].*$/, '');
     let parts = h.split('-');
@@ -457,7 +461,7 @@
         .join('')}</div>`;
     return `<header class="st-bar">
       <div class="st-brand"><span class="st-logo">${K().icon('gamepad', 18)}</span><b>Rommio</b><span>UI Studio</span></div>
-      ${seg('Round', [[2, 'v2'], [1, 'v1']], 'round')}
+      ${seg('Round', [[3, 'v3'], [2, 'v2'], [1, 'v1']], 'round')}
       <nav class="st-versions" aria-label="Versions">${roundVersions()
         .map(
           (x, n) => `<button class="st-vchip ${x.id === v.id && (state.mode === 'canvas' || state.mode === 'focus') ? 'st-on' : ''}" data-version="${x.id}" title="${esc(x.tagline || '')} (${n + 1})">
@@ -484,7 +488,7 @@
       state.mode === 'compare'
         ? `<b>${esc(screenById(state.screen).title)}</b><span>${esc(screenById(state.screen).brief)}</span>`
         : state.mode === 'matrix'
-          ? `<b>${esc(state.matrixFlow)}</b><span>Every ${state.round === 1 ? 'v1 direction, side by side · round 1 predates light/dark and iPhone Duo' : 'v2 direction, side by side'}</span>`
+          ? `<b>${esc(state.matrixFlow)}</b><span>Every ${state.round === 1 ? 'v1 direction, side by side · round 1 predates light/dark and iPhone Duo' : state.round === 3 ? 'v3 Aurora exploration, side by side · each designs Home and Library (and a drill-in)' : 'v2 direction, side by side'}</span>`
           : `<b>${esc(v.name)}</b><span>${esc(v.thesis || v.tagline || '')}</span>`
     }</div>`;
   }

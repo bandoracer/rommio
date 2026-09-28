@@ -1,0 +1,395 @@
+/*
+ * Aurora · Shelf (round 3). Every rule is scoped under .v-shelf; the screen also
+ * carries .v-aurora, so Aurora's tokens (--base, --ink, --glass, --ok…) and component
+ * classes (.a-btn, .a-sync, .a-field…) apply. Light tokens on the scope, Night on
+ * &.scheme-dark. Per-game light (--l1..3, --k1..2, --tint) arrives inline via AuroraKit.lit.
+ */
+@keyframes shelf-rise {
+  from { transform: translateY(18px) scale(0.985); }
+  to { transform: none; }
+}
+
+.v-shelf {
+  /* Daylight sync tones a step deeper so chip text clears 4.5:1 on its own tint */
+  --ok: #08734b;
+  --wait: #8a5000;
+  --gut: 16px;
+  --rib: #c93a25;
+  --led: radial-gradient(circle at 38% 35%, #ffffff 0 28%, #8ff5cf 62%, #3fd49a);
+  --led-glow: rgb(60 214 150 / 0.85);
+  --ledge-top: rgb(255 255 255 / 0.96);
+  --ledge-front: rgb(255 255 255 / 0.5);
+  --ledge-shade: 0 16px 24px -14px rgb(40 24 60 / 0.42), 0 1px 0 rgb(40 24 60 / 0.08);
+  --strip-lift: inset 0 1px 0 rgb(255 255 255 / 0.8), inset 0 0 0 0.5px rgb(255 255 255 / 0.55);
+  --strip-shadow: 0 -10px 22px -14px rgb(40 24 60 / 0.5);
+  --card-a: 72%;
+  --card-b: 60%;
+  --card-mix: #ffffff;
+  --detail-bg: rgb(255 255 255 / 0.8);
+  --plastic-grey: linear-gradient(170deg, #e2e0e7, #b7b4bf 70%, #a3a0ab);
+  --plastic-charcoal: linear-gradient(170deg, #6c6b75, #45444d 70%, #393840);
+  --plastic-black: linear-gradient(170deg, #4a4950, #26252b 70%, #1c1b20);
+  --plastic-crystal: linear-gradient(160deg, rgb(178 240 244 / 0.95), rgb(78 184 196 / 0.9) 60%, rgb(46 140 156 / 0.92));
+  --plastic-clear: linear-gradient(160deg, #f4f5f8, #cfd1d8);
+
+  &.scheme-dark {
+    --rib: #ff6b4f;
+    --ledge-top: rgb(255 255 255 / 0.3);
+    --ledge-front: rgb(255 255 255 / 0.085);
+    --ledge-shade: 0 14px 26px -12px color-mix(in srgb, var(--k1) 38%, transparent), 0 1px 0 rgb(0 0 0 / 0.5);
+    --strip-lift: inset 0 1px 0 rgb(255 255 255 / 0.16), inset 0 0 0 0.5px rgb(255 255 255 / 0.07);
+    --strip-shadow: 0 -12px 24px -12px rgb(0 0 0 / 0.85);
+    --card-a: 40%;
+    --card-b: 28%;
+    --card-mix: #0c0a13;
+    --detail-bg: color-mix(in srgb, #15131e 82%, transparent);
+    --plastic-grey: linear-gradient(170deg, #b9b6c2, #8c8996 70%, #7a7784);
+    --plastic-clear: linear-gradient(160deg, #cfd1d8, #a4a6ae);
+  }
+
+  .sh-dot { --tone: var(--mute); width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--tone); box-shadow: 0 0 0 3px color-mix(in srgb, var(--tone) 22%, transparent); }
+  .sh-dot.t-ok { --tone: var(--ok); }
+  .sh-dot.t-wait { --tone: var(--wait); }
+  .sh-dot.t-live { --tone: var(--live); }
+  .sh-dot.t-bad { --tone: var(--bad); }
+
+  /* ================================================================ PLAY · the stack */
+  .sh-home { padding: 2px var(--gut) 28px; }
+
+  /* the game's own light, pastel by day, deep and glowing at night */
+  .sh-card, .sh-strip-in {
+    background:
+      radial-gradient(90% 120% at 100% 0%, color-mix(in oklab, var(--l2) 40%, transparent), transparent 70%),
+      linear-gradient(160deg, color-mix(in oklab, var(--l1) var(--card-a), var(--card-mix)), color-mix(in oklab, var(--l2) var(--card-b), var(--card-mix)));
+    color: var(--ink);
+  }
+  &.scheme-dark .sh-card, &.scheme-dark .sh-strip-in {
+    background:
+      radial-gradient(90% 120% at 100% 0%, color-mix(in oklab, var(--k2) 22%, transparent), transparent 70%),
+      linear-gradient(160deg, color-mix(in oklab, var(--k1) var(--card-a), var(--card-mix)), color-mix(in oklab, var(--k2) var(--card-b), var(--card-mix)));
+  }
+
+  .sh-faces { position: relative; z-index: 2; }
+  .sh-face { display: none; }
+  .sh-face.sh-anim { animation: shelf-rise 0.42s cubic-bezier(0.2, 0.8, 0.2, 1); }
+  .sh-card {
+    position: relative; border-radius: 26px; padding: 0 12px 12px;
+    box-shadow: var(--strip-lift), 0 26px 44px -26px color-mix(in srgb, var(--k1) 75%, transparent), 0 2px 8px rgb(30 16 40 / 0.1);
+  }
+  &.scheme-dark .sh-card { box-shadow: var(--strip-lift), 0 30px 56px -26px color-mix(in srgb, var(--k1) 55%, transparent), 0 2px 10px rgb(0 0 0 / 0.5); }
+
+  /* the header strip every card carries */
+  .sh-card-hd, .sh-strip-in { display: flex; align-items: center; gap: 10px; }
+  .sh-card-hd { height: 50px; padding: 0 2px; }
+  .sh-chip { width: 26px; height: 34px; flex: none; overflow: hidden; border-radius: 5px; box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.22), 0 4px 8px -3px rgb(0 0 0 / 0.4); }
+  .sh-chip img { width: 100%; height: 100%; object-fit: cover; }
+  .sh-name { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 7px; }
+  .sh-name b { min-width: 0; font: 700 17.5px/1.1 var(--display); font-stretch: 84%; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sh-name small { flex: none; font: 750 10.5px/1 var(--ui); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); }
+  .sh-when { flex: none; font: 600 13px/1 var(--ui); color: var(--ink-2); white-space: nowrap; }
+  .sh-card-hd .sh-dot, .sh-strip-in .sh-dot { margin: 0 4px 0 -2px; }
+  .sh-two { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px 0 8px; border-radius: 999px; font: 700 12px/1 var(--ui); color: #fff; background: #b32d22; box-shadow: 0 4px 12px -4px rgb(179 45 34 / 0.6); }
+  &.scheme-dark .sh-two { color: #210806; background: var(--bad); box-shadow: 0 4px 14px -4px color-mix(in srgb, var(--bad) 70%, transparent); }
+  .sh-two svg { stroke-width: 2.4; }
+
+  /* the face: a glowing screen */
+  .sh-scr { position: relative; aspect-ratio: 16 / 10; margin: 0 0 14px; }
+  .sh-scr-glow { position: absolute; left: 8%; top: 18%; width: 84%; height: 88%; object-fit: fill; filter: blur(24px) saturate(1.8); opacity: var(--gs-glow-o); }
+  .sh-scr-face { position: absolute; inset: 0; overflow: hidden; border-radius: 17px; background: #000; box-shadow: var(--face-shadow); }
+  .sh-scr-face::after { content: ''; position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(158deg, rgb(255 255 255 / 0.16), transparent 32%); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08); pointer-events: none; }
+  .sh-scr-bg { position: absolute; left: -10%; top: -10%; width: 120%; height: 120%; object-fit: cover; filter: blur(16px) saturate(1.5) brightness(0.6); }
+  .sh-scr.cover .sh-scr-bg { display: none; }
+  .sh-scr.cover .sh-scr-img { position: absolute; left: 0; top: 50%; width: 100%; height: auto; aspect-ratio: var(--ar); object-fit: fill; transform: translateY(-50%); }
+  .sh-scr.contain .sh-scr-img { position: absolute; top: 0; left: 50%; height: 100%; width: auto; aspect-ratio: var(--ar); object-fit: fill; transform: translateX(-50%); box-shadow: 0 0 30px rgb(0 0 0 / 0.5); }
+  .sh-scr-chip { position: absolute; z-index: 3; left: 10px; bottom: 10px; }
+  .sh-scr-chip .a-sync { height: 26px; background: rgb(12 10 20 / 0.58); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); --ok: #7cf2c4; --wait: #ffc66b; --live: #6fe3ff; --bad: #ff7a6b; --mute: rgb(255 255 255 / 0.72); }
+
+  /* conflict: the two resume points side by side */
+  .sh-scr.two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: center; }
+  .sh-dip { position: relative; margin: 0; }
+  .sh-dip-f { position: relative; aspect-ratio: 4 / 3; overflow: hidden; border-radius: 13px; background: #000; box-shadow: var(--face-shadow); }
+  .sh-dip-f img { width: 100%; height: 100%; object-fit: fill; }
+  .sh-dip figcaption { display: grid; gap: 1px; padding: 8px 4px 0; }
+  .sh-dip figcaption b { font: 750 17px/1.05 var(--display); font-stretch: 84%; }
+  .sh-dip figcaption span { font: 500 12px/1.3 var(--ui); color: var(--ink-2); }
+
+  /* no preview: the object itself, lying in the card's light */
+  .sh-scr.obj { display: grid; place-items: center; overflow: hidden; border-radius: 17px;
+    background: radial-gradient(70% 80% at 50% 60%, color-mix(in oklab, var(--l1) 70%, transparent), transparent 75%), color-mix(in oklab, var(--l2) 36%, var(--card-mix));
+    box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.5), inset 0 -30px 50px -30px rgb(40 20 60 / 0.25); }
+  &.scheme-dark .sh-scr.obj { background: radial-gradient(70% 80% at 50% 60%, color-mix(in oklab, var(--k1) 40%, transparent), transparent 75%), color-mix(in oklab, var(--k2) 16%, #09070f); box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.08); }
+  .sh-scr-desk { position: absolute; inset: -20%; background: var(--art) center / cover; filter: blur(30px) saturate(1.4); opacity: 0.4; }
+  .sh-scr.obj .sh-o { position: relative; transform: rotate(-5deg) translateY(-4px); }
+  .sh-scr.obj .sh-scr-chip { left: 10px; bottom: 10px; }
+
+  .sh-cap { display: grid; gap: 4px; padding: 0 4px; }
+  .sh-head { font: 750 30px/1.02 var(--display); font-stretch: 82%; letter-spacing: -0.022em; text-wrap: balance; }
+  .sh-meta { font: 500 13.5px/1.35 var(--ui); color: var(--ink-2); }
+  .sh-act { display: flex; gap: 8px; margin-top: 14px; }
+  .sh-card .a-btn.glass { background: rgb(255 255 255 / 0.55); }
+  &.scheme-dark .sh-card .a-btn.glass { background: rgb(255 255 255 / 0.1); }
+  .sh-details svg { stroke-width: 2.1; }
+
+  /* the pile: every other game in progress as the header strip of its card */
+  .sh-pile { position: relative; z-index: 1; padding-top: 26px; }
+  .sh-strip { position: relative; display: block; margin-top: -16px; }
+  .sh-strip input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  .sh-strip-in { height: 64px; padding: 0 14px 14px 12px; border-radius: 22px; box-shadow: var(--strip-lift), var(--strip-shadow); }
+  .sh-strip:has(input:focus-visible) .sh-strip-in { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .sh-strip.is-two .sh-strip-in { box-shadow: var(--strip-lift), var(--strip-shadow), inset 0 0 0 1.5px color-mix(in srgb, var(--bad) 55%, transparent); }
+  .sh-pile-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 12px 6px 0; font: 600 12.5px/1.2 var(--ui); color: var(--ink-2); }
+  .sh-pile-foot .a-sync { height: auto; padding: 0; background: none; color: var(--ink-2); font-size: 12.5px; }
+  .sh-pile-foot .a-sync .a-dot { color: var(--ok); }
+
+  /* sections below the stack */
+  .sh-sec { margin-top: 28px; }
+  .sh-sec-h { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0 4px 10px; }
+  .sh-sec-h h3 { font: 750 22px/1.05 var(--display); font-stretch: 84%; letter-spacing: -0.015em; }
+  .sh-sec-h span { font: 600 12.5px/1.2 var(--ui); color: var(--ink-2); text-align: right; }
+
+  /* put down a while ago: the objects themselves */
+  .sh-pds { display: flex; gap: 12px; margin: 0 calc(-1 * var(--gut)); padding: 2px var(--gut) 8px; overflow: hidden; }
+  .sh-pd { flex: none; width: 128px; display: grid; justify-items: start; gap: 2px; }
+  .sh-pd-obj { position: relative; width: 128px; height: 112px; margin-bottom: 8px; display: grid; place-items: center; border-radius: 20px;
+    background: radial-gradient(70% 70% at 50% 62%, color-mix(in oklab, var(--l1) 85%, transparent), transparent 80%), var(--glass);
+    -webkit-backdrop-filter: blur(var(--frost)) saturate(1.6); backdrop-filter: blur(var(--frost)) saturate(1.6); box-shadow: var(--glass-shadow); }
+  &.scheme-dark .sh-pd-obj { background: radial-gradient(70% 70% at 50% 62%, color-mix(in oklab, var(--k1) 38%, transparent), transparent 80%), var(--glass); }
+  .sh-pd:nth-child(3n + 1) .sh-o { transform: rotate(-4deg); }
+  .sh-pd:nth-child(3n + 2) .sh-o { transform: rotate(3deg); }
+  .sh-pd:nth-child(3n) .sh-o { transform: rotate(-1.5deg); }
+  .sh-pd-t { max-width: 100%; font: 700 14px/1.2 var(--ui); letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sh-pd-m { max-width: 100%; font: 500 12.5px/1.25 var(--ui); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sh-pd-a { display: inline-flex; align-items: center; gap: 7px; font: 600 12px/1.25 var(--ui); color: var(--ink-2); }
+  .sh-pd-a .sh-dot { width: 7px; height: 7px; }
+  .sh-pd-b { margin-top: 8px; }
+
+  /* saved lately */
+  .sh-saved { display: grid; border-radius: 22px; }
+  .sh-sv { position: relative; display: flex; align-items: center; gap: 12px; min-height: 62px; padding: 9px 14px 9px 10px; }
+  .sh-sv + .sh-sv::before { content: ''; position: absolute; top: 0; right: 0; left: 78px; height: 0.5px; background: var(--hair); }
+  .sh-sv-img { width: 56px; height: 42px; flex: none; overflow: hidden; border-radius: 9px; background: #000; box-shadow: 0 8px 16px -10px var(--k1), 0 0 0 0.5px rgb(0 0 0 / 0.12); }
+  .sh-sv-img img { width: 100%; height: 100%; object-fit: cover; }
+  .sh-sv-t { flex: 1; min-width: 0; display: grid; gap: 2px; }
+  .sh-sv-t b { font: 650 15px/1.2 var(--ui); letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sh-sv-t small { font: 500 12.5px/1.3 var(--ui); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sh-sv-s { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 3px; font: 600 12px/1.2 var(--ui); color: var(--ink-2); white-space: nowrap; }
+  .sh-sv-s .a-sync { height: 20px; padding: 0 8px 0 6px; font-size: 11.5px; }
+
+  /* ================================================================ OBJECTS */
+  .sh-o { --u: 1px; position: relative; flex: none; }
+  .sh-o.o-lg { --u: 1.85px; }
+  .sh-o-shell { position: relative; width: 100%; height: 100%; box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.5), inset 0 -2px 0 rgb(0 0 0 / 0.18), 0 calc(var(--u) * 10) calc(var(--u) * 16) calc(var(--u) * -6) rgb(20 10 30 / 0.5), 0 0 0 0.5px rgb(0 0 0 / 0.25); }
+  .pl-grey .sh-o-shell { background: var(--plastic-grey); }
+  .pl-charcoal .sh-o-shell { background: var(--plastic-charcoal); }
+  .pl-black .sh-o-shell { background: var(--plastic-black); }
+  .pl-crystal .sh-o-shell { background: var(--plastic-crystal); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.7), inset 0 0 0 1px rgb(255 255 255 / 0.25), 0 calc(var(--u) * 10) calc(var(--u) * 16) calc(var(--u) * -6) rgb(10 60 70 / 0.5); }
+  .pl-clear .sh-o-shell { background: var(--plastic-clear); }
+  .sh-o-grip { position: absolute; left: 12%; right: 12%; top: calc(var(--u) * 4); height: calc(var(--u) * 7); background: repeating-linear-gradient(180deg, rgb(0 0 0 / 0.16) 0 calc(var(--u) * 1), transparent calc(var(--u) * 1) calc(var(--u) * 2.4)); border-radius: 2px; }
+  .sh-o-win { position: absolute; overflow: hidden; border-radius: calc(var(--u) * 3); background: #000; box-shadow: 0 0 0 calc(var(--u) * 1) rgb(0 0 0 / 0.2), inset 0 0 0 0.5px rgb(255 255 255 / 0.2); }
+  .sh-o-label { width: 100%; height: 100%; object-fit: cover; }
+  .sh-o-win::after { content: ''; position: absolute; inset: 0; background: linear-gradient(135deg, rgb(255 255 255 / 0.3), transparent 38%); }
+
+  /* home-console cartridge (SNES, NES, N64, Genesis) */
+  .o-cart { width: calc(var(--u) * 100); height: calc(var(--u) * 70); }
+  .o-cart .sh-o-shell { border-radius: calc(var(--u) * 9) calc(var(--u) * 9) calc(var(--u) * 5) calc(var(--u) * 5); }
+  .o-cart .sh-o-win { left: calc(var(--u) * 11); right: calc(var(--u) * 11); top: calc(var(--u) * 15); bottom: calc(var(--u) * 9); }
+  .o-cart.p-n64 { width: calc(var(--u) * 84); height: calc(var(--u) * 74); }
+  .o-cart.p-n64 .sh-o-shell { border-radius: calc(var(--u) * 12) calc(var(--u) * 12) calc(var(--u) * 4) calc(var(--u) * 4); }
+  .o-cart.p-n64 .sh-o-win { left: calc(var(--u) * 10); right: calc(var(--u) * 10); top: calc(var(--u) * 16); bottom: calc(var(--u) * 14); }
+  .o-cart.p-nes { width: calc(var(--u) * 86); height: calc(var(--u) * 80); }
+  .o-cart.p-nes .sh-o-shell { border-radius: calc(var(--u) * 3); }
+
+  /* pocket cartridge (Game Boy family): portrait with the clipped corner */
+  .o-pocket { width: calc(var(--u) * 64); height: calc(var(--u) * 74); }
+  .o-pocket .sh-o-shell { border-radius: calc(var(--u) * 4) calc(var(--u) * 4) calc(var(--u) * 7) calc(var(--u) * 7); clip-path: polygon(0 0, 84% 0, 100% 11%, 100% 100%, 0 100%); }
+  .o-pocket .sh-o-win { left: calc(var(--u) * 8); right: calc(var(--u) * 8); top: calc(var(--u) * 15); bottom: calc(var(--u) * 12); }
+  .o-pocket.p-gba { width: calc(var(--u) * 86); height: calc(var(--u) * 56); }
+  .o-pocket.p-gba .sh-o-shell { clip-path: none; border-radius: calc(var(--u) * 5) calc(var(--u) * 5) calc(var(--u) * 7) calc(var(--u) * 7); }
+  .o-pocket.p-gba .sh-o-win { left: calc(var(--u) * 12); right: calc(var(--u) * 12); top: calc(var(--u) * 13); bottom: calc(var(--u) * 9); }
+
+  /* game card (DS, 3DS, HuCard) */
+  .o-card { width: calc(var(--u) * 62); height: calc(var(--u) * 70); }
+  .o-card .sh-o-shell { border-radius: calc(var(--u) * 5); clip-path: polygon(0 0, 88% 0, 100% 9%, 100% 100%, 0 100%); }
+  .o-card .sh-o-grip { left: 10%; right: 22%; top: calc(var(--u) * 3); height: calc(var(--u) * 4); }
+  .o-card .sh-o-win { left: calc(var(--u) * 6); right: calc(var(--u) * 6); top: calc(var(--u) * 10); bottom: calc(var(--u) * 12); }
+  .o-card.o-lg .sh-o-win { bottom: calc(var(--u) * 14); }
+
+  /* disc in a jewel case */
+  .o-disc { width: calc(var(--u) * 92); height: calc(var(--u) * 82); }
+  .o-disc .sh-o-shell { border-radius: calc(var(--u) * 3); background: linear-gradient(90deg, #1a1a20 0 calc(var(--u) * 9), transparent calc(var(--u) * 9)), var(--plastic-clear); }
+  .o-disc .sh-o-hinge { position: absolute; left: 0; top: 0; bottom: 0; width: calc(var(--u) * 9); background: repeating-linear-gradient(180deg, rgb(255 255 255 / 0.18) 0 calc(var(--u) * 1), transparent calc(var(--u) * 1) calc(var(--u) * 6)); border-radius: calc(var(--u) * 3) 0 0 calc(var(--u) * 3); }
+  .o-disc .sh-o-win { left: calc(var(--u) * 11); right: calc(var(--u) * 3); top: calc(var(--u) * 3); bottom: calc(var(--u) * 3); border-radius: calc(var(--u) * 1.5); }
+  .o-disc .sh-o-win::after { background: linear-gradient(125deg, rgb(255 255 255 / 0.42), transparent 30%, transparent 70%, rgb(255 255 255 / 0.12)); }
+
+  /* the large label (no-preview hero) */
+  .sh-o-title { position: absolute; left: 0; right: 0; bottom: 0; padding: calc(var(--u) * 4) calc(var(--u) * 4) calc(var(--u) * 3); background: linear-gradient(transparent, rgb(8 6 14 / 0.86) 40%); }
+  .sh-o-title b { display: block; font: 800 calc(var(--u) * 6.4)/1 var(--display); font-stretch: 80%; letter-spacing: 0.01em; text-transform: uppercase; color: #fff; text-wrap: balance; }
+  .sh-o-mark { position: absolute; left: 0; right: 0; bottom: calc(var(--u) * 3.5); text-align: center; font: 800 calc(var(--u) * 3.6)/1 var(--ui); letter-spacing: 0.08em; color: rgb(30 28 38 / 0.62); }
+  .pl-black .sh-o-mark, .pl-charcoal .sh-o-mark { color: rgb(255 255 255 / 0.6); }
+
+  /* ================================================================ LIBRARY · spines */
+  .sh-lib { padding: 2px var(--gut) 28px; }
+  .sh-arrange { position: relative; display: flex; align-items: center; height: 44px; margin: 2px 0 4px; padding: 4px; border-radius: 999px;
+    background: var(--glass); -webkit-backdrop-filter: blur(var(--frost)) saturate(1.6); backdrop-filter: blur(var(--frost)) saturate(1.6); box-shadow: var(--glass-shadow); }
+  .sh-arrange-l { flex: none; padding: 0 8px 0 12px; font: 650 12.5px/1 var(--ui); color: var(--ink-2); white-space: nowrap; }
+  .sh-arrange button { position: relative; flex: 1 1 auto; height: 36px; padding: 0 8px; border-radius: 999px; font: 650 14px/1 var(--ui); color: var(--ink); white-space: nowrap; }
+  .sh-arrange button::after { content: ''; position: absolute; inset: -4px 0; }
+  .sh-arrange button.on { background: var(--btn-bg); color: var(--btn-fg); box-shadow: 0 6px 14px -8px var(--k1), inset 0 1px 0 rgb(255 255 255 / 0.2); }
+  .sh-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 22px 4px 0; min-height: 22px; font: 600 12px/1 var(--ui); color: var(--ink-2); white-space: nowrap; }
+  .sh-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+  .sh-led-k { display: inline-block; width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--led); box-shadow: 0 0 0 1.5px rgb(0 0 0 / 0.28), 0 0 7px 1.5px var(--led-glow); }
+  .sh-rib-k { display: inline-block; width: 7px; height: 13px; flex: none; background: var(--rib); clip-path: polygon(0 0, 50% 4px, 100% 0, 100% 100%, 0 100%); }
+
+  /* a shelf */
+  .sh-row { position: relative; margin-top: 18px; padding-bottom: 12px; }
+  .sh-row.has-talker { margin-bottom: 74px; }
+  .sh-hd { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 10px; row-gap: 3px; margin-bottom: 0; }
+  .sh-hd h3 { font: 750 23px/1 var(--display); font-stretch: 84%; letter-spacing: -0.015em; white-space: nowrap; }
+  .sh-hd p { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; font: 600 12.5px/1 var(--ui); color: var(--ink-2); white-space: nowrap; }
+  .sh-hd-on { display: inline-flex; align-items: center; gap: 5px; }
+  .sh-tier { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; color: var(--ink-2); background: var(--glass); box-shadow: var(--glass-shadow); }
+  .sh-tier svg { stroke-width: 2; }
+  .sh-see { display: inline-flex; align-items: center; gap: 1px; min-height: 44px; margin: -8px -4px -8px 0; font: 650 14.5px/1 var(--ui); color: var(--ink); white-space: nowrap; }
+  .sh-see svg { stroke-width: 2.3; }
+  .sh-hd.sm { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: start; align-content: end; gap: 5px; width: 100%; min-height: 44px; margin-bottom: 0; text-align: left; }
+  .sh-hd.sm h3 { display: inline-flex; align-items: center; gap: 1px; font-size: 18px; }
+  .sh-hd.sm h3 svg { color: var(--ink-2); stroke-width: 2.4; }
+  .sh-hd.sm p { gap: 6px; font-size: 11.5px; }
+  .sh-hd.sm .sh-tier { width: 18px; height: 18px; }
+  .sh-hd.sm .sh-tier svg { width: 11px; height: 11px; }
+
+  .sh-run { display: flex; align-items: flex-end; gap: 2px; height: calc(var(--sp-h) + 16px); padding-top: 16px; }
+  .sh-run-wrap { margin-right: calc(-1 * var(--gut)); overflow: hidden; }
+  .sh-comps { display: flex; gap: 14px; align-items: stretch; }
+  .sh-comp { position: relative; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; }
+  .sh-comp + .sh-comp::before { content: ''; position: absolute; left: -8px; top: 4px; bottom: 0; width: 2px; border-radius: 1px;
+    background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--ink) 10%, transparent) 30%, color-mix(in srgb, var(--ink) 18%, transparent)); }
+
+  /* the glass ledge the spines stand on */
+  .sh-ledge { position: absolute; left: calc(-1 * var(--gut)); right: calc(-1 * var(--gut)); bottom: 0; height: 12px;
+    background: linear-gradient(180deg, var(--ledge-top) 0 3px, var(--ledge-front) 3px);
+    -webkit-backdrop-filter: blur(10px) saturate(1.6); backdrop-filter: blur(10px) saturate(1.6); box-shadow: var(--ledge-shade); }
+  .sh-ledge::before { content: ''; position: absolute; left: 0; right: 0; top: -5px; height: 5px; background: linear-gradient(transparent, rgb(20 10 30 / 0.12)); }
+  /* the shelf's recess: light falls off toward the back of the shelf */
+  .sh-row::before { content: ''; position: absolute; left: calc(-1 * var(--gut)); right: calc(-1 * var(--gut)); bottom: 12px; height: calc(var(--sp-h) * 0.75); pointer-events: none;
+    background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--k1) 8%, transparent) 55%, rgb(40 24 60 / 0.08)); }
+  .sh-row.bk::before { bottom: 22px; }
+  &.scheme-dark .sh-row::before { background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--k1) 10%, transparent) 55%, rgb(0 0 0 / 0.36)); }
+  &.scheme-dark .sh-ledge::before { background: linear-gradient(transparent, rgb(0 0 0 / 0.4)); }
+
+  /* a spine */
+  .sh-sp { position: relative; flex: none; width: var(--w); height: var(--sp-h); border-radius: 3px 3px 2px 2px; color: var(--si);
+    background:
+      linear-gradient(90deg, rgb(0 0 0 / 0.26), rgb(255 255 255 / 0.14) 20%, rgb(255 255 255 / 0) 46%, rgb(0 0 0 / 0) 70%, rgb(0 0 0 / 0.22)),
+      linear-gradient(180deg, var(--sb) 0 80%, var(--se));
+    box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.28), inset 0 1px 0 rgb(255 255 255 / 0.22); }
+  .sh-sp.k-cart::before, .sh-sp.k-pocket::before { content: ''; position: absolute; left: 0; right: 0; top: 6px; height: 6px; background: var(--band); box-shadow: 0 1px 0 rgb(0 0 0 / 0.25), 0 -1px 0 rgb(0 0 0 / 0.12); }
+  .sh-sp.k-pocket { border-radius: 2px 5px 2px 2px; }
+  .sh-sp.k-card::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 12px; border-radius: 3px 3px 0 0; background: linear-gradient(180deg, rgb(255 255 255 / 0.5), rgb(255 255 255 / 0.2)); box-shadow: 0 1px 0 rgb(0 0 0 / 0.2); }
+  .sh-sp.k-disc { border-radius: 2px; }
+  .sh-sp.k-disc::before { content: ''; position: absolute; left: 4px; top: 0; bottom: 0; width: 1.5px; background: rgb(255 255 255 / 0.3); box-shadow: 1.5px 0 0 rgb(0 0 0 / 0.25); }
+  .sh-sp.k-disc::after { content: ''; position: absolute; inset: 0; border-radius: inherit; border-top: 5px solid rgb(0 0 0 / 0.32); border-bottom: 5px solid rgb(0 0 0 / 0.32); pointer-events: none; }
+  .sh-sp-t { position: absolute; left: 50%; top: 20px; transform: translateX(-50%); max-height: var(--tl); writing-mode: vertical-rl;
+    font: 700 var(--fs)/1.08 var(--ui); letter-spacing: 0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sh-sp.k-disc .sh-sp-t { top: 14px; }
+  .sh-sp-t.two { white-space: normal; height: var(--tl); text-wrap: balance; }
+  .sh-led { position: absolute; left: 50%; bottom: 10px; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; box-shadow: inset 0 0 0 1.2px color-mix(in srgb, var(--si) 50%, transparent); }
+  .sh-sp.on .sh-led { background: var(--led); box-shadow: 0 0 0 1.5px rgb(0 0 0 / 0.3), 0 0 7px 2px var(--led-glow); }
+  .sh-rib { position: absolute; z-index: 2; right: 18%; top: -13px; width: 7px; height: 25px;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--rib) 78%, #000), var(--rib) 45%, color-mix(in srgb, var(--rib) 82%, #fff));
+    clip-path: polygon(0 0, 50% 4px, 100% 0, 100% 100%, 0 100%); filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.3)); }
+
+  /* the pulled-out game, turned to face you */
+  .sh-pull { position: relative; flex: none; width: var(--w); height: var(--sp-h); margin: 0 4px 0 8px; perspective: 560px; perspective-origin: 20% 100%; }
+  .sh-pull::after { content: ''; position: absolute; left: 6px; right: -14px; bottom: -6px; height: 14px; border-radius: 50%; background: radial-gradient(closest-side, rgb(20 10 30 / 0.45), transparent); }
+  .sh-pull-obj { position: absolute; top: 0; bottom: 0; left: 12px; right: 0; transform-style: preserve-3d; transform-origin: left bottom; transform: rotateY(26deg) rotateX(-6deg) translateZ(18px); }
+  .sh-pull-face { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 2px 5px 5px 2px;
+    box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.3), 16px 20px 28px -14px rgb(0 0 0 / 0.55), 0 0 34px -8px var(--k1); }
+  .sh-pull-sheen { position: absolute; inset: 0; border-radius: 2px 5px 5px 2px; background: linear-gradient(115deg, rgb(255 255 255 / 0.3), transparent 36%); pointer-events: none; }
+  .sh-pull-side { position: absolute; left: 0; top: 0; bottom: 0; width: 28px; transform-origin: left center; transform: rotateY(90deg);
+    background: linear-gradient(90deg, var(--se), var(--sb)); box-shadow: inset 0 6px 0 -0px var(--band); }
+
+  /* the shelf talker hanging from the ledge */
+  .sh-talker-at { position: absolute; z-index: 4; left: var(--x); top: 100%; margin-top: 6px; }
+  .sh-talker { position: relative; display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 14px; border-radius: 18px;
+    background: var(--glass-2); -webkit-backdrop-filter: blur(var(--frost)) saturate(1.6); backdrop-filter: blur(var(--frost)) saturate(1.6);
+    box-shadow: var(--glass-shadow), 0 0 0 1px color-mix(in srgb, var(--k1) 40%, transparent), 0 14px 28px -16px var(--k1); }
+  .sh-talker-clip { position: absolute; left: 34px; top: -9px; width: 14px; height: 9px; border-radius: 3px 3px 0 0; background: var(--ledge-top); box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.12); }
+  .sh-talker-t { display: grid; gap: 1px; }
+  .sh-talker-t b { font: 700 14.5px/1.2 var(--ui); letter-spacing: -0.01em; white-space: nowrap; }
+  .sh-talker-t small { font: 500 12.5px/1.25 var(--ui); color: var(--ink-2); white-space: nowrap; }
+  .sh-talker-go { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; flex: none; color: var(--btn-fg); background: var(--btn-bg); box-shadow: 0 8px 18px -8px var(--k1); }
+  .sh-talker-go svg { fill: currentColor; margin-left: 2px; }
+
+  /* the rest of a shelf, packed */
+  .sh-more { position: relative; flex: none; width: 30px; height: var(--sp-h); display: flex; align-items: center; justify-content: flex-start; padding-top: 12px; flex-direction: column; border-radius: 4px; color: var(--ink);
+    background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--ink) 9%, transparent) 0 1.5px, transparent 1.5px 4.5px), var(--glass); box-shadow: var(--glass-shadow); }
+  .sh-more span, .sh-more small { writing-mode: vertical-rl; font: 750 12.5px/1 var(--ui); white-space: nowrap; }
+  .sh-more small { margin-top: 4px; font-weight: 600; font-size: 12px; color: var(--ink-2); }
+  .sh-more.sm { width: 20px; padding-top: 10px; }
+  .sh-more.sm span { font-size: 11.5px; }
+
+  /* platforms the mock has no spines for */
+  .sh-closed ul { border-radius: 22px; }
+  .sh-cl { position: relative; display: flex; align-items: center; gap: 12px; min-height: 54px; padding: 8px 12px 8px 16px; }
+  .sh-cl + .sh-cl::before { content: ''; position: absolute; top: 0; right: 0; left: 38px; height: 0.5px; background: var(--hair); }
+  .sh-cl-c { width: 10px; height: 30px; flex: none; border-radius: 2px; box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.25), inset 3px 0 0 rgb(255 255 255 / 0.18); }
+  .sh-cl-t { flex: 1; min-width: 0; display: grid; gap: 2px; }
+  .sh-cl-t b { font: 650 15px/1.2 var(--ui); }
+  .sh-cl-t small { font: 500 12.5px/1.2 var(--ui); color: var(--ink-2); }
+
+  /* ================================================================ PLATFORM · the bookcase */
+  .sh-plat { padding: 8px var(--gut) 28px; }
+  .sh-sum { display: grid; grid-template-columns: 1fr 1.25fr 1fr 1fr; padding: 11px 4px; border-radius: 22px; }
+  .sh-sum-c { position: relative; display: grid; justify-items: center; align-content: center; gap: 5px; text-align: center; }
+  .sh-sum-c + .sh-sum-c::before { content: ''; position: absolute; left: 0; top: 6px; bottom: 6px; width: 0.5px; background: var(--hair); }
+  .sh-sum-c b { display: inline-flex; align-items: center; gap: 6px; height: 24px; font: 750 24px/1 var(--display); font-stretch: 82%; }
+  .sh-sum-c b svg { stroke-width: 2; }
+  .sh-sum-c span { font: 600 11.5px/1.2 var(--ui); color: var(--ink-2); }
+  .sh-row.bk { margin-top: 14px; padding-bottom: 22px; }
+  .sh-ledge.tall { height: 22px; }
+  .sh-marks { position: absolute; left: var(--gut); right: var(--gut); top: 3px; bottom: 0; }
+  .sh-mark { position: absolute; left: var(--x); width: max(var(--mw), 16px); top: 4px; text-align: center; font: 800 12px/1 var(--display); font-stretch: 84%; color: var(--ink); }
+  .sh-mark::before { content: ''; position: absolute; left: 50%; top: -7px; width: 1px; height: 4px; background: color-mix(in srgb, var(--ink) 30%, transparent); }
+  .sh-gap { position: relative; flex: none; width: var(--w); height: var(--sp-h); border-radius: 3px;
+    background: radial-gradient(130% 55% at 50% 100%, color-mix(in srgb, var(--k1) 55%, transparent), transparent 75%), color-mix(in srgb, var(--k1) 8%, transparent);
+    box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--k1) 60%, transparent), inset 6px 0 10px -6px rgb(0 0 0 / 0.3), inset -6px 0 10px -6px rgb(0 0 0 / 0.3); }
+
+  .sh-detail { position: relative; margin: 16px 0 4px; padding: 14px; border-radius: 24px; background: var(--detail-bg);
+    -webkit-backdrop-filter: blur(var(--frost)) saturate(1.6); backdrop-filter: blur(var(--frost)) saturate(1.6);
+    box-shadow: var(--glass-shadow), 0 0 0 1px color-mix(in srgb, var(--k1) 35%, transparent), 0 24px 44px -26px var(--k1); }
+  .sh-detail-notch { position: absolute; top: -10px; left: clamp(20px, calc(var(--nx) - 10px), calc(100% - 40px)); width: 20px; height: 10px; background: var(--detail-bg); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+  .sh-detail-top { display: grid; grid-template-columns: 86px minmax(0, 1fr); gap: 14px; align-items: start; }
+  .sh-detail-cover { position: relative; aspect-ratio: 3 / 4; }
+  .sh-detail-glow { position: absolute; left: 6%; top: 12%; width: 88%; height: 92%; filter: blur(18px) saturate(1.8); opacity: var(--gs-glow-o); }
+  .sh-detail-img { position: relative; width: 100%; height: 100%; object-fit: cover; border-radius: 8px; box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.2), 0 14px 22px -14px rgb(0 0 0 / 0.6); }
+  .sh-detail-t { min-width: 0; display: grid; gap: 4px; }
+  .sh-detail-k { font: 750 11px/1.2 var(--ui); letter-spacing: 0.11em; text-transform: uppercase; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sh-detail-t h2 { font: 750 28px/1 var(--display); font-stretch: 82%; letter-spacing: -0.02em; }
+  .sh-detail-here { display: flex; align-items: center; gap: 6px; font: 650 13px/1.2 var(--ui); color: var(--ok); }
+  .sh-detail-here.off { color: var(--ink-2); }
+  .sh-detail-here svg { stroke-width: 2.4; }
+  .sh-detail .sh-act { margin-top: 6px; }
+  .sh-detail .a-btn.round { width: 46px; }
+  .sh-facts { display: grid; grid-template-columns: 1.5fr 1.1fr 0.7fr 0.6fr; gap: 10px; margin: 14px 2px 0; padding-top: 12px; border-top: 0.5px solid var(--hair); }
+  .sh-facts div { min-width: 0; display: grid; gap: 3px; }
+  .sh-facts dt { font: 650 10.5px/1.1 var(--ui); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+  .sh-facts dd { margin: 0; font: 650 13px/1.2 var(--ui); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sh-last { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 0.5px solid var(--hair); }
+  .sh-last-img { width: 64px; height: 48px; flex: none; overflow: hidden; border-radius: 10px; background: #000; box-shadow: 0 10px 18px -12px var(--k1); }
+  .sh-last-img img { width: 100%; height: 100%; object-fit: cover; }
+  .sh-last-t { flex: 1; min-width: 0; display: grid; gap: 1px; }
+  .sh-last-k { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 2px; }
+  .sh-last-k small { font: 750 10.5px/1.2 var(--ui); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); }
+  .sh-last-k .a-sync { height: 22px; font-size: 11.5px; }
+  .sh-last-t b { font: 700 16px/1.2 var(--display); font-stretch: 86%; }
+  .sh-last-t > small { font: 500 12px/1.3 var(--ui); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ================================================================ wider canvases (Duo open) */
+  @container content (min-width: 700px) {
+    .sh-home { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; padding: 6px 24px 28px; }
+    .sh-home-b .sh-sec:first-child { margin-top: 0; }
+    .sh-lib, .sh-plat { padding-left: 24px; padding-right: 24px; --gut: 24px; }
+    .sh-detail { max-width: 560px; }
+  }
+}

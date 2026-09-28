@@ -1,0 +1,259 @@
+/*
+ * AURORA · TIMELINE — round 3. Every rule is scoped under .v-timeline (the screen also
+ * carries .v-aurora, so Aurora's tokens and components apply). Light tokens on the scope,
+ * dark on &.scheme-dark. Per-game light (--l1..3, --k1..3) comes from AuroraKit.scene/lit;
+ * console lanes carry --c (line) and --ci (label ink) inline.
+ */
+.v-timeline {
+  --tl-rule: rgb(22 19 29 / 0.1);
+  --tl-rule-strong: rgb(22 19 29 / 0.2);
+  --tl-dim: 0.2;
+  --tl-on-ink: #ffffff;
+  --tl-ok-fg: #ffffff;
+  --tl-cover-shadow: 0 0 0 0.5px rgb(22 19 29 / 0.18), 0 8px 14px -9px rgb(40 20 60 / 0.55);
+  --tl-band-a: 62%;
+  --tl-band-b: 30%;
+  --tl-glass-strong: rgb(255 255 255 / 0.74);
+
+  &.scheme-dark {
+    --tl-rule: rgb(255 255 255 / 0.085);
+    --tl-rule-strong: rgb(255 255 255 / 0.2);
+    --tl-dim: 0.24;
+    --tl-on-ink: #0b0a12;
+    --tl-ok-fg: #07070c;
+    --tl-cover-shadow: 0 0 0 0.5px rgb(255 255 255 / 0.14), 0 10px 16px -10px rgb(0 0 0 / 0.9);
+    --tl-band-a: 34%;
+    --tl-band-b: 16%;
+    --tl-glass-strong: rgb(30 28 40 / 0.62);
+  }
+
+  /* ================================================================ HOME · the river */
+  .tl-f-home { --p1: 14% 4%; --s1: 70% 30%; --p2: 96% 0%; --s2: 64% 26%; --p3: 44% 22%; --s3: 100% 22%; }
+  .tl-f-home .a-field-art { height: 44%; }
+
+  .tl-home { position: relative; padding: 4px 16px 0; }
+
+  /* Now: the freshest resume point, and the head of its own lane. */
+  .tl-now { position: relative; display: grid; grid-template-columns: 172px minmax(0, 1fr); gap: 16px; align-items: start; padding-bottom: 22px; }
+  .tl-now-scr { position: relative; z-index: 1; }
+  .tl-now-gs .a-gs-face { border-radius: 14px; }
+  .tl-now-gs .a-gs-glow { filter: blur(22px) saturate(1.8); }
+  .tl-now-cap { display: grid; gap: 6px; justify-items: start; min-width: 0; padding-top: 1px; }
+  .tl-now-cap .a-eyebrow { font-size: 10.5px; gap: 7px; letter-spacing: 0.1em; }
+  .tl-now-t { font: 700 27px/0.97 var(--display); font-stretch: 80%; letter-spacing: -0.022em; text-wrap: balance; color: var(--ink); }
+  .tl-now-meta { font: 500 13px/1.32 var(--ui); color: var(--ink-2); text-wrap: pretty; }
+  .tl-now-cap .a-sync { margin-top: 1px; }
+  .tl-now-act { display: flex; gap: 8px; width: 100%; margin-top: 8px; }
+  .tl-now-act .a-btn.md { height: 46px; font-size: 16px; }
+  .tl-now-act .tl-info { width: 46px; height: 46px; }
+  .tl-stem { position: absolute; left: 8.5px; top: 124px; bottom: -1px; width: 3px; border-radius: 2px 2px 0 0; background: var(--k1); z-index: 0; }
+
+  /* The graph: SVG lanes in the gutter, HTML rows in the text column. */
+  .tl-graph { position: relative; --tl-hole: var(--sys-bg); }
+  .tl-svg { position: absolute; left: 0; top: 0; overflow: visible; z-index: 1; }
+  .tl-r { position: absolute; left: 88px; right: 0; z-index: 2; display: flex; align-items: center; gap: 12px; min-width: 0; }
+
+  .tl-title { flex-direction: column; align-items: flex-start; justify-content: center; gap: 3px; }
+  .tl-title h2 { font: 700 24px/1.02 var(--display); font-stretch: 84%; letter-spacing: -0.018em; color: var(--ink); }
+  .tl-title p { font: 500 13px/1.3 var(--ui); color: var(--ink-2); }
+
+  /* Day labels: quiet rules across the whole graph (lanes pass over them). */
+  .tl-rule { position: absolute; left: 0; right: 0; z-index: 0; display: flex; align-items: center; gap: 8px; padding-left: 88px; }
+  .tl-rule::before { content: ''; position: absolute; left: 0; width: 80px; top: 50%; height: 1px; background: var(--tl-rule); }
+  .tl-rule b { font: 750 11.5px/1 var(--ui); letter-spacing: 0.11em; text-transform: uppercase; color: var(--ink); white-space: nowrap; }
+  .tl-rule span { font: 600 12.5px/1 var(--ui); color: var(--ink-2); white-space: nowrap; }
+  .tl-rule i { flex: 1; height: 1px; background: var(--tl-rule); }
+  .tl-rule small { font: 600 12.5px/1 var(--ui); color: var(--ink-2); white-space: nowrap; }
+  .tl-rule.quiet b { font-weight: 700; font-size: 11px; color: var(--ink-2); letter-spacing: 0.1em; }
+  .tl-rule.quiet small { font-weight: 500; font-size: 12px; }
+
+  /* Head chip: where a game in progress begins. Tap to resume. */
+  .tl-head {
+    display: inline-flex; align-items: center; gap: 10px; height: 48px; max-width: 100%; padding: 0 6px 0 7px; border-radius: 16px; text-align: left;
+    background: var(--tl-glass-strong); -webkit-backdrop-filter: blur(var(--frost)) saturate(1.6); backdrop-filter: blur(var(--frost)) saturate(1.6);
+    box-shadow: var(--glass-shadow), inset 0 0 0 1px color-mix(in srgb, var(--k1) 26%, transparent);
+  }
+  .tl-mini { width: 26px; height: 35px; border-radius: 5px; flex: none; object-fit: cover; box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.22), 0 6px 12px -6px var(--k1, rgb(0 0 0 / 0.4)); }
+  .tl-head-t { display: grid; gap: 2px; min-width: 0; }
+  .tl-head-t b { font: 700 15px/1.15 var(--ui); letter-spacing: -0.01em; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tl-head-t small { font: 500 12.5px/1.2 var(--ui); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tl-head-go { display: grid; place-items: center; width: 36px; height: 36px; margin-left: 2px; border-radius: 50%; flex: none; background: var(--btn-bg); color: var(--btn-fg); box-shadow: 0 8px 16px -8px var(--k1); }
+  .tl-head-go svg { fill: currentColor; margin-left: 2px; }
+  .tl-qs { height: auto; padding: 0; background: none; font-size: 12.5px; gap: 5px; }
+  .tl-cap .tl-qs { margin-left: 7px; vertical-align: -1px; }
+  .tl-qs .a-dot { width: 6px; height: 6px; box-shadow: 0 0 0 2.5px color-mix(in srgb, currentColor 20%, transparent); }
+  .tl-choose { gap: 10px; padding-right: 6px; box-shadow: var(--glass-shadow), inset 0 0 0 1px color-mix(in srgb, var(--bad) 45%, transparent); }
+  .tl-choose .tl-head-t { margin-right: 4px; }
+  .tl-choose-btn.a-btn.sm { height: 36px; padding: 0 16px; font-size: 14.5px; }
+  .tl-cnode {
+    position: absolute; z-index: 3; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--sys-bg); color: var(--bad);
+    box-shadow: inset 0 0 0 2.5px var(--bad), 0 0 0 3px var(--sys-bg), 0 0 18px color-mix(in srgb, var(--bad) 55%, transparent);
+  }
+  .tl-cnode svg { stroke-width: 2.4; }
+
+  /* Session rows: a save hangs off the lane as a small glowing frame. */
+  .tl-shot { position: relative; flex: none; width: 64px; height: 48px; margin: 0; }
+  .tl-shot-glow { position: absolute; left: 8%; top: 22%; width: 84%; height: 88%; object-fit: fill; filter: blur(12px) saturate(1.8); opacity: var(--gs-glow-o); }
+  .tl-shot-face { position: absolute; inset: 0; overflow: hidden; border-radius: 9px; background: #000; box-shadow: var(--face-shadow); }
+  .tl-shot-face img { width: 100%; height: 100%; object-fit: cover; }
+  .tl-shot-face::after { content: ''; position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(158deg, rgb(255 255 255 / 0.16), transparent 34%); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08); pointer-events: none; }
+  .tl-shot.dim .tl-shot-face img { filter: saturate(0.7); }
+  .tl-shot.dim .tl-shot-glow { opacity: calc(var(--gs-glow-o) * 0.5); }
+  /* No preview: a lit crop of the wide cover art, honestly tagged "Cover". */
+  .tl-plate .tl-shot-face img { object-fit: cover; object-position: 50% 60%; }
+  .tl-plate-wash { position: absolute; inset: 0; background: linear-gradient(150deg, color-mix(in srgb, var(--l1) 40%, transparent), transparent 52%), linear-gradient(0deg, rgb(8 6 14 / 0.66), transparent 58%); }
+  .tl-plate em { position: absolute; left: 5px; bottom: 4px; z-index: 1; font: 800 9px/1 var(--ui); font-style: normal; letter-spacing: 0.12em; text-transform: uppercase; color: #fff; }
+  .tl-plate .tl-shot-face { box-shadow: var(--face-shadow), inset 0 0 0 1px color-mix(in srgb, var(--k1) 50%, transparent); }
+
+  .tl-cap { display: grid; gap: 2px; min-width: 0; flex: 1; }
+  .tl-cap b { font: 650 17px/1.08 var(--display); font-stretch: 86%; letter-spacing: -0.008em; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tl-cap > span { display: block; min-width: 0; font: 600 12.5px/1.3 var(--ui); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tl-cap small { font: 500 12px/1.3 var(--ui); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tl-cap em { font: 750 10.5px/1.25 var(--ui); font-style: normal; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); margin-bottom: 1px; }
+  .tl-ev.plain .tl-cap { padding-left: 76px; }
+  .tl-ev.plain .tl-cap b { font: 600 15px/1.2 var(--ui); letter-spacing: -0.01em; }
+  .tl-ev.put .tl-cap b { font: 700 15px/1.2 var(--ui); letter-spacing: -0.01em; }
+  .tl-ev.put .tl-cap > span { font-weight: 500; }
+  .tl-cvslot { display: grid; place-items: center; width: 64px; height: 48px; flex: none; }
+  .tl-mini.put { width: 30px; height: 40px; filter: saturate(0.55); opacity: 0.85; }
+
+  .tl-foot { flex-direction: column; align-items: flex-start; justify-content: center; gap: 12px; }
+  .tl-foot p { font: 500 13px/1.4 var(--ui); color: var(--ink-2); text-wrap: pretty; }
+  .tl-more {
+    display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px 0 14px; border-radius: 999px; font: 650 14.5px var(--ui); color: var(--ink);
+    background: var(--glass); -webkit-backdrop-filter: blur(var(--frost)) saturate(1.6); backdrop-filter: blur(var(--frost)) saturate(1.6); box-shadow: var(--glass-shadow);
+  }
+  .tl-more svg:last-child { color: var(--ink-2); }
+
+  &.scheme-dark .tl-ln { filter: drop-shadow(0 0 4px currentColor); }
+  &.scheme-dark .tl-stem { filter: drop-shadow(0 0 4px var(--k1)); }
+
+  /* ================================================================ LIBRARY · the year river */
+  .tl-f-lib { --p1: 10% 0%; --s1: 70% 24%; --p2: 96% 2%; --s2: 60% 22%; --p3: 50% 16%; --s3: 100% 18%; }
+
+  .tl-lib { position: relative; padding: 0 0 150px; }
+  .tl-lib-end { margin: 18px 38px 0 140px; font: 500 12.5px/1.4 var(--ui); color: var(--ink-2); text-wrap: pretty; }
+
+  /* The page gutters live inside the river so the year band can bleed edge to edge
+     within its own (maskable) box. */
+  .tl-river { position: relative; isolation: isolate; display: grid; grid-template-columns: repeat(var(--tl-cols), 12px) 10px minmax(0, 1fr); padding: 0 38px 0 10px; }
+
+  /* A console's lifespan. Solid: home console. Dashed: handheld. Double rail: arcade. */
+  /* No z-index on the lane itself: its line, cap and name layer with stations and rows. */
+  .tl-lane { position: relative; display: flex; flex-direction: column; align-items: center; min-height: 0; }
+  .tl-lane::before { content: ''; position: absolute; z-index: 2; top: 4px; bottom: 0; left: 50%; width: 3px; margin-left: -1.5px; border-radius: 2px; background: var(--c); }
+  .tl-lane.cont::before { top: 0; }
+  .tl-lane.ends::before { -webkit-mask-image: linear-gradient(#000 calc(100% - 40px), transparent); mask-image: linear-gradient(#000 calc(100% - 40px), transparent); }
+  .tl-lane.open::before { -webkit-mask-image: linear-gradient(#000 calc(100% - 22px), transparent); mask-image: linear-gradient(#000 calc(100% - 22px), transparent); }
+  .tl-lane.hh::before { background: repeating-linear-gradient(180deg, var(--c) 0 7px, transparent 7px 11px); }
+  .tl-lane.arc::before { width: 5px; margin-left: -2.5px; border-radius: 0; background: linear-gradient(90deg, var(--c) 0 1.5px, transparent 1.5px 3.5px, var(--c) 3.5px 5px); }
+  .tl-lane-cap { position: relative; z-index: 3; flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--sys-bg); box-shadow: inset 0 0 0 2.5px var(--c); }
+  .tl-lane.cont .tl-lane-cap { display: none; }
+  /* Sticky offsets in this scroller are measured from its content box (below the bars). */
+  .tl-lane-lb {
+    position: sticky; top: 8px; z-index: 4; margin-top: 30px; padding: 5px 0.5px; border-radius: 6px;
+    writing-mode: vertical-rl; font: 750 10.5px/1 var(--ui); letter-spacing: 0.04em; color: var(--ci); background: var(--sys-bg); white-space: nowrap;
+  }
+  .tl-lane.cont .tl-lane-lb { margin-top: 0; }
+  &.scheme-dark .tl-lane::before { filter: drop-shadow(0 0 3px color-mix(in srgb, var(--c) 70%, transparent)); }
+
+  /* Stations: a console had games this year. */
+  .tl-st { z-index: 3; justify-self: center; align-self: start; width: var(--s); height: var(--s); margin-top: calc(26px - var(--s) / 2); border-radius: 50%; background: var(--c); box-shadow: 0 0 0 2.5px var(--sys-bg); }
+
+  .tl-band {
+    grid-column: 1 / -1; z-index: 0; margin: 0 -38px 0 -10px;
+    background:
+      linear-gradient(90deg, color-mix(in srgb, var(--l1) var(--tl-band-a), transparent), color-mix(in srgb, var(--l2) var(--tl-band-b), transparent) 55%, transparent 96%);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--k1) 28%, transparent), inset 0 -1px 0 color-mix(in srgb, var(--k1) 28%, transparent);
+  }
+
+  .tl-yr { grid-column: -2 / -1; z-index: 1; position: relative; min-width: 0; padding-top: 10px; }
+  .tl-yr header { display: flex; align-items: center; gap: 10px; height: 32px; margin-bottom: 8px; }
+  .tl-yr-n { font: 750 33px/1 var(--display); font-stretch: 76%; letter-spacing: -0.035em; color: var(--ink); }
+  .tl-yr-c { display: grid; gap: 1px; min-width: 0; }
+  .tl-yr-c em { font: 700 12.5px/1.15 var(--ui); font-style: normal; color: var(--ink); white-space: nowrap; }
+  .tl-yr-c small { font: 500 12px/1.2 var(--ui); color: var(--ink-2); white-space: nowrap; }
+  .tl-yr.inline { display: flex; gap: 10px; align-items: flex-start; }
+  .tl-yr.inline header { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 5px; width: 76px; height: auto; margin: 0; flex: none; }
+  .tl-yr.hi .tl-yr-n { background: linear-gradient(100deg, var(--ink) 30%, var(--k1)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .tl-covers { display: flex; flex-wrap: wrap; gap: 10px 8px; min-width: 0; }
+
+  .tl-cv { position: relative; flex: none; width: 48px; height: 64px; margin: 0; }
+  .tl-cv-img { position: relative; width: 100%; height: 100%; border-radius: 6px; object-fit: cover; box-shadow: var(--tl-cover-shadow); }
+  .tl-cv::after { content: ''; position: absolute; left: 8px; right: 8px; bottom: -5px; height: 2.5px; border-radius: 2px; background: var(--c); }
+  .tl-cv-glow { position: absolute; left: -7px; top: 6px; width: 62px; height: 70px; object-fit: fill; filter: blur(12px) saturate(1.9); opacity: 0.95; }
+  .tl-cv.ip .tl-cv-img { box-shadow: 0 0 0 2px var(--k1), 0 0 0 3.5px color-mix(in srgb, var(--k1) 25%, transparent), 0 10px 22px -8px var(--k1); }
+  .tl-cv:not(.here) .tl-cv-img { filter: saturate(0.8); }
+  .tl-cv-ok { position: absolute; z-index: 1; top: -5px; right: -5px; width: 17px; height: 17px; display: grid; place-items: center; border-radius: 50%; background: var(--ok); color: var(--tl-ok-fg); box-shadow: 0 0 0 2px var(--sys-bg); }
+  .tl-cv-ok svg { stroke-width: 3.2; }
+
+  .tl-cv-more { display: grid; place-content: center; gap: 2px; text-align: center; border-radius: 6px; background: var(--glass); box-shadow: var(--glass-shadow); }
+  .tl-cv-more::after { display: none; }
+  .tl-cv-more b { font: 750 17px/1 var(--display); font-stretch: 80%; color: var(--ink); }
+  .tl-cv-more small { font: 600 10.5px/1 var(--ui); color: var(--ink-2); }
+
+  .tl-gap { grid-column: -2 / -1; z-index: 1; display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .tl-gap span { font: 650 11.5px/1 var(--ui); letter-spacing: 0.02em; color: var(--ink-2); white-space: nowrap; }
+  .tl-gap i { flex: 1; height: 0; border-top: 2px dotted var(--tl-rule-strong); }
+
+  /* Sort, pinned beside the stuck lane names. */
+  .tl-lib-bar { position: absolute; z-index: 26; top: calc(var(--sys-top) + 8px); left: 140px; }
+  .tl-lib > .tl-lib-bar { position: static; margin: 0 0 10px 140px; }
+  .tl-sort {
+    position: relative; display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 11px 0 11px; border-radius: 999px; font: 600 13px/1 var(--ui); color: var(--ink-2); white-space: nowrap;
+    background: var(--tl-glass-strong); -webkit-backdrop-filter: blur(var(--frost)) saturate(1.6); backdrop-filter: blur(var(--frost)) saturate(1.6); box-shadow: var(--glass-shadow);
+  }
+  .tl-sort::after { content: ''; position: absolute; inset: -5px 0; }
+  .tl-sort b { font-weight: 700; color: var(--ink); }
+
+  /* Year scrubber, Photos-style. */
+  .tl-scrub { position: absolute; z-index: 24; right: 0; width: 44px; top: calc(var(--sys-top) + 66px); bottom: calc(var(--sys-bottom) + 16px); }
+  .tl-sc-track { position: absolute; right: 21px; top: 6px; bottom: 6px; width: 2px; border-radius: 1px; background: var(--tl-rule-strong); }
+  .tl-sc-d { position: absolute; right: 4px; height: 2px; margin-top: -1px; border-radius: 1px; background: color-mix(in srgb, var(--ink) 38%, transparent); }
+  .tl-sc-t { position: absolute; left: 7px; margin-top: -7px; font: 700 10.5px/14px var(--ui); color: var(--ink-2); }
+  .tl-sc-th {
+    position: absolute; left: -7px; width: 16px; height: 26px; margin-top: -13px; border-radius: 999px;
+    background: var(--tl-glass-strong); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); box-shadow: var(--glass-shadow), inset 0 0 0 1.5px var(--k1);
+  }
+  .tl-sc-bub {
+    position: absolute; right: 26px; top: 50%; display: grid; justify-items: end; gap: 1px; padding: 7px 12px 7px 14px; border-radius: 16px; transform: translateY(-50%); white-space: nowrap;
+    background: var(--tl-glass-strong); -webkit-backdrop-filter: blur(var(--frost)) saturate(1.6); backdrop-filter: blur(var(--frost)) saturate(1.6); box-shadow: var(--glass-shadow);
+  }
+  .tl-sc-bub b { font: 750 22px/1 var(--display); font-stretch: 80%; letter-spacing: -0.02em; color: var(--ink); }
+  .tl-sc-bub small { font: 600 11.5px/1.2 var(--ui); color: var(--ink-2); }
+
+  /* ================================================================ PLATFORM · one lane lit */
+  .tl-plat .tl-river { padding-right: 16px; }
+  .tl-ph {
+    position: relative; display: grid; gap: 10px; margin: 4px 16px 18px; padding: 14px 14px 14px 18px; border-radius: var(--r); overflow: hidden;
+    background: var(--glass); -webkit-backdrop-filter: blur(var(--frost)) saturate(1.6); backdrop-filter: blur(var(--frost)) saturate(1.6); box-shadow: var(--glass-shadow);
+  }
+  .tl-ph::before { content: ''; position: absolute; left: 0; top: 14px; bottom: 14px; width: 4px; border-radius: 0 3px 3px 0; background: var(--c); box-shadow: 0 0 14px var(--c); }
+  .tl-ph-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .tl-ph-years { display: flex; align-items: center; gap: 10px; font: 750 32px/1 var(--display); font-stretch: 78%; letter-spacing: -0.03em; color: var(--ink); }
+  .tl-ph-years i { width: 30px; height: 3px; border-radius: 2px; background: var(--c); }
+  .tl-clear { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px 0 11px; border-radius: 999px; font: 650 14px/1 var(--ui); background: var(--btn-bg); color: var(--btn-fg); }
+  .tl-clear::after { content: ''; position: absolute; inset: -4px 0; }
+  .tl-clear svg { stroke-width: 2.4; }
+  .tl-ph-axis { position: relative; height: 28px; margin: 0 6px; }
+  .tl-ph-axis::before { content: ''; position: absolute; left: 0; right: 0; top: 6px; height: 1.5px; border-radius: 1px; background: var(--tl-rule-strong); }
+  .tl-ph-seg { position: absolute; top: 3px; height: 7.5px; border-radius: 4px; background: var(--c); box-shadow: 0 0 12px var(--c); }
+  .tl-ph-axis span { position: absolute; top: 15px; transform: translateX(-50%); font: 650 10.5px/1 var(--ui); color: var(--ink-2); }
+  .tl-ph-note { font: 500 13px/1.38 var(--ui); color: var(--ink-2); text-wrap: pretty; }
+  .tl-ph-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tl-chip { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border-radius: 999px; font: 650 12.5px var(--ui); color: var(--ink); background: var(--glass); box-shadow: var(--glass-shadow); white-space: nowrap; }
+
+  /* Context lanes: the line and cap dim; the name stays readable in neutral ink. */
+  .tl-river.only .tl-lane.off::before, .tl-river.only .tl-lane.off .tl-lane-cap { opacity: var(--tl-dim); }
+  .tl-river.only .tl-lane.off .tl-lane-lb { color: var(--ink-2); font-weight: 650; }
+  .tl-river.only .tl-st.off { opacity: var(--tl-dim); }
+  .tl-lane.on::before { width: 4px; margin-left: -2px; box-shadow: 0 0 12px var(--c); }
+  .tl-lane.on .tl-lane-lb { color: var(--tl-on-ink); background: var(--c); padding: 6px 1px; }
+  .tl-lane.on .tl-lane-cap { width: 12px; height: 12px; box-shadow: inset 0 0 0 3px var(--c), 0 0 12px var(--c); }
+  .tl-plat .tl-lib-end { margin-right: 16px; }
+
+  /* ================================================================ other devices (not designed; must not break) */
+  &.dev-duo-closed .tl-now, &.dev-duo-open .tl-now { grid-template-columns: 180px minmax(0, 1fr); }
+  &.dev-duo-open .tl-home { max-width: 640px; }
+}

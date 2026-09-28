@@ -30,6 +30,24 @@ the game and its controls are never separated into regions.
 Round 1 (visual directions over a shared layout) is archived in
 `versions/v1/` and selectable with the v1/v2 switch.
 
+## Round 3 (Aurora Home & Library explorations)
+
+The shipped Aurora Play page shows one game at a time, and its Library shows
+one cover at a time behind three stacked filters. Round 3 (`versions/v3/`,
+the v3 switch, `#compare-home+v3`) keeps Aurora's material (per-game light,
+glass, Bricolage + Figtree, both appearances) and rethinks the structure. Each
+exploration sets `extends: 'aurora'`, so it inherits Aurora's tokens and
+components (`window.AuroraKit`, `window.AuroraX` in `versions/v3/v3.js`), and
+designs Home, Library and one drill-in, using the app's real tabs.
+
+| Version | Home | Library |
+| --- | --- | --- |
+| **Aurora today** | the round-2 reference, for comparison | |
+| **Lightbox** | Marquee: the resume frame edge to edge, every game in play in one row | Colour wall: a dense cover wall with lenses (Colour · Console · Era · Genre · A–Z), an index rail and a press-and-hold loupe |
+| **Shelf** | The stack: in-progress games as a Wallet-style pile | Spines: a shelf per console, spines sized by the game |
+| **Tonight** | Concierge: "How long have you got?" and a hand of three picks with reasons | Threads: pull a thread from game to game through series, makers, genres and players |
+| **Timeline** | The river: a play graph whose lanes fork on a save conflict | The year river: the library along release years, console lifespans as lanes |
+
 ## Open it
 
 Open `design/studio/index.html` in a browser — no build step or server.

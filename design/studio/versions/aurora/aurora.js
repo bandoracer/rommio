@@ -1754,6 +1754,20 @@
     );
   }
 
+  // Shared with the round-3 Aurora explorations (versions/v3/): they extend this
+  // direction's tokens and components and design their own Home and Library.
+  // `use(c)` makes a helper read that screen's context (scheme, size); `done()` clears it.
+  window.AuroraKit = {
+    use: (c) => {
+      C = c;
+    },
+    done: () => {
+      C = null;
+    },
+    lights, lit, scene, field, gs, sync, btn, kicker, tier, momentTile, momentsOf, lastMoment,
+    KIND, kindLabel, hm, plat, ERAS, ROOMS, ACCOUNT, ARRIVING, statusLine, toHsl, toHex, keyColour,
+  };
+
   // ================================================================ register
   const screens = {
     welcome: welcomeScreen,
