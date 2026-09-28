@@ -122,8 +122,8 @@ migration transfer sit under Settings › Backup and recovery and Cores and BIOS
 
 | Page | Aurora | Riso |
 | --- | --- | --- |
-| Play | paged Continue playing lit by the game; recent saves as a lit gallery by day | resume as the lead, other games in progress, a pinned collection (e.g. "Finish in 2026"), recent saves as a list |
-| Library | browse by era with a cover row; platforms and tiers as filters | platforms grouped by tier with counts; A–Z list per platform |
+| Play | the game you're playing edge to edge, every game in play in one row, three picks with their reasons; recent saves as a lit gallery by day (rebuilt 2026-09-27 on iOS, 2026-09-28 on Android) | resume as the lead, other games in progress, a pinned collection (e.g. "Finish in 2026"), recent saves as a list |
+| Library | one wall of covers ordered by a lens (Console · Series · Year · Genre · A–Z) with an index rail (rebuilt 2026-09-27 on iOS, 2026-09-28 on Android) | platforms grouped by tier with counts; A–Z list per platform |
 | Search | results ranked by recent play, best match first | list-style results with related suggestions |
 | Stats | summary cards and time by game, lit by the top game | month summary, then recent sessions by day |
 | Game | art-forward hero with the game's saves as a timeline | article layout: title, where you left off, details box |
@@ -408,13 +408,21 @@ keeps its cookies to itself, so the app could not use the session. The page list
 
 Not verified or deliberately different; none block using the themes.
 
+- **Aurora Home and Library** were rebuilt on iOS on 2026-09-27 (studio round
+  3; [theme-layouts.md](theme-layouts.md) Play and Library) and ported to Android
+  on 2026-09-28. Android was checked on an API 35 emulator against a local stand-in
+  server (compact width only; no device, no performance numbers); regular width
+  and device-first ordering with real local play are covered by unit tests only.
 - **iPhone Duo open**: the stage rules, one-canvas pages and the Pause
   inspector are covered by unit tests and an iPad simulator; the simulator's
   unfolded pose could not be driven, so the open Duo itself is not captured.
 - **Android large screens**: checked by resizing the phone emulator
   (Play, Library, Game); no tablet AVD run.
 - **Performance**: Aurora glass blur (Android API 31+ redraws the field) and
-  Core Image prints/blurs are not profiled on low-end hardware.
+  Core Image prints/blurs are not profiled on low-end hardware. On iOS the
+  scroll pass measured Stats at about 40 fps on an iPhone Air, so content cards
+  now use a flat fill and small controls keep the glass (2026-09-27;
+  [theme-layouts.md](theme-layouts.md) §1.6).
 - **Launch choice timing**: iOS asks before the player whenever a launch would
   ask; Android still asks inside the player (same labels) when the cloud check
   hasn't finished or a save is incompatible with the core.

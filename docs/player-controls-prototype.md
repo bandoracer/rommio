@@ -44,8 +44,10 @@ thumb cap. N64 uses blue A, green B and yellow C buttons; PSX/PSP use symbol col
 SNES/DS use four face colors; Sega uses subdued faces and a red Start accent.
 New preferences enable console colors; existing saved choices remain respected.
 The iOS Metal surface lets the themed canvas show around the video, including
-the safe-area edges. Informational success banners clear after three seconds;
-their detail remains in the progress panel. Errors remain visible.
+the safe-area edges. Informational success banners clear after 2.5 seconds and
+sit below the top safe area (the Dynamic Island); their detail remains in the
+progress panel. Automatic saves (launch, periodic, pause, background) show no
+banner, only their status in the panel (revised 2026-09-27). Errors remain visible.
 
 ## Fable design review
 

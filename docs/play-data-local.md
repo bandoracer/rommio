@@ -257,14 +257,15 @@ unavailable when foreign or not kept here). `ConflictToPlayerTest` covers the re
 | Saves reader | `RommioFoundation/PlayData/SavedProgress.swift` (pure rules, `DeviceFormFactor`), `RommioFoundation/PlayData/SavedProgressReader.swift` (store reads, labels, previews, prune, conflicts) |
 | Stats | `RommioFoundation/PlayStats.swift` (`PlayStatsDerivation.merge`, `summarize`), `RommioUI/PageFeatureModels.swift` (`StatsFeatureModel`) |
 | Metadata | `RommioContract/RomMetadata.swift` (`LenientJSON`, `RomMetadata`, `RomMetadataFields`), `RommioContract/RommModels.swift` (`RomDTO.metadata`, cached as `rommio_metadata`), `RommioFoundation/LibraryRepository.swift` (merge on write) |
-| Pages | Play (Recent saves: `RommioUI/Pages/Play/RecentSaves.swift`; Conflict: `ConflictSheet.swift`), Game (`Pages/Game/*`: saves timeline / Where you left off from the reader, Details, Screenshots, `SavedProgressSheet.swift`), Stats (end reasons, footnote), Library (Aurora eras), player Save states sheet (`RommioUI/ProgressPlayerPanel.swift`), shared `RommioUI/Components/SaveViews.swift` |
+| Pages | Play (Recent saves: `RommioUI/Pages/Play/RecentSaves.swift`; Conflict: `ConflictSheet.swift`), Game (`Pages/Game/*`: saves timeline / Where you left off from the reader, Details, Screenshots, `SavedProgressSheet.swift`), Stats (end reasons, footnote), Library (Aurora eras; since 2026-09-27 the wall's Year lens), player Save states sheet (`RommioUI/ProgressPlayerPanel.swift`), shared `RommioUI/Components/SaveViews.swift` |
 
 Identifiers added (Android's names where this document lists them): `play.recentSaves`,
 `play.recentSave`, `game.savedProgress`, `game.details`, `game.screenshots`, `game.saves.sheet`,
 `game.saves.row`, `game.saves.rename`, `game.saves.resume`, `game.saves.renameSave`,
 `player.states.list`, `player.states.row`, `player.states.rename`, `player.states.renameSave`,
 plus the Conflict sheet's (`conflict.*`, `game.chooseResume`, `play.conflict.<romId>`) and
-`library.eras` / `library.era.<id>` from [theme-layouts.md](theme-layouts.md). The existing
+`library.eras` / `library.era.<id>` from [theme-layouts.md](theme-layouts.md) (retired on iOS on
+2026-09-27 with the era ruler; the eras now group the Library wall's Year lens). The existing
 Game page button keeps `gameDetail.browseStates`, and `player.*` identifiers and pause-sheet
 strings are unchanged (the pause tile "Saved progress" opens the Save states sheet).
 

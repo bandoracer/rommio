@@ -31,7 +31,7 @@ enum LibraryLens: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// One group of the wall: a sticky header over its covers.
+/// One group of the wall: the tile that names it, then its covers.
 struct LibraryWallSection: Identifiable, Hashable {
     let id: String
     let title: String

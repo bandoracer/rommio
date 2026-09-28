@@ -9,7 +9,7 @@ enum LibrarySelection: Hashable {
     case collection(RommCollectionDTO)
 }
 
-/// A game in the Library's browse row, with its cover.
+/// A game on the Library's wall, with its cover.
 struct LibraryGame: Identifiable, Hashable {
     let rom: RomDTO
     let artworkURL: URL?
@@ -23,7 +23,7 @@ struct LibraryCollection: Identifiable, Hashable {
     var id: String { collection.id }
 }
 
-/// An era with games (Aurora's ruler): its games by release year, the years they
+/// An era with games (the wall's Year lens): its games by release year, the years they
 /// span and the covers that give it its light.
 struct LibraryEraGroup: Identifiable, Hashable {
     let era: LibraryEra
@@ -51,7 +51,7 @@ struct LibraryContent: Equatable {
     var games: [LibraryGame] = [] {
         didSet { eras = LibraryEra.groups(games, inProgress: inProgress) }
     }
-    /// Games in progress, most recent first (their covers lead the browse row).
+    /// Games in progress, most recent first (their covers carry a lit ring on the wall).
     var inProgress: [RomDTO] = [] {
         didSet { eras = LibraryEra.groups(games, inProgress: inProgress) }
     }
@@ -118,8 +118,8 @@ struct LibraryContent: Equatable {
     }
 }
 
-/// Library: platforms grouped by how they play, and collections. Aurora browses
-/// covers with platforms and tiers as filters; Riso sets a contents page. On a
+/// Library: platforms grouped by how they play, and collections. Aurora sets every game
+/// on one wall of covers, ordered by a lens; Riso sets a contents page. On a
 /// regular-width display (iPhone Duo open) platforms and collections sit in a
 /// narrow list beside the selected one, on one shared background.
 struct LibraryPage: View {

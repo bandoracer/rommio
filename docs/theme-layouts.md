@@ -9,6 +9,12 @@ roles are written `role` (e.g. `display`), colour roles `colour` (e.g.
 (`design/studio/tools/shoot.sh shot-<aurora|riso>-<screen>[-dark|-duo-open|-duo-closed]`)
 are the visual reference; copy follows the plan's glossary, not the mockups.
 
+Revised 2026-09-27: Aurora's Home (the Play page) and Library were rebuilt on iOS
+from studio round 3 (`design/studio/versions/v3/`: Lightbox's edge-to-edge game
+and cover wall, Tonight's picks). The Play and Library sections below describe
+that build. Android was ported on 2026-09-28 with the same behaviour; its few
+differences are noted where they apply (Android details: `docs/android-theme-art.md`).
+
 Rules that hold everywhere:
 
 - One navigation structure and one set of strings/identifiers in both themes.
@@ -19,6 +25,17 @@ Rules that hold everywhere:
 - Regular width (iPhone Duo open, iPad) is "one canvas": the page background is
   shared across the fold; heroes and headers span it; list/detail only in
   Library.
+- Pages draw whole from their first frame, from what is on the device (iOS
+  2026-09-27, Android 2026-09-28). At launch (and on a switch of profile) iOS reads this device's downloads, its stats with
+  the cached library, and its saves before any server call, and publishes stats
+  and saves together (`localStateReady`); pages that choose games from them wait
+  for it (Play, **Games in play**). Android reads its stats and saves together
+  before Play asks the server and publishes Home's games, picks and recent saves in
+  one update; the Library's platforms and covers publish together. (Android's
+  sign-in check still asks the server before the shell opens; the pages then draw
+  complete from the cache.) Cached platforms come back in the server's
+  order (by name, as on Android), so a page drawn from the cache doesn't reorder
+  when the server answers. Covers load without a placeholder flash (§2 Cover).
 
 ## 1. Art treatments
 
@@ -129,6 +146,16 @@ Layers, bottom to top:
 An unlit page always uses `quiet` (except welcome), with the theme's own
 `accent1..3` as lights.
 
+Changing light (iOS, revised 2026-09-27): a light already in memory (its palettes
+and blurred cover) lights the page's first frame. When the lighting cover changes
+(another game brought to Play's hero, a push), the light already shown stays until
+the new cover's palettes **and** blurred cover are both ready, then the new field
+cross-dissolves over the old (`LayeredCrossfade`: 0.55 s ease-in-out; the two
+fields are added, plus-lighter, inside one group, so their weights always sum to
+one). The page never drops to its unlit ground on the way, and never shows both
+fields. The three lights are drawn as GPU shapes (a circle with a radial gradient,
+scaled to its ellipse), not a CPU canvas, which hitched on every change.
+
 ### 1.4 Riso paper
 
 `ground` plus a 180 px seeded grain tile (xorshift noise, mostly white with
@@ -159,15 +186,59 @@ save-state previews never are. Maths on encoded sRGB values (no linearisation).
 
 ### 1.6 Glass (Aurora surfaces)
 
-Card, row group, chip, button and field backgrounds: on iOS 26 `glassEffect(.regular.tint(surface @ 35%/18%))`
-over `surface` at 72% (light) / 90% (dark); before iOS 26 an ultra-thin material
-plus `surface`. Edge: 0.5 pt white 70%/8% keyline plus a 1 pt white top rim
-(95%/16% → clear by 12% of the height). Shadow black 7% r18 y9 (light), 34% r20 y12 (dark).
-Android: Compose has no backdrop filter, but the only thing behind a glass
-surface is the app-drawn page field (§1.3), so on API 31+ the surface redraws
-that field clipped to its own bounds with a `RenderEffect` blur (radius
-`material.glassBlur`) under `surface`; below API 31 it is `surface` over the
-field without blur. Edge and shadow as above.
+Two fills (iOS, revised 2026-09-27; "glass card" elsewhere in this spec means the
+content-card fill):
+
+- **Content cards and row groups** (`themeSurface`: `ThemedGroup` cards, Stats
+  cards, Play's pick cards and notices, Search's best match, the account card…):
+  a flat translucent fill with no live backdrop — light: `surfaceStrong` (a strong
+  card adds `surface` over it); dark: `surface` (`surfaceStrong` when strong) at
+  92%. Shadow cast by the fill: black 10% r18 y9 (light), 30% r20 y12 (dark).
+  Liquid Glass blurred the page behind every card on every frame (Stats scrolled
+  at about 40 fps on an iPhone Air), and over the already-soft field it looked
+  nearly the same.
+- **Small controls keep the glass** (chips and filter chips, buttons, icon
+  buttons, fields, the Library's group tiles, the pause tiles, the Conflict
+  sheet's choices): on iOS 26 `glassEffect(.regular.tint(surface @ 35%/18%))`
+  over `surface` at 72% (light) / 90% (dark); before iOS 26 an ultra-thin
+  material plus `surface`.
+
+Edge (both): 0.5 pt white 70%/8% keyline plus a 1 pt white top rim (95%/16% →
+clear by 12% of the height).
+Android keeps the glass fill for cards (its blur is baked, not redrawn on every
+frame, so it doesn't carry iOS's scrolling cost; Stats' glowing cover uses the
+pre-blurred cover, as on iOS). Compose has no backdrop filter, but
+the only thing behind a glass surface is the app-drawn page field (§1.3), so on
+API 31+ the surface redraws that field clipped to its own bounds with a
+`RenderEffect` blur (radius `material.glassBlur`) under `surface`; below API 31
+it is `surface` over the field without blur. Edge as above; shadow black 7% r18
+y9 (light), 34% r20 y12 (dark).
+
+### 1.7 Art under the status bar (Aurora)
+
+Pages that draw art under the bars at rest — Play's hero (compact) and the Game
+page's hero — treat the top edge as part of the art (iOS 2026-09-27, Android
+2026-09-28):
+
+- While the art is under the bar, the system's top scroll-edge effect (iOS 26) is
+  hidden: it washed the art with the ground. It returns once the art scrolls away
+  (Play: past 35% of the hero's height; Game: past 120 pt).
+- The status bar text follows the art under it, per cover: the rows of the cover
+  behind the status bar (the band the bar covers, given how the cover is cropped
+  into its hero, `GameArtHero.statusBarBand`) are averaged on a 16 × 4 downscale
+  (`0.2126 R + 0.7152 G + 0.0722 B`); below 0.5 is dark and gets light text,
+  otherwise dark text. No cover (Play's screenshot hero): the app's own style.
+- The app's window has one colour scheme, so a page can't choose the status bar
+  itself: a pass-through overlay window above the app (`StatusBarOverride`, no
+  touches or focus) decides only the status bar's style while a page asks; the
+  newest page asking wins, a page asks only while on screen, and it stands down
+  while the player covers the app (the player's own status bar applies).
+  Rotation, the home indicator and a hidden status bar still follow the app.
+- Android sets the status bar icons' appearance from the same measure
+  (`isAppearanceLightStatusBars`) only while the page is in front, and restores
+  the app's afterwards, including while the player is up. The Game page returns
+  to the app's style past 180 dp of scroll (where Android's bar turns solid)
+  rather than 120 pt.
 
 ## 2. Components (variant per theme)
 
@@ -180,12 +251,12 @@ field without blur. Edge and shadow as above.
 | Secondary button | glass capsule 44, `button` 15, `ink` (destructive `bad`) | 2 pt ink outline 44, `button` 17 |
 | Icon button | glass circle (prominent: `buttonFill` + `mark1` glow) | prominent: ink disc + `accent1` plate at 1.25 × misregistration; else 2 pt ink square |
 | Progress | 5 pt capsule, track ink 12%, fill `mark2 → mark1` gradient with `mark1` glow | 14 pt: halftone dots (pitch 5, 55%) + 1.5 ink outline; fill `accent2` with 1.5 ink outline |
-| Row group (`ThemedGroup`) | glass card radius `radius.card` (22); rows padded 16/9, min `rowHeight`; 0.5 hairline separators inset 16 (58 past icons, 68 past covers) | no card: rows padded 0/11 on paper, full-width 1 pt `hairline` rules, closing hairline |
+| Row group (`ThemedGroup`) | content card (§1.6) radius `radius.card` (22); rows padded 16/9, min `rowHeight`; 0.5 hairline separators inset 16 (58 past icons, 68 past covers) | no card: rows padded 0/11 on paper, full-width 1 pt `hairline` rules, closing hairline |
 | Row | title `bodyEmphasis` 16, subtitle `secondary` 13 | same roles (Newsreader) |
 | Value row | title … value `numeral` 15 `inkSecondary` | title, dot leader, value `numeral` 12.5 `ink` |
 | Icon tile | 30 pt rounded-9 square in the tone, white glyph | 32 pt 1.5 ink square, ink glyph |
-| Cover | radius `radius.cover` (14), 0.5 ink 10% keyline, shadow `#28143c` 28% r16 y12 (dark black 55%) | printed (1.5), 1 pt ink keyline, no radius, no shadow |
-| Glowing cover (heroes) | cover + its own art blurred r26, saturate 1.8, 55%/80% opacity, 86% × 92% at +14% down; top-left sheen; reflection below at 14% | printed cover only |
+| Cover | radius `radius.cover` (14), 0.5 ink 10% keyline, shadow `#28143c` 28% r16 y12 (dark black 55%). Loading (iOS, revised 2026-09-27): an image already in memory shows on the first frame; while one loads nothing is drawn over a quiet `surface` tile, and the placeholder stands in only when there is no art or it fails to load (a bright placeholder flashing over every cover read as the page jumping) | printed (1.5), 1 pt ink keyline, no radius, no shadow |
+| Glowing cover (heroes) | cover + its baked blurred cover (the §1.3 backdrop bake; iOS, revised 2026-09-27 from a live blur r26, saturate 1.8) at 60%/85% opacity, 86% × 92% at +14% down; top-left sheen; reflection below at 14% | printed cover only |
 | Display text | `display`/`title` in `ink` | `display` in `ink` with an `accent1` copy offset (plateOffset × misregistration, default 1.5) behind, multiply (light) / screen (dark) |
 | Kicker | `section` ink label + `section` `inkSecondary` detail | `label` in an ink (or pink/yellow) block padded 7/5 + `label` detail `inkSecondary` |
 | Dot leader | — | 1.8 pt dots every 6 pt in `inkSecondary` 80%, baseline-aligned |
@@ -201,40 +272,122 @@ Section order is top to bottom. "Lit" = the page takes the named cover's light
 
 ### Play — two layouts
 
-Content: games in progress (RomM "continue playing", with this device's
-playtime, sessions, last played), sessions (Stats derivation, newest 24), the
-pinned collection (first user-made collection with known games; its games
-played-first), the running download and queue counts, connection, installed
-count, last library sync, server name.
+Content: the games in play (**Games in play** below; each with this device's
+playtime, sessions and last played, its latest save from the saves reader, its
+conflict, and RomM's first screenshot), Aurora's picks (**Picks** below), recent
+saves (see **Play rules**), conflicts, the pinned collection (first user-made
+collection with known games; its games played-first), the running download and
+queue counts, connection, installed count, last library sync, server name.
 
-**Aurora (compact), v2** (2026-09-24; the owner found v1 plain and its layout
-off) — lit by the game in focus, field `room`, gutter 20. Inline nav title
-hidden; Downloads in the toolbar. The studio's "room": the game's own screen is the
-hero, not its box art.
-1. Sync status line: 7 pt dot (`ok`/`wait`) + `caption` 12.5 "Online · synced 2 min ago · N games on this device".
-2. Continue playing — a paged carousel of screens, one per game in progress (up to
-   6), full width minus the gutters, the next page peeking 16 pt at the trailing
-   edge; the focused page lights the page and the tab tint.
-   - **Screen**: the game's latest resume point preview (or latest save-state
-     preview) at its own aspect, radius 22, 0.5 white keyline, on a black screen,
-     with the frame blurred and glowing in the game's `k1` behind it. No preview:
-     the cover centred on its blurred backdrop inside the same 4:3 screen. Never
-     art-treated. A sync status chip (dark glass, §11 wording) sits bottom-left
-     inside the screen; a conflicted game shows "Two resume points" in `bad`.
-   - **Caption** under the screen, 14 below: `section` platform · year in
-     `inkSecondary`; `title` 32 game name (2 lines max); `secondary` for the resume
+**Games in play** (the content model, so both themes; the Library's rings and
+light use the same list; iOS since 2026-09-27, Android since 2026-09-28):
+
+- Every game this device has a save for (its latest save's capture time) or a
+  play session for (last played), newest first (ties by game id), then RomM's
+  "continue playing" in the server's order for games not already listed; each
+  game once, at most 12. Games are taken from the cached library (else RomM's
+  list); a game neither knows is left out. So the first game — Aurora's hero,
+  Riso's lead — is the one you last played or saved here, not the server's pick.
+- The list and Recent saves wait for this device's stats and saves
+  (`localStateReady`, see the rules at the top), so the first game shown is the
+  one that stays (from RomM's list alone it would switch a moment later). Until
+  then the page is loading: no empty state, no error.
+
+**Aurora (compact) — Home** (revised 2026-09-27 from studio round 3's Lightbox
+and Tonight; iOS, and Android since 2026-09-28; replaces v2's carousel of
+screens) — lit by the hero's cover, field `room`, gutter 20. Inline nav title
+hidden; Downloads in the toolbar (Android, which has no top bar here: a button
+over the art on a disc of the page's ground, readable over white art in dark mode).
+The page runs under the bars: the hero's art
+starts at the top of the screen (§1.7 for the status bar over it).
+1. **Hero** — the first game in play, or the one brought up from In play, edge
+   to edge at one fixed height whatever the game,
+   `min(720, max(480, (page height + top inset) × 0.78))`, so Resume and
+   everything below it never move.
+   - **Art**: the game's cover, as wide as the page and 1.5 × as tall
+     (aspect-fill), top-aligned and cut off by the hero's foot. No cover: RomM's
+     first screenshot at its own aspect, as large as fits between the bars and the
+     caption (page width × (hero − top inset − 150)) and centred there — edge to
+     edge when it fills the width, else radius 16 with a soft shadow — over a
+     blurred copy of itself (r42, saturation 1.35, 75% / 90% dark) that lights the
+     top of the page; enlarged less than 2× it stays nearest-neighbour; black
+     letterbox or pillarbox the game drew is trimmed (edge rows/columns ≥ 98%
+     near-black, never leaving under 40% of a side). Neither: the cover
+     placeholder. Saved screens (resume points, save states) stay in Recent
+     saves; the hero is the game's artwork.
+   - The art dissolves into the page's light by the top of the caption: an alpha
+     mask, opaque to 50%, 35% at 76%, 6% at 91%, clear at 100% of
+     `max(160, hero − 14 − caption height + 8)` from the top — so a cover's own
+     logo never sits behind the title. No scrim over the top of the art.
+   - Pulled down past the top (overscroll), the art scales up from its foot to
+     fill the gap instead of showing the page above it.
+   - Another game: its art cross-dissolves over the last one (`LayeredCrossfade`,
+     plus-lighter, as the field in §1.3) while the page's light follows; the old
+     caption goes in a frame and the new one fades in (0.3 s), so two titles
+     never show at once. Every game in play has its hero-size art, palette and
+     blurred cover prepared ahead, so a tap swaps without a placeholder or a dip.
+   - **Caption**, anchored 14 above the hero's foot and growing upward into the
+     art (the fade follows its height): `section` platform · year in
+     `inkSecondary`; `title` 34 game name (2 lines max); `secondary` for the resume
      point: "Automatic resume · 1 min ago · This iPhone" (or the save state's
-     name/kind), else "Played 2 h ago · 1 h 05 min on this device".
-   - **Actions**: Resume (primary, lit glow, fills the row) + Details (54 glass
-     circle, `info.circle` symbol at 20 pt, not a text "i").
-3. "In progress" header (`section`) with the pager dots at its trailing end (6 pt
-   dots in each game's `k1`, current 18 wide), then a horizontal row of the other
-   games in progress beyond the carousel (152 × 114 tiles: preview or cover, 78%
-   scrim, game name `bodyEmphasis` 15 white, relative time); tapping a tile opens
-   its Game page. The row is left out when there are no more games.
-4. Recent saves — a lit gallery by day (see **Play rules**; mosaic v2 below).
-5. Stale notice (glass card), empty state "Nothing to continue yet" (when there
-   is nothing in progress and no recent saves).
+     name/kind), else "Played 2 h ago · 1 h 05 min on this device" (2 lines max);
+     then the resume point's sync badge (§11 wording), or the "Two resume points"
+     chip (`bad`, warning glyph), which opens the Conflict sheet.
+2. Under the hero (6 below, 16 apart): **Actions** — Resume (primary, lit glow,
+   fills the row; `LaunchButton`: a medium impact on the tap, then a spinner and
+   "Starting…" until the player or the Launch choice appears or the launch fails, a
+   second tap ignored; the same on Riso's Resume and the Game page's Play, 2026-09-28)
+   + Details (54 glass circle, `info.circle` symbol at 20 pt, not a text "i"); then the **sync status line**: 7 pt dot (`ok`/`wait`) + `caption`
+   12.5 "Online · synced 2 min ago · N games on this device". With no game in
+   play the status line leads the page instead (8 below the top inset).
+3. "In play" + count (two or more games in play): a horizontal row of every game
+   in play, the hero included — 92 × 138 covers (radius 12), 14 apart; name
+   `caption` 12.5 (two lines reserved), last played `caption` 11 `inkTertiary`.
+   The hero's cover is ringed (2.5 pt `mark1`, glowing) and its name in `ink`;
+   the others sit at 97%. A conflicted game carries a warning glyph in a dark
+   glass circle, top right. Tap brings a game up as the hero (and the page's
+   light); press and hold: Resume, Start options, Game details. No pager dots.
+4. "Pick something" — the picks (**Picks** below) as a horizontal row of cards,
+   300 wide, at least 150 high, radius 22, padded 12, 12 apart: cover 84 × 126
+   (radius 10); the kind with its symbol in `section` `readableTint` ("Keep going"
+   `arrow.clockwise`, "Something new" `sparkles`, "Quick hit" `bolt`); name
+   `bodyEmphasis` 16 (2 lines); the reason `caption` 12.5 `inkSecondary` (3
+   lines); a 34 pt `buttonFill` capsule — "Resume" (keep going) or "Play" (on this
+   device) launches it, "Get it" opens its Game page. Tapping the card opens the
+   Game page. Left out when there are no picks.
+5. Recent saves — a lit gallery by day (see **Play rules**; mosaic v2 below).
+6. Stale notice (card "Showing your saved library"), error, empty state "Nothing
+   to continue yet" (nothing in play and no recent saves).
+
+While the page is loading and has no game, nothing is drawn — not even the
+status line, which would otherwise sit at the top and drop below the hero a
+moment later. Identifiers: `play.continue` (the page), `play.screen.<romId>`
+(the hero's art), `play.resume.<romId>`, `play.details.<romId>`, `play.syncLine`,
+`play.conflict.<romId>`, `play.inProgress.<romId>`,
+`play.pick.<keepGoing|somethingNew|quickHit>` and `….action`.
+
+**Picks** (Aurora compact; worked out only from this device's play and RomM's
+metadata, never guessed; `PlayPicks`) — up to three, each game once, never the
+hero, and only games whose platform plays in the app (touch or controller tier).
+On Android they also wait for the local read (`localStateReady`'s counterpart), so
+they never arrive after the page; iOS works them out as the content changes:
+
+- **Keep going** — of the other games in play, the one played most on this
+  device (the most recent when none has been). Reason "30 min in · 3 sessions"
+  (the sessions only when more than one) from 10 min of play; else "Last played
+  yesterday"; never played here: "In progress · Super Nintendo · 1994".
+- **Something new** — never played here and not in play: the highest score of
+  RomM's rating (0–100) + 20 when it shares a genre with the game you've played
+  most + 10 when it's on this device; a score of 0 picks nothing. Reason: up to
+  two of "Rated 88", "Role-playing, like Fire Emblem", "On this device"; else
+  platform · year.
+- **Quick hit** — an arcade game, or one in Arcade, Puzzle, Pinball,
+  Quiz/Trivia or Card & Board Game: the one played here most recently, then one
+  on this device, then A–Z. Reason "Last played 2 h ago · 45 min so far" (the
+  playtime from a minute), else genre · year · "On this device" as known
+  ("Puzzle · 1994").
+
+Genre names drop IGDB's abbreviation ("Role-playing (RPG)" reads "Role-playing").
 
 **Recent saves mosaic v2 (Aurora, all widths)** — never leaves a hole or a lone
 half tile: 1 save → one full-width 16:9 tile; 2 → two half tiles; 3+ → the first
@@ -242,12 +395,28 @@ full-width, then pairs, and an odd last save becomes full width. Regular width u
 four columns with the same rule applied per row (a short last row stretches its
 tiles to fill the row).
 
-**Aurora (regular / Duo open)** — one canvas, 32 margins: status + dots row;
-hero row (glowing cover 360 | caption with `title` 48 + actions, max 380 wide,
-spacing 44); "Continue playing" row of room cards (176 wide, 0.76 aspect, cover
-+ 78% black scrim, platform `section` 10 white 72%, title, relative time;
-selected = 2 pt `mark1` outline; tap focuses, context menu Resume/details);
-recent saves as day rows (see **Play rules**).
+**Aurora (regular / Duo open)** — not part of the 2026-09-27 rebuild (no picks;
+its games follow **Games in play**). Lit by the game in focus, field `room`; one
+canvas, 32 margins, at most 1180 wide:
+1. Sync status line, with pager dots at the trailing end (6 pt dots in each
+   game's `k1`, current 18 wide; tap to focus) when there are two or more games.
+2. The focused game's **screen** beside its caption (`section` platform · year,
+   `title` 48, resume line) and actions (at most 380 wide), spacing 44; the
+   screen takes what's left, 320–600 wide. Tap opens its Game page; press and
+   hold: Resume, Start options, Game details.
+   - **Screen**: the game's latest resume point preview (or latest save-state
+     preview) at its own aspect, radius 22, 0.5 white keyline, on a black 4:3
+     screen, with the frame blurred and glowing in the game's `k1` behind it. No
+     preview: the cover centred on its blurred backdrop inside the same screen.
+     Never art-treated. A sync status chip (dark glass, §11 wording) sits
+     bottom-left inside the screen; a conflicted game shows "Two resume points"
+     in `bad` (opens the Conflict sheet).
+3. "Continue playing" + "N games": a row of room cards (176 wide, 0.76 aspect,
+   radius 18, the save preview or cover under a black scrim clear to 30% → 78%,
+   platform `section` 10 white 72%, title `bodyEmphasis` 15, relative time;
+   selected = 2 pt `mark1` outline; tap focuses, press and hold for the menu;
+   `play.quickResume.<romId>`).
+4. Recent saves as day rows (see **Play rules**); notices.
 
 **Riso (compact)** — paper, gutter 16.
 1. Masthead: `display` 52 "Play" with plate at 1.25.
@@ -280,8 +449,8 @@ recent saves.
 - Play shows **Recent saves** (docs/play-data-local.md §3: every loadable save
   state or current slot plus each game's current resume point; newest first;
   12 shown; grouped by local day "Today" / "Yesterday" / date), not Recent
-  sessions. Recent sessions are on Stats only. The content list above loses
-  "sessions" and gains the saves reader's recent list.
+  sessions. Recent sessions are on Stats only (Play's content has no sessions
+  list; the saves reader's recent list replaced it).
 - Save previews are shown as captured, never art-treated (no light, no print);
   when a save has no preview its game's cover stands in (printed in Riso like
   every cover).
@@ -365,55 +534,93 @@ Field `page`, lit by the running download's cover.
 ### Library — two layouts (+ split on regular width)
 
 Content: platforms grouped by support tier (Touch-ready in app / Controller play
-in app / Not supported in app yet), collections by kind, downloaded games per
-platform, the cached library (for covers), games in progress.
+in app / Not supported in app yet; within a tier by name, the server's order),
+collections by kind, downloaded games per platform, the cached library (every
+game Rommio knows, with its cover and RomM metadata), the games in play (Play's
+**Games in play**).
 
 **Compact** is a navigation stack whose root is the theme's layout; Platform,
 Collection and Game push. **Regular** (Duo open) is a split view: a themed
 selectable list (platforms by tier, then collections; Riso rows are chapter
 rows) beside the selected Platform/Collection page; first platform selected.
+The 2026-09-27 rebuild changed only the compact Aurora root; the split is as it
+was.
 
-**Aurora** — field `page`, lit by the cover in focus. Era browsing uses
-release years (RomM metadata, Phase 4) — see **Library era rule** below; with
-fewer than two eras there is no ruler and the row is as described here.
-1. Summary `secondary`: "18 games · 9 platforms · 1 on this device".
-2. Browse header: `headline` = selected platform / tier / "All platforms";
-   platform: "N games · N here" and "See all" (secondary button → Platform).
-3. Cover row: 150 × 200 covers, spacing −18, view-aligned with the focused cover
-   centred; scroll transition scale 1 − 0.22|p|, rotate Y −34°·p, opacity
-   1 − 0.28|p|; the centred cover lights the page. Pool: filter (platform or
-   tier), games in progress first, then A–Z, max 18. Caption: `headline` 21
-   title, "SNES · In progress".
-4. Platform facets (horizontal): glass 16-radius tiles ≥48 high: dot (selected
-   `mark1`), `SLUG` `bodyEmphasis` 14, count, "N here"; selected 1.5 `mark1`
-   outline. Tap toggles the platform filter.
-5. Tier chips: All · Touch · Controller · Browse only with counts.
-6. Row groups per tier (filtered): platform, "N games · N on this device", chevron → Platform.
-7. Collections row (only unfiltered): 240 wide glass collection tiles → Collection.
+**Aurora (compact) — the wall** (revised 2026-09-27 from studio round 3's
+Lightbox; iOS, and Android since 2026-09-28; replaces the cover row, era
+ruler, platform facets and tier chips) — field `page`, lit by the first game in
+play with a cover in the library, else the library's first cover. Every game in the cached
+library on one wall of covers; one choice, the lens, orders it.
+1. Summary `secondary`: "2,164 games · 22 platforms · 91 on this device" (games
+   and platforms as the server counts them).
+2. Lens bar: filter chips (glass capsules with a symbol, `bodyEmphasis` 14,
+   selected `buttonFill`) Console `gamecontroller` · Series `square.stack` · Year
+   `calendar` · Genre `theatermasks` · A–Z `textformat`, scrolling sideways and
+   fading out before the density switch, a 44 pt glass circle that toggles three
+   / four across ("Show more games" / "Show larger covers"). Both are kept on the
+   device (AppStorage `aurora.library.lens`, default Console;
+   `aurora.library.columns`, default 3). Changing the lens scrolls back to the
+   top, the summary and lens in view.
+3. The wall: one continuous lazy grid, 3 columns (12 apart, rows 18) or 4 (9,
+   rows 12), gutter 20 (trailing 44 when the index rail shows). Each group opens
+   with a **group tile** in the flow of covers, so a library of small groups
+   stays dense (no half-empty rows, no headers breaking the wall).
+   - **Group tile** (the size of a cover, 2:3, radius 12 / 9 at four across):
+     glass over the group's first cover blurred (60%, 75% dark), glass edge; a
+     24 × 3 (18 × 3) `mark1` capsule; the name `headline` 18 (14; up to 4 lines,
+     hyphens kept whole); a subtitle `numeral` 13 (11) when the group has one (an
+     era's years); at its foot "N games" `caption` 12.5 (11; a console's count is
+     the server's), "✓ N here" when some are on this device, and on a console's
+     tile at three across "Open ›" in `readableTint`. A console's tile opens its
+     Platform page (`library.platform.<slug>`); other tiles are headers.
+   - **Cover**: 2:3, radius 12 (9), cover shadow; at three across its title under
+     it, `caption` 12.5, two lines reserved (a series drops its own name:
+     "Pokémon Blue Version" reads "Blue Version"). A game in play wears a 2.5 pt
+     `mark1` ring with glow; bottom right a 20 pt (17) dark glass badge: a check
+     when it's on this device, else an eye when its platform is browse only. Tap
+     opens the Game page; press and hold lifts a large preview (280 × 420) with
+     "Game details" (the studio's loupe). Android has no context-menu preview:
+     press and hold opens a quick-look dialog with the same cover and action.
+4. Index rail (four or more groups), on the trailing edge: one label per group,
+   9.5 semibold, 30 × 19 each; tap jumps to the group. Labels: a console's short
+   name (its slug in capitals, "NINTENDO-" dropped, cut to 5 when over 6: "GBA",
+   "PS2"), the initial of a series, genre or letter, an era's first year ("’96"),
+   "•" for a gathered group, "?" for year unknown.
+5. Collections: "Collections" + count, a row of 240-wide collection tiles →
+   Collection. Then the stale message (`caption`).
 
-**Library era rule** (Aurora; added in Android run 4 so iOS follows it next):
+Empty: "Loading your library" while loading, else "No platforms yet" with the
+error or "Pull to refresh once your server is reachable." Identifiers:
+`library.wall`, `library.lens.<console|series|year|genre|alphabetical>`,
+`library.density`, `library.index`, `library.platform.<slug>`,
+`library.game.<id>`, `library.collection.<id>`.
 
-- Eras by release year (`first_release_date`, UTC year): "Arcades &
-  cartridges" ≤ 1988, "The 16-bit years" 1989–1995, "Polygons & pockets"
-  1996–2000, "The 2000s" 2001–2011, "Since 2012" ≥ 2012. Games without a year
-  are in no era. Within an era: by release year, then A–Z.
-- The ruler shows when games fall into at least two eras; it sits between the
-  summary and the browse header. One segment per era with games, gap 6, width
-  proportional to its game count (at least 15% of the total), ≥ 48 high: a 6
-  pt bar (radius 4) in a gradient of up to three of the era's games' `k1`
-  (games in progress first) at 40%; selected 8 pt, full strength, glowing in
-  the first `k1` (60% r8 y4); the years the era's games span `bodyEmphasis` 12
-  ("1986–88", "1994", "1998–2001"; `ink` selected, else `inkSecondary`); the
-  count `caption` 11 `inkTertiary`. Identifiers `library.eras`,
-  `library.era.<id>` (`e80`, `e16`, `e3d`, `e00`, `e12`).
-- It opens on the era of the most recent game in progress that has a year
-  (else all years). Tapping the selected era again shows all years.
-- With an era selected the browse header is the era's name (`headline` 24)
-  over "[SLUG or tier ·] N games · N here" (`caption` 12.5, counts of the
-  filtered pool), and the cover row's pool is that era (∩ platform/tier
-  filter): games in progress first, then by release year. Caption adds the
-  year: "SNES · 1994 · In progress". An empty era/filter pool says "No games
-  here from 1989–95."
+**Lenses** (`LibraryContent.wall`): every game appears once in each lens; games
+without the lens's metadata gather in a last group, so nothing is lost. "A–Z"
+ignores a leading "The" or "A", case and diacritics.
+
+- **Console** — platforms in tier order (touch, controller, browse only), each
+  tier by name; each platform's games A–Z; games on no known platform last, in
+  "Other consoles".
+- **Series** — RomM's first franchise: series with two or more games, largest
+  first (then by name), each by release year then A–Z; everything else A–Z in
+  "Everything else" ("All games" when there are no series).
+- **Year** — the **Library eras** below, oldest first, each by release year then
+  title, subtitled with the years its games span; games without a year last, in
+  "Year unknown".
+- **Genre** — each game under its first RomM genre (IGDB's abbreviation
+  dropped), genres largest first (then by name), games A–Z; "No genre from RomM"
+  last.
+- **A–Z** — a group per first letter, "#" first for titles that don't start
+  with a letter.
+
+**Library eras** (the Year lens; formerly the **Library era rule**'s ruler, with
+the same names, spans and ids as Android's ruler): by release year
+(`first_release_date`, UTC year) — "Arcades & cartridges" ≤ 1988 (`e80`), "The
+16-bit years" 1989–1995 (`e16`), "Polygons & pockets" 1996–2000 (`e3d`), "The
+2000s" 2001–2011 (`e00`), "Since 2012" ≥ 2012 (`e12`). A span reads "1986–88",
+"1994", "1998–2001". The ruler's identifiers (`library.eras`,
+`library.era.<id>`) are retired with it on iOS.
 
 **Riso** — paper.
 1. Italic summary `body` 15.
@@ -466,6 +673,8 @@ hidden (the page draws it); the bar is transparent only at the scroll edge.
 aspect-fill, height `clamp(page × 0.46, 220, 400)`, dissolving into the lit
 field with an alpha mask (opaque to 35%, 45% at 70%, clear at the bottom — a
 fade to `ground` would band against the field); content overlaps the hero by 64.
+Over the hero (until 120 pt of scroll) the top scroll-edge effect is hidden and
+the status bar reads in the tone of the cover under it (§1.7; Android until 180 dp).
 1. Heading: platform `section` + tier `section inkSecondary`; `display` 44;
    chips (hero status, resume sync badge "… · resume", saves count); play line
    `secondary`; controller note.
@@ -553,7 +762,8 @@ sessions, games). Durations use one format everywhere: "2 h 05 min", "45 min",
    Last played ("Just now", "3 min ago", "2 h ago", "Yesterday") — glass cards,
    `section` label with a `mark1` symbol, `statValue` 34.
 3. Time by game (≤8): rows with playtime, and a 4 pt bar in the game's `k1`
-   scaled to the top game, with glow.
+   scaled to the top game (no glow on iOS since 2026-09-27: a shadow per bar
+   was redrawn on every frame of a scroll).
 4. Recent sessions by day (≤5 days): `headline` day, count · total, light strip,
    group of sessions (clock, duration).
 5. Footnote `caption` (`stats.footnote`): see "Phase 4 details › Stats" below.
@@ -640,6 +850,15 @@ its hit region is that shape grown by 14 pt.
 
 OLED black: canvas and panels black, dark player palette, in both themes.
 
+Notices over the game (both themes; iOS revised 2026-09-27 to match Android):
+automatic captures (at launch, every two minutes, on pause, on going to the
+background) record their status for the progress panel without a banner — a
+banner every two minutes was noise over gameplay. Banners are for what the
+player did (a save state: "Save state saved.", a load, a sync) and for errors. On
+iOS they sit 10 pt below the top safe-area inset (clear of the Dynamic Island)
+and stack 8 apart, notice above error; a notice fades after 2.5 s, an error
+stays.
+
 Sheets (theme colours and type; strings and identifiers unchanged):
 - Pause — header (Aurora `section` "Paused" + `headline` title; Riso `label`
   "Paused" … "SLUG · Core" over a 3 pt rule + `headline` 26); Resume (primary)
@@ -661,7 +880,7 @@ Sheets (theme colours and type; strings and identifiers unchanged):
 ### Phase 4 details (iOS run 3; Android can follow)
 
 What the pages add from [play-data-local.md](play-data-local.md) beyond the Play,
-Conflict, Library era and Game saves rules above:
+Conflict, Library eras and Game saves rules above:
 
 - **Game › Details and Screenshots** (play-data-local.md §6 order, plain text,
   empty fields left out). Aurora: after the saves timeline a "Details" row group
@@ -791,11 +1010,12 @@ pause-tile strings noted above.
 | --- | --- |
 | Palette, lights (pure) | `Art/AuroraLight.swift` (`ArtColorMath`, `CoverPalette`, `AuroraLights`), `Art/CoverPaletteExtractor.swift` |
 | Riso print, backdrop bake | `Art/RisoPrint.swift` (`RisoPlateCurve`, `RisoPrintStyle`, `RisoPrinter`), `Art/AuroraBackdrop.swift` |
-| Caching | `Images/ArtworkPipeline.swift` (`palette(for:)`, `risoPrint(for:…)`, `backdrop(for:dark:)`) |
-| Lighting a page, fields, covers | `Art/ArtViews.swift` (`litBy`, `PageBackground`, `PageLightStyle`, `BlurredCover`, `PaperGrain`, `TreatedCover`, `RisoPrintImage`) |
+| Caching | `Images/ArtworkPipeline.swift` (`palette(for:)`, `risoPrint(for:…)`, `backdrop(for:dark:)`; `ArtworkImage`: nothing while loading, the placeholder only without art or on failure) |
+| Lighting a page, fields, covers | `Art/ArtViews.swift` (`litBy` holding the shown light, `PageBackground`, `FieldLights`, `PageLightStyle`, `BlurredCover`, `PaperGrain`, `TreatedCover`, `RisoPrintImage`), `Components/LayeredCrossfade.swift` (the field's and Play hero's cross-dissolve) |
+| Launch, local first | `RommioAppModel.swift` (`refreshShell` reads downloads, stats and saves first; `localStateReady`), `RommioFoundation/LibraryRepository.swift` (cached platforms by name) |
 | Theme value | `Theme/RommioTheme.swift` (`lit(by:)`, `lights`, `mark1…3`) |
-| Components | `Components/Controls.swift`, `Components/Surfaces.swift` (glass, `ThemedGroup`, `ThemedScrollPage`, `themedList`, rows), `Components/Editorial.swift` (display text, kicker, leaders, rules, ink box, `RatioColumns`), `Components/GameArt.swift`, `Components/Hero.swift`, `Components/Formatting.swift` (§4 `PlayFormat`), `Components/DarkFrame.swift` (tones on dark frames and over the game) |
-| Pages | `Pages/Play/{PlayPage,AuroraPlayLayout,RisoPlayLayout,RecentSaves,ConflictSheet,LaunchChoiceSheet,DownloadsPage}.swift`, `Pages/Library/{LibraryPage,AuroraLibraryLayout,RisoLibraryLayout,PlatformPage,CollectionPage}.swift`, `Pages/Game/{GamePage,AuroraGameLayout,RisoGameLayout,SavedProgressSheet}.swift`, `Pages/Search/SearchPage.swift`, `Pages/Stats/StatsPage.swift`, `Pages/Settings/SettingsPage.swift`, `Onboarding/*` |
+| Components | `Components/Controls.swift`, `Components/Surfaces.swift` (`CardFill`, `GlassFill`, `GlassEdge`, `ThemedGroup`, `ThemedScrollPage`, `themedList`, rows), `Components/StatusBarOverride.swift` (§1.7: `statusBarText(over:)`, `TopEdgeEffectHidden`), `Components/Editorial.swift` (display text, kicker, leaders, rules, ink box, `RatioColumns`), `Components/GameArt.swift`, `Components/Hero.swift`, `Components/Formatting.swift` (§4 `PlayFormat`), `Components/DarkFrame.swift` (tones on dark frames and over the game) |
+| Pages | `Pages/Play/{PlayPage,AuroraPlayLayout,PlayPicks,RisoPlayLayout,RecentSaves,ConflictSheet,LaunchChoiceSheet,DownloadsPage}.swift` (`PlayContent.inPlay`: Games in play; `ArtTone`, `ScreenTrim`), `Pages/Library/{LibraryPage,LibraryWall,AuroraLibraryLayout,RisoLibraryLayout,PlatformPage,CollectionPage}.swift` (`LibraryLens`, `LibraryContent.wall`, `LibraryEra`), `Pages/Game/{GamePage,AuroraGameLayout,RisoGameLayout,SavedProgressSheet}.swift`, `Pages/Search/SearchPage.swift`, `Pages/Stats/StatsPage.swift`, `Pages/Settings/SettingsPage.swift`, `Onboarding/*` |
 | Player | `PlayerVisualTheme.swift` (shape, fonts, glyphs, ink mapping), `PlayerControlStyleRenderer.swift` (roles, appearances, painters), `PlayerControlsOverlay.swift` (the one multi-touch surface, control views, haptics, Menu), `PlayerPausePanel.swift`, `PlayerExperienceView.swift` (bias light, toast, sheets); geometry and the touch model in `RommioPlayerKit/PlayerControlPlan.swift`, `PlayerStandardStage.swift`, `PlayerTouchTracker.swift` (docs/player-controls.md), `PlayerPanelPresentation.swift` (sheet or floating inspector) |
 | Saves (Phase 4) | `Components/SaveViews.swift` (`SavePreviewImage`, `SaveRow`, `SaveFormat`, rename alert), `ProgressPlayerPanel.swift` (Save states sheet); data in [play-data-local.md](play-data-local.md) |
-| Tests | `Tests/RommioUITests/ArtTreatmentTests.swift`, `PlayerControlStyleRendererTests.swift`, `ThemeTests.swift`, `PlayerVisualThemeTests.swift`, `PlayDataPresentationTests.swift`, `CopyAndFormattingTests.swift` (§4, readable tint), `LaunchChoiceTests.swift` (Launch choice, panel presentation), `PlayV2Tests.swift` (Play screens' data, mosaic v2), `PlayerLayoutParityTests.swift`, `StackBudgetTests.swift`; `Tests/RommioPlayerKitTests/PlayerTouchModelTests.swift` (controls v2 geometry and touch model), `PlayerTouchStickTests.swift` (the touch-stick maths, pinned to `scripts/touch_stick_reference.py`); `Tests/RommioFoundationTests/PlayerHapticsPreferenceTests.swift`, `PlayerGameControlsTests.swift` (per-game Analog controls); UI: `AppUITests/PlayerTouchControlsTests.swift` (touch model on a running game), `PlayerStickControlsTests.swift` (sticks, Analog controls, DS/3DS touch screens in the QA harness) |
+| Tests | `Tests/RommioUITests/ArtTreatmentTests.swift`, `PlayerControlStyleRendererTests.swift`, `ThemeTests.swift`, `PlayerVisualThemeTests.swift`, `PlayDataPresentationTests.swift`, `CopyAndFormattingTests.swift` (§4, readable tint), `LaunchChoiceTests.swift` (Launch choice, panel presentation), `PlayV2Tests.swift` (Play screens' data, mosaic v2), `AuroraHomeLibraryTests.swift` (Games in play order, picks and reasons, the wall's lenses, the status bar band, screen trimming), `PlayerLayoutParityTests.swift`, `StackBudgetTests.swift`; `Tests/RommioPlayerKitTests/PlayerTouchModelTests.swift` (controls v2 geometry and touch model), `PlayerTouchStickTests.swift` (the touch-stick maths, pinned to `scripts/touch_stick_reference.py`); `Tests/RommioFoundationTests/PlayerHapticsPreferenceTests.swift`, `PlayerGameControlsTests.swift` (per-game Analog controls); UI: `AppUITests/PlayerTouchControlsTests.swift` (touch model on a running game), `PlayerStickControlsTests.swift` (sticks, Analog controls, DS/3DS touch screens in the QA harness) |

@@ -106,8 +106,9 @@ which makes the engine record every input the core receives (`D<key>:<1|0>`, `A<
 and shows them in the hidden `player.debug.inputLog` element, then checks a touch 10 pt outside A's
 circle, the chord between A and B, a d-pad drag that leaves the pad, five quick taps, rolling from B
 to A, and A's edge in landscape. Build the runner with `scripts/ios/generate_player_ui_runner.rb`
-and run `-only-testing:PlayerUIRunner/PlayerTouchControlsTests`. The runner's `drag` and `pull`
-actions scroll Play's carousel and pull to refresh (`app.swipeLeft()` does not page the carousel).
+and run `-only-testing:PlayerUIRunner/PlayerTouchControlsTests`. The runner's `drag` action drags
+across an element (a horizontal row such as Play's In play covers; it was written for Play's former
+carousel, which `app.swipeLeft()` did not page), and `pull` pulls to refresh.
 
 Analog sticks and per-console layouts: `PlayerStickControlsTests` (simulator, opt-in with the host
 file `/tmp/rommio-stick-tests`, no server needed) drives the controls QA harness. It checks that an

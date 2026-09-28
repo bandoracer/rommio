@@ -397,8 +397,8 @@ struct FilterChip: View {
     }
 }
 
-/// Aurora's eras by release year (docs/theme-layouts.md, Library era rule; the
-/// same names, spans and identifiers as Android).
+/// Aurora's eras by release year: the wall's Year lens (docs/theme-layouts.md, Library
+/// eras; the same names, spans and identifiers as Android).
 struct LibraryEra: Hashable, Identifiable {
     let id: String
     let name: String
