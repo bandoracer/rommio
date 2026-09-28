@@ -115,6 +115,17 @@ public enum PlayerStickModel {
         return (m - p.deadZone) / (1 - p.deadZone) >= p.saturation
     }
 
+    /// The gate's outline at unit radius, clockwise from the right (y down): the output's full
+    /// tilt, so the drawn ring is the shape the stick reaches. Nil for a circle. The corners
+    /// are at the cardinals and at (±reach, ±reach), joined by straight edges (`gateScale`):
+    /// the N64's octagon, the DualShock's near-square.
+    public static func gateOutline(diagonalReach: Double) -> [CGPoint]? {
+        guard abs(diagonalReach - 0.5.squareRoot()) >= 1e-4 else { return nil }
+        let d = CGFloat(diagonalReach)
+        return [CGPoint(x: 1, y: 0), CGPoint(x: d, y: d), CGPoint(x: 0, y: 1), CGPoint(x: -d, y: d),
+                CGPoint(x: -1, y: 0), CGPoint(x: -d, y: -d), CGPoint(x: 0, y: -1), CGPoint(x: d, y: -d)]
+    }
+
     /// Degrees from a notch that catch the stick at full tilt, and how far a caught notch holds.
     public static let notchEnter = 8.0
     public static let notchExit = 12.0

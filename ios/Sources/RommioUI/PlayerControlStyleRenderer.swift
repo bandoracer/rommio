@@ -29,16 +29,50 @@ enum PlayerControlShape: Equatable, Sendable {
     case tab(top: CGFloat, bottom: CGFloat)
     /// A tab flush against the screen's left (leading) or right edge: square on that side.
     case bumper(leading: Bool, top: CGFloat, bottom: CGFloat)
+    /// A stick's gate: the octagon or near-square its output reaches (`diagonalReach`), its
+    /// corners slightly rounded like a physical gate. (A round gate is `.circle`.)
+    case gate(reach: CGFloat)
     case rounded(CGFloat)
+}
+
+/// A stick gate's outline in a square (`PlayerStickModel.gateOutline`), each corner
+/// rounded by a tenth of the radius.
+enum PlayerGatePath {
+    static func path(in rect: CGRect, reach: CGFloat) -> CGPath {
+        guard let unit = PlayerStickModel.gateOutline(diagonalReach: Double(reach)) else { return CGPath(ellipseIn: rect, transform: nil) }
+        let radius = min(rect.width, rect.height) / 2
+        let centre = CGPoint(x: rect.midX, y: rect.midY)
+        let points = unit.map { CGPoint(x: centre.x + $0.x * radius, y: centre.y + $0.y * radius) }
+        let round = radius * 0.1
+        let path = CGMutablePath()
+        for (i, corner) in points.enumerated() {
+            let previous = points[(i + points.count - 1) % points.count], next = points[(i + 1) % points.count]
+            func toward(_ other: CGPoint) -> CGPoint {
+                let dx = other.x - corner.x, dy = other.y - corner.y
+                let length = max(hypot(dx, dy), 0.001)
+                let cut = min(round, length / 2)
+                return CGPoint(x: corner.x + dx / length * cut, y: corner.y + dy / length * cut)
+            }
+            let entry = toward(previous), exit = toward(next)
+            if i == 0 { path.move(to: entry) } else { path.addLine(to: entry) }
+            path.addQuadCurve(to: exit, control: corner)
+        }
+        path.closeSubpath()
+        return path
+    }
 }
 
 extension PlayerControlAppearance {
     /// The appearance for where the control sits: a shoulder at a portrait corner is its
     /// tab made flush against the screen edge.
     func placed(_ control: PlacedPlayerControl) -> PlayerControlAppearance {
-        guard control.shape == .bumperLeading || control.shape == .bumperTrailing, case let .tab(top, bottom) = shape else { return self }
         var appearance = self
-        appearance.shape = .bumper(leading: control.shape == .bumperLeading, top: top, bottom: bottom)
+        if control.kind == .stick, let reach = control.stickProfile?.diagonalReach, PlayerStickModel.gateOutline(diagonalReach: reach) != nil {
+            // A stick's ring takes its gate's shape (the N64's octagon, the DualShock's near-square).
+            appearance.shape = .gate(reach: CGFloat(reach))
+        } else if control.shape == .bumperLeading || control.shape == .bumperTrailing, case let .tab(top, bottom) = shape {
+            appearance.shape = .bumper(leading: control.shape == .bumperLeading, top: top, bottom: bottom)
+        }
         return appearance
     }
 }
@@ -288,6 +322,8 @@ extension PlayerControlShape {
             let t = min(top, rect.height / 2), b = min(bottom, rect.height / 2)
             return UIBezierPath(cgPath: Path(roundedRect: rect, cornerRadii: RectangleCornerRadii(
                 topLeading: leading ? 0 : t, bottomLeading: leading ? 0 : b, bottomTrailing: leading ? b : 0, topTrailing: leading ? t : 0)).cgPath)
+        case let .gate(reach):
+            return UIBezierPath(cgPath: PlayerGatePath.path(in: rect, reach: reach))
         }
     }
 }

@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.Locale
 import kotlin.math.min
+import kotlin.math.sqrt
 
 /**
  * The player style renderer. The touch surface (`PlayerControlsOverlay`) owns touch handling, hit
@@ -103,6 +104,8 @@ fun PlayerControlGraphic(
     rightSide: Boolean = false,
     /** A shoulder at a portrait corner: flat against this screen edge ([PlayerTouchShape.BUMPER_LEADING] or `_TRAILING`). */
     bumper: PlayerTouchShape? = null,
+    /** A stick's gate ([PlayerStickProfile.diagonalReach]): the ring draws as its octagon or near-square. */
+    gateReach: Double? = null,
 ) {
     val style = visual.style
     val colors = visual.styleFor(kind, label)
@@ -117,14 +120,17 @@ fun PlayerControlGraphic(
         val pressShift = if (style.isInk && pressed) with(density) { style.plateOffset.toPx() } else 0f
         Canvas(Modifier.fillMaxSize()) {
             val shape = controlShape(kind, style, size, bumper)
+            // A stick's ring takes its gate's shape (the N64's octagon, the DualShock's near-square).
+            val gate = gateReach?.takeIf { kind == PlayerControlKind.STICK && PlayerStickModel.gateOutline(it) != null }
             if (style.frosted) {
                 drawFrosted(
                     shape, colors, style, pressed,
                     round = kind == PlayerControlKind.FACE || kind == PlayerControlKind.STICK || kind == PlayerControlKind.MENU,
                     bodyAlpha = if (face) alpha else 1f,
+                    gate = gate,
                 )
             } else {
-                drawInk(shape, colors, style, pressed)
+                drawInk(shape, colors, style, pressed, gate)
             }
             glyph?.let {
                 translate(pressShift, pressShift) {
@@ -244,6 +250,36 @@ private fun RoundRect.boundsCenter(): Offset = Offset((left + right) / 2, (top +
 
 private fun RoundRect.path(): Path = Path().apply { addRoundRect(this@path) }
 
+/** The outline in this box: the rounded rect, or a stick's gate ([gatePath]) when [gate] is set. */
+private fun RoundRect.outline(gate: Double?): Path = if (gate == null) path() else gatePath(left, top, right, bottom, gate)
+
+/**
+ * A stick gate's outline in a square ([PlayerStickModel.gateOutline]), each corner rounded by a
+ * tenth of the radius (as iOS `PlayerGatePath`); a circle when the gate is round.
+ */
+internal fun gatePath(left: Float, top: Float, right: Float, bottom: Float, reach: Double): Path {
+    val radius = min(right - left, bottom - top) / 2
+    val centre = Offset((left + right) / 2, (top + bottom) / 2)
+    val unit = PlayerStickModel.gateOutline(reach)
+        ?: return Path().apply { addOval(androidx.compose.ui.geometry.Rect(centre, radius)) }
+    val points = unit.map { centre + it * radius }
+    val round = radius * 0.1f
+    return Path().apply {
+        points.forEachIndexed { i, corner ->
+            fun toward(other: Offset): Offset {
+                val d = other - corner
+                val length = d.getDistance().coerceAtLeast(0.001f)
+                return corner + d * (min(round, length / 2) / length)
+            }
+            val entry = toward(points[(i + points.size - 1) % points.size])
+            val exit = toward(points[(i + 1) % points.size])
+            if (i == 0) moveTo(entry.x, entry.y) else lineTo(entry.x, entry.y)
+            quadraticTo(corner.x, corner.y, exit.x, exit.y)
+        }
+        close()
+    }
+}
+
 private fun RoundRect.shift(dx: Float, dy: Float): RoundRect =
     RoundRect(left + dx, top + dy, right + dx, bottom + dy, topLeftCornerRadius, topRightCornerRadius, bottomRightCornerRadius, bottomLeftCornerRadius)
 
@@ -260,9 +296,11 @@ private fun DrawScope.drawFrosted(
     round: Boolean = true,
     /** Fades the body (shadow, fill, keyline, rim) but not the console ring. */
     bodyAlpha: Float = 1f,
+    /** A stick's gate: the outline is its octagon or near-square ([gatePath]). */
+    gate: Double? = null,
 ) {
     fun Color.body() = if (bodyAlpha >= 1f) this else copy(alpha = alpha * bodyAlpha)
-    val path = shape.path()
+    val path = shape.outline(gate)
     // Glass shadow: black 55 % r14 y10 by night, #28143c 28 % r13 y9 by day (iOS `glassShadow`).
     val dark = style.dark
     translate(shape.left, shape.top) {
@@ -279,7 +317,7 @@ private fun DrawScope.drawFrosted(
         val w = 2.dp.toPx()
         val inner = RoundRect(shape.left + w / 2, shape.top + w / 2, shape.right - w / 2, shape.bottom - w / 2,
             CornerRadius((shape.topLeftCornerRadius.x - w / 2).coerceAtLeast(0f)))
-        drawPath(inner.path(), colors.ring, style = Stroke(w))
+        drawPath(inner.outline(gate), colors.ring, style = Stroke(w))
     }
     val edge = (if (pressed) colors.pressedBorderColor else colors.borderColor).body()
     drawPath(path, edge, style = Stroke(if (pressed) 1.dp.toPx() else 0.5.dp.toPx()))
@@ -287,7 +325,7 @@ private fun DrawScope.drawFrosted(
     val rimShape = RoundRect(shape.left + rim / 2, shape.top + rim / 2, shape.right - rim / 2, shape.bottom - rim / 2,
         shape.topLeftCornerRadius, shape.topRightCornerRadius, shape.bottomRightCornerRadius, shape.bottomLeftCornerRadius)
     drawPath(
-        rimShape.path(),
+        rimShape.outline(gate),
         androidx.compose.ui.graphics.Brush.verticalGradient(
             0f to style.highlight.body(),
             0.12f to style.highlight.copy(alpha = 0f),
@@ -299,30 +337,37 @@ private fun DrawScope.drawFrosted(
 }
 
 /** Flat ink: the off-register plate, then the ink shape (pressed shifts onto the plate). */
-private fun DrawScope.drawInk(shape: RoundRect, colors: PlayerControlStyle, style: PlayerStyle, pressed: Boolean) {
+private fun DrawScope.drawInk(shape: RoundRect, colors: PlayerControlStyle, style: PlayerStyle, pressed: Boolean, gate: Double? = null) {
     val offset = style.plateOffset.toPx()
     if (colors.plateColor.alpha > 0f && !pressed) {
-        drawPath(shape.shift(offset, offset).path(), colors.plateColor)
+        drawPath(shape.shift(offset, offset).outline(gate), colors.plateColor)
     }
     val face = if (pressed) shape.shift(offset, offset) else shape
-    val path = face.path()
+    val path = face.outline(gate)
     val fill = if (pressed) colors.pressedFillColor else colors.fillColor
     if (fill.alpha > 0f) drawPath(path, fill)
     val edge = if (pressed) colors.pressedBorderColor else colors.borderColor
     if (edge.alpha > 0f) {
         val w = 1.5.dp.toPx()
         val inset = face.let { RoundRect(it.left + w / 2, it.top + w / 2, it.right - w / 2, it.bottom - w / 2, CornerRadius((it.topLeftCornerRadius.x - w / 2).coerceAtLeast(0f))) }
-        drawPath(inset.path(), edge, style = Stroke(w))
+        drawPath(inset.outline(gate), edge, style = Stroke(w))
     }
 }
 
-/** A stick's ring at full tilt, brightened: a 2.5 dp `controlInk` rim over the travel ring (as iOS). */
+/**
+ * A stick's ring at full tilt, brightened: a 2.5 dp `controlInk` rim over the travel ring (as iOS),
+ * in the gate's shape ([gateReach]; round when null or a circle).
+ */
 @Composable
-fun PlayerStickFullTiltRing(visual: PlayerVisualTheme, modifier: Modifier = Modifier) {
+fun PlayerStickFullTiltRing(visual: PlayerVisualTheme, modifier: Modifier = Modifier, gateReach: Double? = null) {
     val style = visual.style
     Canvas(modifier) {
         val stroke = 2.5.dp.toPx()
-        drawCircle(style.colors.controlInk.copy(alpha = if (style.isInk) 1f else 0.85f), radius = min(size.width, size.height) / 2 - stroke / 2, style = Stroke(stroke))
+        val ink = style.colors.controlInk.copy(alpha = if (style.isInk) 1f else 0.85f)
+        val d = min(size.width, size.height)
+        val left = (size.width - d) / 2 + stroke / 2
+        val top = (size.height - d) / 2 + stroke / 2
+        drawPath(gatePath(left, top, left + d - stroke, top + d - stroke, gateReach ?: sqrt(0.5)), ink, style = Stroke(stroke, join = StrokeJoin.Round))
     }
 }
 

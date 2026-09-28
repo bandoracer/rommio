@@ -133,7 +133,10 @@ drifts, jitters a point or two, and overshoots. The stick is designed for that:
   per change is noise. L3/R3 presses tick like buttons.
 - The touch owns the stick until it lifts; values go to the core immediately.
 - **Visuals:** the ring draws at the centre (so the thumb can see where centre is), the
-  knob at the output position, and the ring brightens at full tilt.
+  knob at the output position, and the ring brightens at full tilt. The ring (and its
+  full-tilt edge) is the gate's shape — the output's full-tilt boundary (`gateOutline`),
+  corners rounded by a tenth of the radius: the N64's octagon, the DualShock's near-square,
+  a circle on 3DS and PSP (revised 2026-09-26). The knob stays round.
 
 The maths is one function set, pinned by `scripts/touch_stick_reference.py`
 (`stick_output`, `gate_scale`, `full_tilt`, `notch`): both apps implement it and their
@@ -249,7 +252,8 @@ Sticks and per-console layouts (iOS):
   after leaving it.
   The zone is the hit region (no 14 pt growth) and isn't drawn: the ring (diameter
   2 × travel) draws at the centre, the knob (0.95 × travel) at centre + output × travel,
-  and at full tilt the ring gets a bright 2.5 pt edge in the control ink.
+  and at full tilt the ring gets a bright 2.5 pt edge in the control ink; ring and edge
+  draw in the gate's shape (`PlayerControlShape.gate`, `PlayerGatePath`).
 - Travel = the profile's × Sensitivity (1.2 / 1 / 0.8) × the control size; dead zone =
   the profile's × (0.6 / 1 / 1.6). The Stick group (Sensitivity,
   Dead zone, Centre, Reset) is in the in-game Controls sheet while the game shows touch

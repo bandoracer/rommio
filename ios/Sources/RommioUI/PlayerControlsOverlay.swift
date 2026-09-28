@@ -72,6 +72,8 @@ private struct PlayerShapeView: Shape {
             let t = min(top, rect.height / 2), b = min(bottom, rect.height / 2)
             return Path(roundedRect: rect, cornerRadii: RectangleCornerRadii(
                 topLeading: leading ? 0 : t, bottomLeading: leading ? 0 : b, bottomTrailing: leading ? b : 0, topTrailing: leading ? t : 0))
+        case let .gate(reach):
+            return Path(PlayerGatePath.path(in: rect, reach: reach))
         }
     }
 }
@@ -434,7 +436,10 @@ final class PlayerControlButtonView: UIView {
             painter.paint(appearance, bounds: ringView.bounds, pressed: pressed, in: ringView, bodyOpacity: bodyOpacity)
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            tiltEdge.path = UIBezierPath(ovalIn: CGRect(x: center.x - travel, y: center.y - travel, width: 2 * travel, height: 2 * travel)).cgPath
+            // The full-tilt edge follows the gate (octagon, near-square, or a circle).
+            let ring = CGRect(x: center.x - travel, y: center.y - travel, width: 2 * travel, height: 2 * travel)
+            tiltEdge.path = PlayerGatePath.path(in: ring, reach: CGFloat(control.stickProfile?.diagonalReach ?? 0.5.squareRoot()))
+            tiltEdge.lineJoin = .round
             tiltEdge.strokeColor = UIColor(appearance.ink).withAlphaComponent(0.95).cgColor
             tiltEdge.isHidden = stick?.fullTilt != true
             CATransaction.commit()

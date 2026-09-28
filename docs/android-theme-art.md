@@ -251,7 +251,8 @@ Look ([player-controls.md](player-controls.md), Look):
   changes, drops to zero on lift, clicks when the stick settles into a notch of its gate at full
   tilt (`CONTEXT_CLICK` for the N64's octagon, `KEYBOARD_TAP` for the DualShock's corners) and
   otherwise plays one `CLOCK_TICK` on entering full tilt (again only after leaving it). The ring draws at the centre and
-  brightens at full tilt (a 2.5 dp `controlInk` rim); the knob (travel × 0.95) sits at the output.
+  brightens at full tilt (a 2.5 dp `controlInk` rim), both in the gate's shape (`gatePath`: the N64's
+  octagon, the DualShock's near-square, round on 3DS and PSP); the knob (travel × 0.95) sits at the output.
   Per game, the Controls sheet's **Stick** group (consoles with sticks; PlayStation with Analog
   controls on) sets Sensitivity (travel × 1.2 / 1 / 0.8), Dead zone (× 0.6 / 1 / 1.6) and Centre
   (Floating / Fixed: the zone's centre, no follow), with Reset; stored per ROM id as

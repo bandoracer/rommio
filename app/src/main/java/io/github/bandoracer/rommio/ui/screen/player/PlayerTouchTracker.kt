@@ -213,6 +213,19 @@ object PlayerStickModel {
         return 1.0 / (cos(folded) + sin(folded) * (1.0 - diagonalReach) / diagonalReach)
     }
 
+    /**
+     * The gate's outline at unit radius, clockwise from the right (y down): the output's full tilt,
+     * so the drawn ring is the shape the stick reaches. Null for a circle. The corners are at the
+     * cardinals and at (±reach, ±reach), joined by straight edges ([gateScale]): the N64's octagon,
+     * the DualShock's near-square.
+     */
+    fun gateOutline(diagonalReach: Double): List<Offset>? {
+        if (abs(diagonalReach - sqrt(0.5)) < 1e-4) return null
+        val d = diagonalReach.toFloat()
+        return listOf(Offset(1f, 0f), Offset(d, d), Offset(0f, 1f), Offset(-d, d),
+            Offset(-1f, 0f), Offset(-d, -d), Offset(0f, -1f), Offset(d, -d))
+    }
+
     /** Thumb offset from the stick centre (dp) → (x, y) in −1…1 for the core. */
     fun output(dx: Double, dy: Double, profile: PlayerStickProfile): Pair<Double, Double> {
         val distance = hypot(dx, dy)

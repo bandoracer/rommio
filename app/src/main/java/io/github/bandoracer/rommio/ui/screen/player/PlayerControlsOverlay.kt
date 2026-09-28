@@ -385,6 +385,7 @@ private fun StickView(control: PlacedPlayerControl, visual: PlayerVisualTheme, o
             visual = visual,
             opacity = opacity,
             rightSide = !control.spec.left,
+            gateReach = control.stickProfile?.diagonalReach,
             modifier = Modifier
                 .offset {
                     val centre = (position.value?.center ?: control.center).local(2 * travel)
@@ -395,6 +396,7 @@ private fun StickView(control: PlacedPlayerControl, visual: PlayerVisualTheme, o
         if (fullTilt) {
             PlayerStickFullTiltRing(
                 visual = visual,
+                gateReach = control.stickProfile?.diagonalReach,
                 modifier = Modifier
                     .offset {
                         val centre = (position.value?.center ?: control.center).local(2 * travel)

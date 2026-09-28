@@ -167,6 +167,23 @@ final class PlayerTouchStickTests: XCTestCase {
         XCTAssertNil(PlayerStickModel.notch(dx: 20, dy: 0, .n64))
     }
 
+    /// The drawn ring is the gate the output reaches: its corners sit on `gateScale`'s
+    /// boundary (the N64's octagon, the DualShock's near-square); a circle draws round.
+    func testTheGateOutlineIsTheShapeTheOutputReaches() throws {
+        XCTAssertNil(PlayerStickModel.gateOutline(diagonalReach: 0.7071))
+        for reach in [0.86, 0.95] {
+            let outline = try XCTUnwrap(PlayerStickModel.gateOutline(diagonalReach: reach))
+            XCTAssertEqual(outline.count, 8)
+            for point in outline {
+                let angle = atan2(Double(point.y), Double(point.x))
+                XCTAssertEqual(hypot(Double(point.x), Double(point.y)), PlayerStickModel.gateScale(angle: angle, diagonalReach: reach), accuracy: 1e-9)
+            }
+            // Its corners are the octagon's notches: the cardinals and the diagonals.
+            XCTAssertEqual(outline.map { (atan2($0.y, $0.x) * 180 / .pi + 360).truncatingRemainder(dividingBy: 360).rounded() },
+                           PlayerStickGate.octagon.notches)
+        }
+    }
+
     func testTheGateReachesItsCornerAtFullTilt() {
         // Circle (the profiles' 0.7071, within 1e-4 of √½): 1 everywhere, in-between angles
         // too; octagon (N64) and near-square (DualShock): the 45° corner.

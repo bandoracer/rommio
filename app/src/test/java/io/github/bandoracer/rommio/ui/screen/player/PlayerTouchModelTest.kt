@@ -747,6 +747,25 @@ class PlayerTouchModelTest {
         assertEquals(0.7071, PlayerStickProfile.PSP.diagonalReach, 0.0)
     }
 
+    /**
+     * The drawn ring is the gate the output reaches: its corners sit on [PlayerStickModel.gateScale]'s
+     * boundary (the N64's octagon, the DualShock's near-square); a circle draws round.
+     */
+    @Test fun theGateOutlineIsTheShapeTheOutputReaches() {
+        assertNull(PlayerStickModel.gateOutline(0.7071))
+        for (reach in listOf(0.86, 0.95)) {
+            val outline = PlayerStickModel.gateOutline(reach)!!
+            assertEquals(8, outline.size)
+            for (point in outline) {
+                val angle = atan2(point.y.toDouble(), point.x.toDouble())
+                assertEquals(PlayerStickModel.gateScale(angle, reach), hypot(point.x.toDouble(), point.y.toDouble()), 1e-6)
+            }
+            // Its corners are the octagon's notches: the cardinals and the diagonals.
+            assertEquals(PlayerStickGate.OCTAGON.notches,
+                outline.map { Math.round((Math.toDegrees(atan2(it.y.toDouble(), it.x.toDouble())) + 360.0) % 360.0).toDouble() })
+        }
+    }
+
     @Test fun eachConsoleGetsItsProfileAndTheGamesTuning() {
         assertEquals(PlayerStickProfile.N64, PlayerStickProfile.forStick("n64", 0))
         assertEquals(PlayerStickProfile.THREE_DS, PlayerStickProfile.forStick("3ds", 0))
