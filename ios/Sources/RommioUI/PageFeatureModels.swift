@@ -39,38 +39,49 @@ final class StatsFeatureModel {
         isLoading = true
         defer { isLoading = false }
         do {
-            guard let profile = try await services.profileStore.activeProfile() else {
-                update(\.stats, .empty)
-                return
-            }
-            let store = try await services.progress.store()
-            let deviceID = try await services.progress.deviceID()
-            let account = await services.activeProgressAccount()
-            let serverKey = account?.serverKey ?? ApplicationProgress.serverKey(profile.baseURL)
-            var samples: [PlayCheckpointSample] = []
-            for identity in try await store.identities() where identity.binding.serverKey == serverKey
-                && (account == nil || identity.binding.accountId == account?.accountId) {
-                for entry in try await store.history(identity) {
-                    samples.append(PlayCheckpointSample(checkpoint: entry.checkpoint))
-                }
-            }
-            // Writes of a session that just ended land before the table is read.
-            await services.playData.flush()
-            let recorded = try account.map { try services.playData.store.sessions(serverKey: $0.serverKey, accountId: $0.accountId) } ?? []
-            let merged = PlayStatsDerivation.merge(recorded: recorded, samples: samples, deviceID: deviceID)
-
-            var known: [Int: RomDTO] = [:]
-            for record in try await services.downloadQueue.records(profileID: profile.id) where known[record.romID] == nil {
-                known[record.romID] = RomDTO(id: record.romID, name: record.romName, platformSlug: record.platformSlug)
-            }
-            for rom in try await services.libraryRepository.cachedLibraryRoms() { known[rom.id] = rom }
-            // One batch: the stats and the games they name change together.
-            update(\.stats, merged)
-            update(\.games, known)
-            update(\.errorMessage, nil)
+            publish(try await read())
         } catch {
             update(\.errorMessage, error.localizedDescription)
         }
+    }
+
+    /// What `refresh` shows, read without showing it (the first load shows it together
+    /// with the saves). nil: no active profile.
+    func read() async throws -> (stats: PlayStats, games: [Int: RomDTO])? {
+        guard let profile = try await services.profileStore.activeProfile() else { return nil }
+        let store = try await services.progress.store()
+        let deviceID = try await services.progress.deviceID()
+        let account = await services.activeProgressAccount()
+        let serverKey = account?.serverKey ?? ApplicationProgress.serverKey(profile.baseURL)
+        var samples: [PlayCheckpointSample] = []
+        for identity in try await store.identities() where identity.binding.serverKey == serverKey
+            && (account == nil || identity.binding.accountId == account?.accountId) {
+            for entry in try await store.history(identity) {
+                samples.append(PlayCheckpointSample(checkpoint: entry.checkpoint))
+            }
+        }
+        // Writes of a session that just ended land before the table is read.
+        await services.playData.flush()
+        let recorded = try account.map { try services.playData.store.sessions(serverKey: $0.serverKey, accountId: $0.accountId) } ?? []
+        let merged = PlayStatsDerivation.merge(recorded: recorded, samples: samples, deviceID: deviceID)
+
+        var known: [Int: RomDTO] = [:]
+        for record in try await services.downloadQueue.records(profileID: profile.id) where known[record.romID] == nil {
+            known[record.romID] = RomDTO(id: record.romID, name: record.romName, platformSlug: record.platformSlug)
+        }
+        for rom in try await services.libraryRepository.cachedLibraryRoms() { known[rom.id] = rom }
+        return (merged, known)
+    }
+
+    func publish(_ read: (stats: PlayStats, games: [Int: RomDTO])?) {
+        guard let read else {
+            update(\.stats, .empty)
+            return
+        }
+        // One batch: the stats and the games they name change together.
+        update(\.stats, read.stats)
+        update(\.games, read.games)
+        update(\.errorMessage, nil)
     }
 }
 
@@ -141,32 +152,46 @@ final class SavedProgressFeatureModel {
         games[Int(romID)] ?? RomDTO(id: Int(romID), name: "Game \(romID)")
     }
 
+    /// Saves, conflicts and the games they name, as `refresh` reads them.
+    struct Loaded {
+        var recent: [SaveEntry] = []
+        var latest: [Int64: SaveEntry] = [:]
+        var conflicts: [ProgressConflict] = []
+        var games: [Int: RomDTO]?
+    }
+
     func refresh() async {
         if isLoading { return }
         isLoading = true
         defer { isLoading = false }
-        guard let account = await services.activeProgressAccount() else {
-            update(\.recent, [])
-            update(\.latest, [:])
-            update(\.conflicts, [])
-            return
-        }
         do {
-            await services.playData.flush()
-            let saves = try await services.savedProgress.recentAndLatest(account)
-            let conflicts = try await services.savedProgress.conflicts(account)
-            var known = games
-            for rom in (try? await services.libraryRepository.cachedLibraryRoms()) ?? [] { known[rom.id] = rom }
-            // One batch: saves, conflicts and the games they name.
-            update(\.recent, saves.recent)
-            update(\.latest, saves.latest)
-            update(\.conflicts, conflicts)
-            update(\.games, known)
-            update(\.errorMessage, nil)
+            publish(try await read())
         } catch {
             // Storage busy (backup or recovery): keep what is shown.
             update(\.errorMessage, error.localizedDescription)
         }
+    }
+
+    /// What `refresh` shows, read without showing it (the first load shows it together
+    /// with the stats). Without a progress account: nothing.
+    func read() async throws -> Loaded {
+        guard let account = await services.activeProgressAccount() else { return Loaded() }
+        await services.playData.flush()
+        let saves = try await services.savedProgress.recentAndLatest(account)
+        let conflicts = try await services.savedProgress.conflicts(account)
+        var known = games
+        for rom in (try? await services.libraryRepository.cachedLibraryRoms()) ?? [] { known[rom.id] = rom }
+        return Loaded(recent: saves.recent, latest: saves.latest, conflicts: conflicts, games: known)
+    }
+
+    func publish(_ read: Loaded) {
+        // One batch: saves, conflicts and the games they name.
+        update(\.recent, read.recent)
+        update(\.latest, read.latest)
+        update(\.conflicts, read.conflicts)
+        guard let games = read.games else { return }
+        update(\.games, games)
+        update(\.errorMessage, nil)
     }
 
     func rename(_ entry: SaveEntry, to name: String) async {

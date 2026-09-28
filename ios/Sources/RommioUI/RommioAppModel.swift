@@ -102,6 +102,11 @@ public final class RommioAppModel {
     @ObservationIgnored private(set) lazy var searchContent = DerivedContent { [unowned self] in SearchContent.build(self) }
     @ObservationIgnored private(set) lazy var statsContent = DerivedContent { [unowned self] in StatsContent.build(self) }
     @ObservationIgnored private(set) lazy var downloadsContent = DerivedContent { [unowned self] in DownloadsContent.build(self) }
+    /// The profile whose on-device state (downloads, stats, saves) has been read.
+    @ObservationIgnored private var localStateProfileID: String?
+    /// This device's stats and saves have been read: Play waits for them to choose its
+    /// games (from RomM's list alone, the first would switch a moment later).
+    private(set) var localStateReady = false
 
     /// Games downloaded to this device.
     var installedRomIDs: Set<Int> {
@@ -685,6 +690,20 @@ public final class RommioAppModel {
     }
 
     public func refreshShell(forceRemote: Bool = true) async {
+        // What's on this device first (downloads, stats with the cached library, saves),
+        // before anything waits on the server: pages draw whole from their first frame
+        // instead of filling in seconds later (the Library's wall dropping in).
+        if let activeProfile, localStateProfileID != activeProfile.id {
+            localStateProfileID = activeProfile.id
+            localStateReady = false
+            await downloadsFeature.refresh()
+            // Shown together: Play's first game is chosen from both.
+            let stats = try? await statsFeature.read()
+            let saves = try? await savesFeature.read()
+            if let stats { statsFeature.publish(stats) }
+            if let saves { savesFeature.publish(saves) }
+            localStateReady = true
+        }
         await resumeDownloads()
         guard activeProfile != nil else { return }
         isRefreshing = true

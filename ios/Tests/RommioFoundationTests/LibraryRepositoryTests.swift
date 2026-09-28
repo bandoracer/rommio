@@ -9,6 +9,36 @@ final class LibraryRepositoryTests: XCTestCase {
     }
 
     func testLoadHomeRequestsContinuePlayingByLastPlayedDescending() async throws {
+        let repository = try await makeRepository()
+
+        _ = try await repository.loadHome()
+
+        let continuePlayingURL = try XCTUnwrap(
+            ContinuePlayingQueryProtocol.recordedRomsURLs.first(where: {
+                URLComponents(url: $0, resolvingAgainstBaseURL: false)?
+                    .queryItems?
+                    .contains(where: { $0.name == "last_played" && $0.value == "true" }) == true
+            })
+        )
+        let queryItems = URLComponents(url: continuePlayingURL, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertTrue(queryItems.contains(where: { $0.name == "last_played" && $0.value == "true" }))
+        XCTAssertTrue(queryItems.contains(where: { $0.name == "order_by" && $0.value == "last_played" }))
+        XCTAssertTrue(queryItems.contains(where: { $0.name == "order_dir" && $0.value == "desc" }))
+    }
+
+    /// A page drawn from the cache keeps its order when the server answers (the Library's
+    /// console groups reordered a moment after it opened).
+    func testCachedPlatformsKeepTheServersOrder() async throws {
+        let repository = try await makeRepository()
+
+        let loaded = try await repository.loadPlatforms().map(\.name)
+        let cached = try await repository.cachedPlatforms().map(\.name)
+
+        XCTAssertEqual(loaded, ["Atari 7800", "game boy", "Super Nintendo"])
+        XCTAssertEqual(cached, loaded)
+    }
+
+    private func makeRepository() async throws -> DefaultLibraryRepository {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let database = try AppDatabase(rootDirectory: root.appending(path: "Database"))
@@ -50,26 +80,12 @@ final class LibraryRepositoryTests: XCTestCase {
             secretStore: secretStore,
             session: session
         )
-        let repository = DefaultLibraryRepository(
+        return DefaultLibraryRepository(
             database: database,
             profileStore: profileStore,
             offlineStore: offlineStore,
             authController: authController
         )
-
-        _ = try await repository.loadHome()
-
-        let continuePlayingURL = try XCTUnwrap(
-            ContinuePlayingQueryProtocol.recordedRomsURLs.first(where: {
-                URLComponents(url: $0, resolvingAgainstBaseURL: false)?
-                    .queryItems?
-                    .contains(where: { $0.name == "last_played" && $0.value == "true" }) == true
-            })
-        )
-        let queryItems = URLComponents(url: continuePlayingURL, resolvingAgainstBaseURL: false)?.queryItems ?? []
-        XCTAssertTrue(queryItems.contains(where: { $0.name == "last_played" && $0.value == "true" }))
-        XCTAssertTrue(queryItems.contains(where: { $0.name == "order_by" && $0.value == "last_played" }))
-        XCTAssertTrue(queryItems.contains(where: { $0.name == "order_dir" && $0.value == "desc" }))
     }
 }
 
@@ -93,6 +109,13 @@ private final class ContinuePlayingQueryProtocol: URLProtocol, @unchecked Sendab
             body = #"{"items":[],"total":0,"page":1,"per_page":0}"#
         case "/api/collections", "/api/collections/smart", "/api/collections/virtual":
             body = "[]"
+        case "/api/platforms":
+            // By id, which isn't by name.
+            body = #"""
+            [{"id": 1, "slug": "snes", "fs_slug": "snes", "name": "Super Nintendo", "rom_count": 3},
+             {"id": 2, "slug": "atari7800", "fs_slug": "atari7800", "name": "Atari 7800", "rom_count": 2},
+             {"id": 3, "slug": "gb", "fs_slug": "gb", "name": "game boy", "rom_count": 5}]
+            """#
         default:
             client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL))
             return

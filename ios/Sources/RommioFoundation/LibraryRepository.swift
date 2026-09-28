@@ -136,7 +136,7 @@ public actor DefaultLibraryRepository: LibraryRepository {
         let client = await authController.client(for: profile.id, baseURL: profile.baseURL)
 
         do {
-            let platforms = try await client.getPlatforms().sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            let platforms = Self.byName(try await client.getPlatforms())
             try cachePlatforms(platforms, profileID: profile.id)
             return platforms
         } catch {
@@ -314,8 +314,14 @@ public actor DefaultLibraryRepository: LibraryRepository {
     private func cachedPlatforms(profileID: String) throws -> [PlatformDTO] {
         try database.read { db in
             let rows = try Row.fetchAll(db, sql: "SELECT payload FROM cached_platforms WHERE profile_id = ? ORDER BY platform_id", arguments: [profileID])
-            return try rows.map { try database.decoded(PlatformDTO.self, from: $0["payload"]) }
+            // The server's order (by name), so a page drawn from the cache doesn't reorder
+            // when the server answers.
+            return Self.byName(try rows.map { try database.decoded(PlatformDTO.self, from: $0["payload"]) })
         }
+    }
+
+    private static func byName(_ platforms: [PlatformDTO]) -> [PlatformDTO] {
+        platforms.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     private func cachedCollections(profileID: String) throws -> [RommCollectionDTO] {
