@@ -16,7 +16,7 @@ struct PadTouchEvent: Sendable {
     }
 
     var phase: Phase
-    /// Where the finger is, in the view's coordinates.
+    /// Where the finger is, in the pad's coordinates.
     var location: CGPoint
     /// Points per second, smoothed.
     var velocity: CGSize
@@ -74,7 +74,13 @@ private struct PadTouchGesture: UIGestureRecognizerRepresentable {
     }
 
     func handleUIGestureRecognizerAction(_ recognizer: PadRecognizer, context: Context) {
-        if let event = recognizer.event { handler(event) }
+        guard var event = recognizer.event else { return }
+        // The recognizer measures in the window; the pad wants its own coordinates. The
+        // recognizer's own view is SwiftUI's host, not the pad (revised 2026-09-28: reading
+        // positions in that view put every touch far below the pad's centre, so sticks and
+        // d-pads always pointed down).
+        event.location = context.converter.convert(globalPoint: event.location, to: .local)
+        handler(event)
     }
 
     func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
@@ -92,7 +98,8 @@ private struct PadTouchGesture: UIGestureRecognizerRepresentable {
     }
 }
 
-/// Begins on touch-down (no delay) and follows one finger.
+/// Begins on touch-down (no delay) and follows one finger, in window coordinates (the pad's
+/// converter maps them into the pad).
 private final class PadRecognizer: UIGestureRecognizer {
     var sharesTouch = false
     private(set) var event: PadTouchEvent?
@@ -105,7 +112,7 @@ private final class PadRecognizer: UIGestureRecognizer {
         guard tracked == nil, let touch = touches.first else { return }
         tracked = touch
         start = touch.location(in: nil)
-        let point = touch.location(in: view)
+        let point = touch.location(in: nil)
         last = (point, touch.timestamp)
         velocity = .zero
         self.event = PadTouchEvent(phase: .began, location: point, velocity: .zero, distance: 0, timestamp: touch.timestamp)
@@ -117,7 +124,7 @@ private final class PadRecognizer: UIGestureRecognizer {
         // Every sample since the last delivery (the screen samples touches faster than it
         // draws), for a steadier speed.
         for sample in event.coalescedTouches(for: tracked) ?? [tracked] {
-            let point = sample.location(in: view)
+            let point = sample.location(in: nil)
             if let last, sample.timestamp > last.time {
                 let dt = sample.timestamp - last.time
                 let instant = CGSize(width: (point.x - last.point.x) / dt, height: (point.y - last.point.y) / dt)
@@ -149,7 +156,7 @@ private final class PadRecognizer: UIGestureRecognizer {
 
     private func current(_ phase: PadTouchEvent.Phase, _ touch: UITouch) -> PadTouchEvent {
         let window = touch.location(in: nil)
-        return PadTouchEvent(phase: phase, location: touch.location(in: view), velocity: velocity,
+        return PadTouchEvent(phase: phase, location: window, velocity: velocity,
                              distance: Double(hypot(window.x - start.x, window.y - start.y)), timestamp: touch.timestamp)
     }
 }
