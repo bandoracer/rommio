@@ -28,8 +28,14 @@ final class NavigationPassTests: XCTestCase {
         }
         runner = UIActionRunner(test: self)
         runner.launch(arguments: UIActionRunner.appearanceArguments(config))
-        XCTAssertTrue(app.tabBars.buttons["Play"].waitForExistence(timeout: 60) || app.buttons["Play"].waitForExistence(timeout: 1),
-                      "The app did not reach its tabs (signed in?)")
+        // Tabs: a tab bar, or an iPad's sidebar in landscape.
+        let deadline = Date().addingTimeInterval(60)
+        var reached = false
+        while !reached && Date() < deadline {
+            reached = app.tabBars.buttons["Play"].exists || app.buttons["Play"].exists || app.cells["Play"].exists
+            if !reached { try await Task.sleep(for: .milliseconds(500)) }
+        }
+        XCTAssertTrue(reached, "The app did not reach its tabs (signed in?)")
     }
 
     private var prefix: String {
@@ -123,7 +129,7 @@ final class NavigationPassTests: XCTestCase {
         // Settings and each sub-page.
         try tab("Settings")
         try capture("settings")
-        for page in ["settings.profiles", "settings.player", "settings.cores", "settings.backup"] {
+        for page in ["settings.profiles", "settings.player", "settings.cores", "settings.backup", "settings.haptics", "settings.screens"] {
             try step(["scrollTo": page, "max": "6"], ["tap": page], ["wait": "2"])
             try capture(page.replacingOccurrences(of: ".", with: "-"))
             try step(["back": "1"], ["wait": "1"])

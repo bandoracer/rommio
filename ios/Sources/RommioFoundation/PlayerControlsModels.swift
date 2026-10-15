@@ -182,17 +182,21 @@ public struct HardwareBindingProfile: Codable, Hashable, Sendable {
     public var platformFamilyID: String
     public var controllerTypeID: Int?
     public var deadzone: Double
+    /// Which controller buttons and keys press which console buttons (device-local).
+    public var bindings: ControllerBindings
     public var updatedAtEpochMS: Int64
 
     public init(
         platformFamilyID: String,
         controllerTypeID: Int? = nil,
         deadzone: Double = 0.2,
+        bindings: ControllerBindings = .standard,
         updatedAtEpochMS: Int64 = Int64(Date().timeIntervalSince1970 * 1000)
     ) {
         self.platformFamilyID = platformFamilyID
         self.controllerTypeID = controllerTypeID
         self.deadzone = deadzone
+        self.bindings = bindings
         self.updatedAtEpochMS = updatedAtEpochMS
     }
 }

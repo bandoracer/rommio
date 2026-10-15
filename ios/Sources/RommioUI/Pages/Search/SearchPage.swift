@@ -551,6 +551,9 @@ private struct SearchFieldPlacement: ViewModifier {
     func body(content: Content) -> some View {
 #if os(iOS)
         content.searchable(text: $feature.query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Games and platforms")
+            // On an iPad an active search takes the tab bar's place, and a query kept after
+            // opening a game would leave the other tabs out of reach until it's cleared.
+            .searchPresentationToolbarBehavior(.avoidHidingContent)
             .background { SearchFieldTagger(identifier: "search.field") }
 #else
         content.searchable(text: $feature.query, prompt: "Games and platforms")

@@ -276,6 +276,9 @@ struct StickPad: View {
     @State private var knob = CGPoint.zero
     @State private var texture = StickTexture()
     @State private var humToken = 0
+    /// When the last touch update came, for spreading scattered grit until the next one.
+    @State private var lastTouch: TimeInterval?
+    @State private var touchInterval = 1.0 / 120
 
     var body: some View {
         let style = PadStyle(theme: theme)
@@ -297,7 +300,7 @@ struct StickPad: View {
         .contentShape(Rectangle())
         .padTouch { event in
             switch event.phase {
-            case .began, .moved: move(event.location, velocity: event.velocity, radius: radius)
+            case .began, .moved: move(event.location, velocity: event.velocity, at: event.timestamp, radius: radius)
             case .ended, .cancelled: release()
             }
         }
@@ -305,7 +308,10 @@ struct StickPad: View {
         .accessibilityLabel("Stick")
     }
 
-    private func move(_ location: CGPoint, velocity: CGSize, radius: CGFloat) {
+    private func move(_ location: CGPoint, velocity: CGSize, at timestamp: TimeInterval, radius: CGFloat) {
+        if let lastTouch { touchInterval = min(max(timestamp - lastTouch, 0.004), 0.02) }
+        lastTouch = timestamp
+        let feel = lab.noiseTuned(feel)
         // Full tilt at the ring: the finger's offset (and speed) scaled to the profile's travel.
         let scale = feel.profile.travel / Double(radius)
         let dx = Double(location.x - size / 2) * scale
@@ -319,19 +325,31 @@ struct StickPad: View {
         knob = CGPoint(x: output.x, y: output.y)
         if let hum = feel.hum {
             lab.hum(hum, level: texture.humLevel(hum, tuning: lab.stickTuning))
-            // The finger may stop without another update: the hum fades out after a pause.
+        }
+        if let bed = feel.bed {
+            let noise = lab.noiseTuning
+            lab.bed(bed, level: bed.level(rimSpeed: texture.rimSpeed, force: texture.force,
+                                          floor: lab.stickTuning.contactFloor * 0.8, gain: noise.gain),
+                    rate: bed.rate(rimSpeed: texture.rimSpeed, response: noise.speedResponse))
+        }
+        if feel.hum != nil || feel.bed != nil {
+            // The finger may stop without another update: the hum and the bed fade out after a pause.
             humToken += 1
             let token = humToken
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(70))
-                if token == humToken { lab.hum(hum, level: 0) }
+                guard token == humToken else { return }
+                if let hum = feel.hum { lab.hum(hum, level: 0) }
+                if let bed = feel.bed { lab.bed(bed, level: 0, rate: 1) }
             }
         }
     }
 
     private func release() {
         for cue in texture.release() { play(cue) }
+        lastTouch = nil
         lab.hum(nil, level: 0)
+        lab.bed(nil, level: 0, rate: 1)
         withAnimation(.spring(duration: 0.18, bounce: 0.35)) { knob = .zero }
     }
 
@@ -343,6 +361,12 @@ struct StickPad: View {
             lab.play(feel.notch.scaled(intensity: 0.4 + 0.35 * force + 0.35 * glide, sharpness: 0.1 * force + 0.15 * glide - 0.1))
         case let .center(strength): lab.play(feel.center.scaled(intensity: strength))
         case let .grain(intensity, sharpness): lab.play(.tap(intensity, sharpness))
+        // Spread over the time to the next touch update, so the grit isn't on the touch clock.
+        case let .scatter(grains):
+            let gain = lab.noiseTuning.gain
+            lab.playOnce(HapticRecipe(events: grains.map {
+                HapticRecipe.Event(at: $0.offset * touchInterval, intensity: min($0.intensity * gain, 1), sharpness: $0.sharpness)
+            }))
         }
     }
 }

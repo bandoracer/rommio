@@ -11,6 +11,7 @@ struct HapticsPlaygroundPage: View {
         ThemedScrollPage(maxWidth: 760) {
             PlaygroundIntro(supported: lab.isSupported)
             PlaygroundTuning(lab: lab)
+            PlaygroundNoiseBench(lab: lab)
             PlaygroundController(lab: lab)
             PlaygroundRumble(lab: lab)
             PlaygroundMaterials(lab: lab)
@@ -65,12 +66,66 @@ private struct PlaygroundTuning: View {
     }
 }
 
-private struct SliderRow: View {
+/// A noise texture on its own, playing constantly: pick one, press Play, change it as it
+/// plays (2026-10-06, to judge the noise before it goes on a stick).
+private struct PlaygroundNoiseBench: View {
+    @Environment(\.rommioTheme) private var theme
+    @Bindable var lab: HapticsLab
+
+    private static let textures = RimTexture.all.filter(\.isNoisy)
+
+    var body: some View {
+        let bed = lab.bench.bed(for: lab.benchTexture)
+        ThemedGroup(title: "Noise bench", footer: "A noise texture on its own, as if a thumb slid a turn a second. Amplitude, speed and sharpness change as it plays; grain density and the hiss's grain, depth and colour remake the loop (a moment's restart). Scattered grit plays as a loop of grains at the rate a turn a second would scatter them.") {
+            VStack(alignment: .leading, spacing: 12) {
+                PlaygroundChips(items: Self.textures, title: \.name, selection: $lab.benchTexture)
+                Text(lab.benchTexture.source).themeText(.caption).foregroundStyle(theme.inkSecondary)
+                Button { lab.toggleBench() } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: lab.benchPlaying ? "stop.fill" : "play.fill")
+                        Text(lab.benchPlaying ? "Stop" : "Play constantly")
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .accessibilityIdentifier("haptics.bench.play")
+            }
+            .padding(.vertical, 6)
+            SliderRow(title: "Amplitude", value: $lab.bench.level, range: 0.05...1,
+                      label: "\(Int((lab.bench.level * 100).rounded()))%")
+            SliderRow(title: "Speed", value: $lab.bench.rate, range: 0.25...2.5,
+                      label: String(format: "×%.2f", lab.bench.rate))
+            SliderRow(title: "Sharpness", value: $lab.bench.sharpness, range: -0.5...0.5,
+                      label: abs(lab.bench.sharpness) < 0.001 ? "As made" : String(format: "%+.2f", lab.bench.sharpness))
+            if bed?.grains != nil {
+                SliderRow(title: "Grain density", value: $lab.bench.density, range: 0.25...3,
+                          label: String(format: "×%.2f", lab.bench.density))
+            }
+            if bed?.hiss != nil {
+                SliderRow(title: "Hiss grain", value: $lab.bench.step, range: 0.004...0.015, step: 0.001,
+                          label: String(format: "%.0f ms", lab.bench.step * 1000))
+                SliderRow(title: "Hiss depth", value: $lab.bench.depth, range: 0.1...1,
+                          label: "\(Int((lab.bench.depth * 100).rounded()))%")
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Hiss colour").themeText(.bodyEmphasis, size: 16).foregroundStyle(theme.ink)
+                    Picker("Hiss colour", selection: $lab.bench.color) {
+                        ForEach(NoiseBed.Color.allCases) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                }
+            }
+        }
+    }
+}
+
+/// A titled slider with its value spelled out (the playgrounds).
+struct SliderRow: View {
     @Environment(\.rommioTheme) private var theme
     @Environment(\.pageLight) private var light
     let title: String
     @Binding var value: Double
     let range: ClosedRange<Double>
+    var step = 0.05
     let label: String
 
     var body: some View {
@@ -80,7 +135,7 @@ private struct SliderRow: View {
                 Spacer()
                 Text(label).themeText(.numeral, size: 14).foregroundStyle(theme.inkSecondary)
             }
-            Slider(value: $value, in: range, step: 0.05)
+            Slider(value: $value, in: range, step: step)
                 .tint(light.readableTint)
         }
     }
@@ -113,7 +168,7 @@ private struct LatencyRow: View {
 }
 
 /// A row of chips choosing one of `items`.
-private struct PlaygroundChips<Item: Identifiable & Hashable>: View {
+struct PlaygroundChips<Item: Identifiable & Hashable>: View {
     let items: [Item]
     let title: (Item) -> String
     @Binding var selection: Item
@@ -131,8 +186,11 @@ private struct PlaygroundChips<Item: Identifiable & Hashable>: View {
                 }
                 .padding(.vertical, 2)
             }
-            // The chosen chip in view, even when it isn't the first.
+            // The chosen chip in view, even when it isn't the first or something else chose it.
             .onAppear { proxy.scrollTo(selection.id, anchor: .center) }
+            .onChange(of: selection) { _, chosen in
+                withAnimation(.smooth(duration: 0.3)) { proxy.scrollTo(chosen.id, anchor: .center) }
+            }
         }
     }
 }
@@ -279,7 +337,7 @@ private struct PlaygroundSticks: View {
     var body: some View {
         ThemedGroup(title: "Sticks", detail: "\(StickFeel.all.count)",
                     footer: feel.source + (texture == .designed ? "" : "; rim: \(texture.source.lowercased())")
-                        + ". Flick to the rim or ease out to it; push past it and circle the gate, slowly and fast.") {
+                        + ". Flick to the rim or ease out to it; push past it and circle the gate, slowly and fast. The first rim textures are noise: grit at random, hisses and looped beds.") {
             VStack(spacing: 16) {
                 PlaygroundChips(items: StickFeel.all, title: \.name, selection: $feel)
                 StickPad(feel: feel.textured(texture), lab: lab, size: 210)
@@ -288,15 +346,48 @@ private struct PlaygroundSticks: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Rim texture").themeText(.caption).foregroundStyle(theme.inkSecondary)
                     PlaygroundChips(items: RimTexture.all, title: \.name, selection: $texture)
+                    Text(texture.source + (texture.isNoisy ? "" : (texture == .designed ? "" : " (regular)")))
+                        .themeText(.caption).foregroundStyle(theme.inkTertiary)
                 }
             }
             .padding(.vertical, 6)
+            if feel.textured(texture).isNoisy {
+                StickNoiseControls(lab: lab, hasHiss: feel.textured(texture).bed?.hiss != nil)
+            }
             SliderRow(title: "Full-strength hit", value: $lab.stickTuning.fullHit, range: 8...80,
                       label: "\(Int(lab.stickTuning.fullHit.rounded())) radii/s")
             SliderRow(title: "Full push", value: $lab.stickTuning.fullPush, range: 0.3...1.5,
                       label: String(format: "%.2f past the rim", lab.stickTuning.fullPush))
             SliderRow(title: "Contact floor", value: $lab.stickTuning.contactFloor, range: 0...0.4,
                       label: "\(Int((lab.stickTuning.contactFloor * 100).rounded()))%")
+        }
+    }
+}
+
+/// The noisy rim textures' controls: strength, how dense the grains are, how much a bed's
+/// speed follows the thumb, and a hiss's colour.
+private struct StickNoiseControls: View {
+    @Environment(\.rommioTheme) private var theme
+    @Bindable var lab: HapticsLab
+
+    let hasHiss: Bool
+
+    var body: some View {
+        SliderRow(title: "Noise strength", value: $lab.noiseTuning.gain, range: 0.25...1.6,
+                  label: "\(Int((lab.noiseTuning.gain * 100).rounded()))%")
+        SliderRow(title: "Grain density", value: $lab.noiseTuning.density, range: 0.4...2.5,
+                  label: String(format: "×%.2f", lab.noiseTuning.density))
+        SliderRow(title: "Speed follows thumb", value: $lab.noiseTuning.speedResponse, range: 0...1,
+                  label: lab.noiseTuning.speedResponse == 0 ? "Fixed" : "\(Int((lab.noiseTuning.speedResponse * 100).rounded()))%")
+        if hasHiss {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Hiss colour").themeText(.bodyEmphasis, size: 16).foregroundStyle(theme.ink)
+                Picker("Hiss colour", selection: $lab.noiseTuning.color) {
+                    Text("As designed").tag(NoiseBed.Color?.none)
+                    ForEach(NoiseBed.Color.allCases) { Text($0.title).tag(NoiseBed.Color?.some($0)) }
+                }
+                .pickerStyle(.segmented)
+            }
         }
     }
 }

@@ -1,7 +1,7 @@
-import CryptoKit
 import Darwin
 import Foundation
 import RommioContract
+import Synchronization
 
 /// Actor-owned files, fenced across processes by an exclusive lock on the stable storage root.
 final class ProgressFileVault: @unchecked Sendable {
@@ -50,14 +50,15 @@ final class ProgressFileVault: @unchecked Sendable {
         if fsync(fd) != 0 { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
     }
     private static func verifyFile(_ url: URL, artifact: ProgressArtifact) throws {
+        let before = VerifiedArtifacts.Identity(url)
+        if let before, verified.matches(url.path, before, artifact) { return }
         try directories(url.deletingLastPathComponent())
         let info = try FileManager.default.attributesOfItem(atPath: url.path)
         try check(info[.type] as? FileAttributeType == .typeRegular && (info[.size] as? NSNumber)?.int64Value == artifact.byteLength, "Missing or truncated checkpoint artifact")
-        let input = try FileHandle(forReadingFrom: url); defer { try? input.close() }
-        var hash = SHA256()
-        while let data = try input.read(upToCount: 65536), !data.isEmpty { hash.update(data: data) }
-        try check(hash.finalize().map { String(format: "%02x", $0) }.joined() == artifact.sha256, "Corrupt checkpoint artifact")
+        try check(try ProgressFileHash.sha256(url) == artifact.sha256, "Corrupt checkpoint artifact")
+        if let before, VerifiedArtifacts.Identity(url) == before { verified.insert(url.path, before, artifact) }
     }
+    private static let verified = VerifiedArtifacts()
     func verify(_ identity: ProgressIdentity, artifacts: [ProgressArtifact]) throws {
         for artifact in artifacts { try Self.verifyFile(blob(identity, digest: artifact.sha256), artifact: artifact) }
     }
@@ -71,8 +72,10 @@ final class ProgressFileVault: @unchecked Sendable {
         let input = try FileHandle(forReadingFrom: source); defer { try? input.close() }
         var remaining = artifact.byteLength
         while remaining > 0 {
-            guard let data = try input.read(upToCount: Int(min(65536, remaining))), !data.isEmpty else { throw ProgressStoreError.invalid("Truncated artifact") }
-            try output.write(contentsOf: data); remaining -= Int64(data.count)
+            let more = try FileChunks.next(input, upTo: Int(min(65536, remaining))) { data in
+                try output.write(contentsOf: data); remaining -= Int64(data.count)
+            }
+            guard more else { throw ProgressStoreError.invalid("Truncated artifact") }
         }
         try check((try input.read(upToCount: 1))?.isEmpty != false, "Artifact grew during capture")
         try output.synchronize()
@@ -133,5 +136,23 @@ final class ProgressFileVault: @unchecked Sendable {
         if rename(staging.path, target.path) != 0 { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         try Self.syncDirectory(working)
         return target
+    }
+}
+
+/// Stored artifacts are immutable, so one that matched its digest is not hashed again while its file
+/// identity is unchanged. Any write, replacement or move changes the device, inode, size, modification
+/// or status-change time, and the next read verifies it in full. Sync reads every stored save and
+/// state of every game every 30 seconds, and re-hashing them all hitched games mid-play.
+final class VerifiedArtifacts: Sendable {
+    typealias Identity = FileIdentity
+    private struct Entry { let identity: Identity; let digest: String; let length: Int64 }
+    private let entries = Mutex<[String: Entry]>([:])
+
+    func matches(_ path: String, _ identity: Identity, _ artifact: ProgressArtifact) -> Bool {
+        guard let entry = entries.withLock({ $0[path] }) else { return false }
+        return entry.identity == identity && entry.digest == artifact.sha256 && entry.length == artifact.byteLength
+    }
+    func insert(_ path: String, _ identity: Identity, _ artifact: ProgressArtifact) {
+        entries.withLock { $0[path] = Entry(identity: identity, digest: artifact.sha256, length: artifact.byteLength) }
     }
 }

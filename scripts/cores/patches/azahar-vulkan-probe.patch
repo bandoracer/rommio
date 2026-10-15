@@ -1,3 +1,17 @@
+Rommio's Vulkan-only changes to Azahar, applied after azahar.patch and azahar-mvd.patch by
+scripts/cores/build_azahar_vulkan_probe.py:
+- Rebuild the Vulkan shader cache after loading a savestate.
+- iOS Simulator: stage texel-buffer writes into GPU-private memory.
+- Upload the procedural-texture lookup tables when any of them changes, as the OpenGL
+  renderer does. Upstream Vulkan uploads only when the colour table changes, so a game that
+  rewrites just the noise, colour-map or alpha-map table drew with the old one.
+- Point every folder derived from the user folder at the current one each time it's set. The
+  core stays loaded between games, and keeping the first game's SD card and NAND folders made a
+  later game save where Rommio's save capture didn't look.
+
+Written with AI models (Codex and Claude). Azahar's AI-POLICY.md prohibits AI-written
+contributions, so these changes must not be submitted to Azahar.
+
 diff --git a/src/citra_libretro/citra_libretro.cpp b/src/citra_libretro/citra_libretro.cpp
 --- a/src/citra_libretro/citra_libretro.cpp
 +++ b/src/citra_libretro/citra_libretro.cpp
@@ -185,3 +199,69 @@ diff --git a/src/video_core/renderer_vulkan/vk_rasterizer.cpp b/src/video_core/r
      SyncAndUploadLUTs();
      SyncAndUploadLUTsLF();
      UploadUniforms(accelerate);
+@@ -916,7 +920,7 @@
+         sizeof(Common::Vec4f) * 256 +     // proctex
+         sizeof(Common::Vec4f) * 256;      // proctex diff
+ 
+-    if (!pica.proctex.lut_dirty) {
++    if (!pica.proctex.table_dirty) {
+         return;
+     }
+ 
+diff --git a/src/common/file_util.cpp b/src/common/file_util.cpp
+--- a/src/common/file_util.cpp
++++ b/src/common/file_util.cpp
+@@ -933,13 +933,15 @@
+ } // namespace
+ 
+ void SetUserPath(const std::string& path) {
++    // Rommio: the core stays loaded between games, so each call re-points every derived
++    // folder; emplace would keep the first game's SD card and NAND folders.
+     std::string& user_path = g_paths[UserPath::UserDir];
+ 
+     if (!path.empty() && CreateFullPath(path)) {
+         LOG_INFO(Common_Filesystem, "Using {} as the user directory", path);
+         user_path = path;
+-        g_paths.emplace(UserPath::ConfigDir, user_path + CONFIG_DIR DIR_SEP);
+-        g_paths.emplace(UserPath::CacheDir, user_path + CACHE_DIR DIR_SEP);
++        g_paths.insert_or_assign(UserPath::ConfigDir, user_path + CONFIG_DIR DIR_SEP);
++        g_paths.insert_or_assign(UserPath::CacheDir, user_path + CACHE_DIR DIR_SEP);
+     } else {
+ #ifdef _WIN32
+         user_path = GetExeDirectory() + DIR_SEP USERDATA_DIR DIR_SEP;
+@@ -1025,22 +1027,22 @@
+     // Config, cache, keys and system archives remain outside that artifact.
+     const auto progress_path = user_path + "rommio-progress" DIR_SEP;
+     CreateDir(progress_path);
+-    g_paths.emplace(UserPath::SDMCDir, progress_path + SDMC_DIR DIR_SEP);
+-    g_paths.emplace(UserPath::NANDDir, progress_path + NAND_DIR DIR_SEP);
++    g_paths.insert_or_assign(UserPath::SDMCDir, progress_path + SDMC_DIR DIR_SEP);
++    g_paths.insert_or_assign(UserPath::NANDDir, progress_path + NAND_DIR DIR_SEP);
+ #else
+-    g_paths.emplace(UserPath::SDMCDir, user_path + SDMC_DIR DIR_SEP);
+-    g_paths.emplace(UserPath::NANDDir, user_path + NAND_DIR DIR_SEP);
++    g_paths.insert_or_assign(UserPath::SDMCDir, user_path + SDMC_DIR DIR_SEP);
++    g_paths.insert_or_assign(UserPath::NANDDir, user_path + NAND_DIR DIR_SEP);
+ #endif
+-    g_paths.emplace(UserPath::SysDataDir, user_path + SYSDATA_DIR DIR_SEP);
++    g_paths.insert_or_assign(UserPath::SysDataDir, user_path + SYSDATA_DIR DIR_SEP);
+     // TODO: Put the logs in a better location for each OS
+-    g_paths.emplace(UserPath::LogDir, user_path + LOG_DIR DIR_SEP);
+-    g_paths.emplace(UserPath::CheatsDir, user_path + CHEATS_DIR DIR_SEP);
+-    g_paths.emplace(UserPath::DLLDir, user_path + DLL_DIR DIR_SEP);
+-    g_paths.emplace(UserPath::ShaderDir, user_path + SHADER_DIR DIR_SEP);
+-    g_paths.emplace(UserPath::DumpDir, user_path + DUMP_DIR DIR_SEP);
+-    g_paths.emplace(UserPath::LoadDir, user_path + LOAD_DIR DIR_SEP);
+-    g_paths.emplace(UserPath::StatesDir, user_path + STATES_DIR DIR_SEP);
+-    g_paths.emplace(UserPath::IconsDir, user_path + ICONS_DIR DIR_SEP);
++    g_paths.insert_or_assign(UserPath::LogDir, user_path + LOG_DIR DIR_SEP);
++    g_paths.insert_or_assign(UserPath::CheatsDir, user_path + CHEATS_DIR DIR_SEP);
++    g_paths.insert_or_assign(UserPath::DLLDir, user_path + DLL_DIR DIR_SEP);
++    g_paths.insert_or_assign(UserPath::ShaderDir, user_path + SHADER_DIR DIR_SEP);
++    g_paths.insert_or_assign(UserPath::DumpDir, user_path + DUMP_DIR DIR_SEP);
++    g_paths.insert_or_assign(UserPath::LoadDir, user_path + LOAD_DIR DIR_SEP);
++    g_paths.insert_or_assign(UserPath::StatesDir, user_path + STATES_DIR DIR_SEP);
++    g_paths.insert_or_assign(UserPath::IconsDir, user_path + ICONS_DIR DIR_SEP);
+     g_default_paths = g_paths;
+ }
+ 

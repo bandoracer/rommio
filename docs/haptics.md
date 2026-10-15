@@ -11,11 +11,14 @@ counterparts are noted in the research summary below but not built.
 | Designs as data (`HapticRecipe`: taps, buzzes, curves → `CHHapticPattern`) | `ios/Sources/RommioUI/Haptics/HapticRecipe.swift` |
 | Engine: one-shot recipes and live continuous voices; restarts after the system stops it | `ios/Sources/RommioUI/Haptics/HapticsEngine.swift` |
 | Rumble: `TwoVoiceRumble` (default), `BlendedRumble`, today's `OneTapRumble`, `MotorRamp`, 12 recorded `RumbleScene`s | `ios/Sources/RommioUI/Haptics/Rumble.swift` |
-| Controller feel: 16 button materials, 7 d-pads (`DpadTracker`), 7 sticks (`StickTexture`), 11 rim textures (`RimTexture`), 11 console pads |
-| Sounds: 22 synthesised clicks, tocks and thunks (`SoundRecipe`), rendered to WAV and registered with the engine | `ios/Sources/RommioUI/Haptics/SoundRecipe.swift` | `ios/Sources/RommioUI/Haptics/ControllerFeels.swift` |
+| Controller feel: 16 button materials, 7 d-pads (`DpadTracker`), 7 sticks (`StickTexture`), 21 rim textures (`RimTexture`), 11 console pads | `ios/Sources/RommioUI/Haptics/ControllerFeels.swift` |
+| Noisy rim textures: scattered grit (`StickFeel.Scatter`), looped noise beds (`NoiseBed`: hiss and grains), `NoiseTuning`, the noise sources | `ios/Sources/RommioUI/Haptics/RimNoise.swift` |
+| Sounds: 22 synthesised clicks, tocks and thunks (`SoundRecipe`), rendered to WAV and registered with the engine | `ios/Sources/RommioUI/Haptics/SoundRecipe.swift` |
 | Playground state (renderer, scene playback at 60 fps, meters) | `ios/Sources/RommioUI/Haptics/HapticsLab.swift` |
 | The page and its touch pads | `ios/Sources/RommioUI/Pages/Settings/HapticsPlaygroundPage.swift`, `HapticsPads.swift` |
-| Tests | `ios/Tests/RommioUITests/HapticsPlaygroundTests.swift` (and the page in `StackBudgetTests`) |
+| Tests | `ios/Tests/RommioUITests/HapticsPlaygroundTests.swift`, `RimNoiseTests.swift` (and the page in `StackBudgetTests`) |
+
+Its sibling for the screen, Settings › Screen playground, is in [screen-shaders.md](screen-shaders.md).
 
 The playground changes nothing in the player. Tune by feel on a phone (the Simulator has no
 Taptic Engine), then move the chosen designs into the player.
@@ -93,9 +96,55 @@ as no pad (from its source, not tested).
 - **Rim textures** (revised 2026-09-28): every stick has some texture at the rim, because
   the rim is where the thumb learns where it is (N64 new gained a fine rib, the 3DS circle
   pad a low glide with faint ticks every 12°, toward the PSP's hum but less buzzy). The
-  playground's "Rim texture" puts any of eleven on any stick: silk, satin, glide, fine sand,
-  sandpaper, coarse grit, gravel, ribbed, rumble strip, velvet drag, fizz. A texture is taps
-  (`Grain`: spacing even, in pairs, or irregular), a hum, or both.
+  playground's "Rim texture" puts any of 21 on any stick: first the ten noisy ones (see
+  Noise), then the first, regular designs: silk, satin, glide, fine sand, sandpaper, coarse
+  grit, gravel, ribbed, rumble strip, velvet drag, fizz. A regular texture is taps (`Grain`:
+  spacing even, in pairs, or irregular), a hum, or both.
+
+## Noise
+
+Added 2026-10-06, after the regular rim textures turned out to feel like a pitched buzz rather
+than grit. Plotted, they were pulse trains: the same short burst every so many degrees, so at a
+steady speed all their energy sat in a few lines around the actuator's frequency, like a tone.
+Worse, a grain could only fire on a touch update (120 a second), so the touch clock showed up
+as lines at 120 and 240 Hz, and dense textures (fine sand, 115 taps a second at a turn a second)
+turned into a 120 Hz drone whatever their "irregular" spacing. Real friction is noise: no
+repetition, energy spread across frequencies. The Taptic Engine only moves near its resonance,
+so broadband noise is out of reach, but noise around the carrier isn't, and neither is
+irregular timing. The first ten rim textures are noisy, three ways:
+
+- **Scattered grit** (`StickFeel.Scatter`: scattered sand, grit, gravel). The number of grains
+  for each stretch of rim is random (Poisson, a mean of one every `degrees`), some bring one
+  or two more in a clump, and each plays at a random moment between this touch update and the
+  next (`ScatterGrain.offset` × the measured touch interval), so nothing lands on the touch
+  clock. Strength and sharpness are drawn per grain (mostly small, now and then large) and
+  rise with push and glide like the regular grit. Each batch plays with its own player
+  (`HapticsEngine.playOnce`), so the cache doesn't fill with one-offs.
+- **Hiss** (`NoiseBed.Hiss`: hiss, rasp, grind). A looped bed of back-to-back buzzes a few
+  milliseconds long (4–10 ms), each at a random strength (white: anywhere each step; pink:
+  mostly small steps, Voss–McCartney; brown: a drift) and a wandering sharpness: noise
+  around the carrier. Strength isn't a parameter curve, since the bed's live level uses the
+  intensity control.
+- **Grain beds** (`NoiseBed.Grains`: sand bed, gravel bed, and sandpaper hiss with a hiss
+  under it). A loop of taps at random (Poisson) times, a few in clumps.
+
+A bed (`HapticVoice` looping its recipe, 1.5 s, from a random point each touch) plays while
+the thumb slides along the rim: its level follows push and speed like the hum (at least near
+the contact floor), and its playback rate follows the thumb's speed (a turn a second plays it
+as made, two twice as fast), so sliding faster makes the grain finer, as on a real surface.
+Worn plastic layers scattered grit over a soft pink hiss.
+
+The **Noise bench** (near the top of the page) plays one on its own, constantly, as if a
+thumb slid a turn a second (`NoiseBenchSettings`; scattered grit becomes a loop of grains at
+that rate): amplitude, speed (playback rate) and a sharpness shift move live; grain density
+and a hiss's grain (step, 4–15 ms), depth (1 − floor) and colour remake the loop. Dense loops
+are shortened (`NoiseBed.fitted`, at least half a second) to stay within about 700 events.
+
+Sticks › Noise (shown for a noisy texture) tunes them live: noise strength, grain density
+(scatter and bed grains), how much a bed's speed follows the thumb (0: fixed), and a hiss's
+colour. `RimNoiseTests` checks the property that was missing: the autocorrelation of grain
+times (how strongly they repeat at a fixed interval, 6–60 ms) is under 0.2 for every scattered
+texture and at most half the regular grit's (which is above 0.3, as is the old fine sand's).
 
 ## Sounds
 

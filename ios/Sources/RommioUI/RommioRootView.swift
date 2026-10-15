@@ -102,6 +102,15 @@ public struct RommioRootView: View {
             .presentationDetents(presentation.choice.note == nil ? [.medium, .large] : [.large])
             .presentationDragIndicator(.visible)
         }
+        // Once after an unzipped game closes, and from the Game page's Delete ZIP.
+        .alert("Delete the ZIP?", isPresented: Binding(get: { model.archiveDeletionOffer != nil },
+                                                       set: { if !$0 { model.archiveDeletionOffer = nil } }),
+               presenting: model.archiveDeletionOffer) { offer in
+            Button("Delete ZIP", role: .destructive) { Task { await model.deleteArchive(offer) } }
+            Button("Keep ZIP", role: .cancel) { Task { await model.keepArchive(offer) } }
+        } message: { offer in
+            Text("\(offer.title) is unzipped on this device and doesn't need its \(PlayFormat.bytes(offer.archiveBytes)) ZIP to play. You can download the ZIP again from your server.")
+        }
         .overlay(alignment: .bottom) {
             // Bottom placement keeps navigation (Back, vertical bars) uncovered.
             if model.onboardingRoute == nil, let message = model.errorMessage ?? model.noticeMessage {

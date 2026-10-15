@@ -358,11 +358,11 @@ private struct DownloadRowActions: View {
             Button("Cancel", role: .destructive) { actions.cancel(record.id) }
         case .failed, .canceled:
             Button("Retry") { actions.retry(record.id) }
-            if record.localPath != nil {
+            if record.localPath != nil || record.extracted != nil {
                 Button("Delete download", role: .destructive) { actions.delete(record.id) }
             }
         case .completed:
-            if record.localPath != nil {
+            if record.localPath != nil || record.extracted != nil {
                 Button("Delete download", role: .destructive) { actions.delete(record.id) }
             }
         }

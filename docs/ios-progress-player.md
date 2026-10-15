@@ -18,11 +18,50 @@ Launch checks cloud progress with a bounded wait and exposes an explicit uncheck
 
 Pause/background, periodic capture, manual snapshots, confirmed restore, reset and exit use the same owner. Capture commits complete game data first, then a separately retryable snapshot paired to that exact operation. A serialization or snapshot-write failure cannot invalidate the committed game save; the preceding snapshot remains retained. Hash-verified ready journals replay exact bytes after interrupted commits. Failed game commits keep the session paused for retry. Captured bytes are persisted before background network work; OS expiration ends the background assertion and cancels network work while durable intent remains queued.
 
+### Launch and storage
+
+A launch must not read or write gigabytes. Measured on an iPhone Air, the old path took about 22 s
+before a 4.3 GB 3DS game's core started: two hashes of its 2.9 GB ZIP, a fresh unzip and a hash of
+the result, mostly on the main thread. It also left every session's copy of the game on disk.
+
+- **Hash once.** A download record keeps the identity (device, inode, size, modification and
+  change times) its file had when it matched its digest, and `verifiedInstall` hashes it again
+  only after that identity changes. Hashing runs off the queue's actor and the main thread.
+- **Unzip once.** The first launch of a 3DS ZIP unzips the game next to the ZIP and records it in
+  the download (`extracted`); later launches open it directly. The record keeps the ZIP's digest,
+  and the progress binding keeps both digests and the member path (`docs/save-sync-spec.md` §3.1).
+- **Deleting the ZIP is the user's choice.** After an unzipped game closes, Rommio asks once
+  whether to delete its ZIP; "Keep ZIP" isn't asked again. The Game page's Delete ZIP asks again.
+  The unzipped game must still match its digest before the ZIP goes. A ZIP the app was stopped
+  while unzipping leaves `roms/staging`, which is cleared at the next start.
+- **A session's copy is a clone.** A session plays its own copy of the game so a replaced install
+  can't change it. On APFS that's a clone sharing the install's storage, not hashed while the
+  install's verified identity holds; without a clone it's copied and hashed.
+- **Session folders are deleted once closed.** Their progress is in the store by then. A folder
+  without a closed marker stays for recovery. At app start, when no game is running, its game
+  copy is deleted and its saves are kept.
+- **The cloud check overlaps the core starting.** It begins after the content identity resolves
+  and is awaited before the launch choice. Its three-second limit is unchanged.
+
+Each 3DS session must use its own folder. Azahar's `FileUtil::SetUserPath` kept the first game's
+SD card and NAND folders when the core loaded again in the same app run, so a later session saved
+where Rommio's capture didn't read. The Vulkan core patch re-points every derived folder
+(`scripts/cores/patches/azahar-vulkan-probe.patch`).
+
+Measured in the simulator with Pokémon Ultra Sun from a 2.9 GB ZIP:
+- **First launch:** 16 s to the first frame, almost all of it the one-time unzip and hash.
+- **Later launches:** 36 ms from launch to the core starting.
+
+Two launches in one app run each used their own session folder, and both folders were deleted when
+their games closed. Android has no archive install and already deletes closed session folders.
+
 Restore validates complete memory and state compatibility, asks for confirmation when game data differs, and requires a pinned safety snapshot before mutation. Native failure rolls back to safety or stops the session if rollback fails. Legacy imports require explicit selection/confirmation, retain original bytes, and create pinned converted checkpoints. A lone SRAM file is rejected for cartridges requiring extra persistent regions. Snapshot deletion uses state-only tombstones. History and explicit branch resolution are reachable in the player panel.
 
 ## Sync and recovery
 
 The qualified server is RomM 5.2.0. Both lanes use the existing schema-3 immutable operations, account/server/content binding, dependency ordering, inventory/readback checks, and durable outbox. Foreground startup, captures, reconnect and a foreground timer request work. iOS background time is best effort; no perpetual background execution is promised. Pending work survives process exit.
+
+The foreground timer wakes every game's sync every 30 seconds. While a player is open it only wakes games with unpublished operations (in practice the one being played), and closing the player wakes everything again: a full sweep alongside an emulator caused hitches on device. Each sync reads every stored artifact; one that has already matched its digest isn't hashed again while its file identity (device, inode, size, modification and change times) is unchanged, so a changed file is still caught.
 
 The new route bypasses the legacy SRAM writer and unsafe legacy cloud writers remain disabled. Old local files are presented for explicit recovery rather than silently assigned to a new account/content identity.
 

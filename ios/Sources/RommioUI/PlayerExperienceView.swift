@@ -506,38 +506,7 @@ private struct PlayerControlsSheet: View {
                     .themedRow()
                 }
 
-                Section {
-                    LabeledSlider(
-                        title: "Deadzone",
-                        value: Binding(
-                            get: { feature.controlsState?.hardwareBinding.deadzone ?? 0.2 },
-                            set: { value in Task { await feature.updateDeadzone(value) } }
-                        ),
-                        range: 0.05...0.5
-                    )
-
-                    if !feature.availableControllerTypes.isEmpty {
-                        Picker("Controller type", selection: Binding(
-                            get: { feature.controlsState?.hardwareBinding.controllerTypeID ?? -1 },
-                            set: { value in
-                                Task { await feature.setControllerType(value < 0 ? nil : value) }
-                            }
-                        )) {
-                            Text("Default").tag(-1)
-                            ForEach(feature.availableControllerTypes) { descriptor in
-                                Text(descriptor.description).tag(descriptor.id)
-                            }
-                        }
-                    }
-
-                    Toggle("Rumble to device", isOn: Binding(
-                        get: { feature.controlsState?.preferences.rumbleToDeviceEnabled ?? true },
-                        set: { value in Task { await feature.setRumbleToDeviceEnabled(value) } }
-                    ))
-                } header: {
-                    SectionHeader(title: "Controller")
-                }
-                .themedRow()
+                PlayerControllerSection(feature: feature)
 
                 Section {
                     Toggle("OLED black mode", isOn: Binding(

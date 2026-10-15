@@ -126,6 +126,30 @@ final class ProgressStoreTests: XCTestCase {
         XCTAssertEqual(unchanged, [h.original.operationId])
         try await h.reopen(); let reopenedIdentity = try await h.identity(); XCTAssertEqual(reopenedIdentity, identity)
     }
+    /// Verified artifacts aren't re-hashed on every read, but any change to the file is still caught.
+    func testVerifiedArtifactIsCheckedAgainAfterAnyChange() async throws {
+        let h = try await harness(); let identity = try await h.identity()
+        try await h.commit(h.original, identity: identity)
+        let artifact = h.original.checkpoints[0].artifacts[0]
+        let blob = h.root.appending(path: "store/\(identity.namespaceId)/\(identity.contentId)/blobs/\(artifact.sha256)")
+        let good = try Data(contentsOf: blob)
+        _ = try await h.store.artifact(identity, artifact)
+        _ = try await h.store.artifact(identity, artifact)
+
+        var flipped = good; flipped[0] ^= 1
+        try flipped.write(to: blob)
+        await rejected { _ = try await h.store.artifact(identity, artifact) }
+        try good.write(to: blob)
+        _ = try await h.store.artifact(identity, artifact)
+
+        // Same length, swapped in by rename: a different file even when sizes and times line up.
+        let replacement = blob.deletingLastPathComponent().appending(path: "replacement")
+        try flipped.write(to: replacement)
+        let attributes = try FileManager.default.attributesOfItem(atPath: blob.path)
+        try FileManager.default.setAttributes([.modificationDate: attributes[.modificationDate] as Any], ofItemAtPath: replacement.path)
+        XCTAssertEqual(rename(replacement.path, blob.path), 0)
+        await rejected { _ = try await h.store.artifact(identity, artifact) }
+    }
     func testMigrationPreservesLegacyRows() async throws {
         let h = try await harness()
         await h.store.close()

@@ -45,6 +45,19 @@ final class HapticsLab {
     }
     /// How sticks respond to speed and push.
     var stickTuning = StickTuning()
+    /// The noise bench: a noisy texture played on its own, constantly, with its controls.
+    var benchTexture = RimTexture.hiss {
+        didSet { if benchTexture != oldValue { bench = NoiseBenchSettings(texture: benchTexture) } }
+    }
+    var bench = NoiseBenchSettings(texture: .hiss) {
+        didSet { updateBench() }
+    }
+    private(set) var benchPlaying = false
+
+    /// How the noisy rim textures play (strength, density, speed, colour).
+    var noiseTuning = NoiseTuning() {
+        didSet { if noiseTuning.density != oldValue.density || noiseTuning.color != oldValue.color { dropBed() } }
+    }
     /// What the stick last measured, for the playground's readout.
     private(set) var stickImpact: Double?
     private(set) var stickForce = 0.0
@@ -60,6 +73,11 @@ final class HapticsLab {
     @ObservationIgnored private lazy var strongVoice = engine.voice(sharpness: RumbleMotors.strongSharpness)
     @ObservationIgnored private lazy var weakVoice = engine.voice(sharpness: RumbleMotors.weakSharpness)
     @ObservationIgnored private var humVoice: HapticVoice?
+    @ObservationIgnored private var benchVoice: HapticVoice?
+    @ObservationIgnored private var benchSource: (bed: NoiseBed, density: Double)?
+    /// The noise bed playing and what it was made from (remade when either changes).
+    @ObservationIgnored private var bedVoice: HapticVoice?
+    @ObservationIgnored private var bedSource: (bed: NoiseBed, density: Double, color: NoiseBed.Color?)?
     @ObservationIgnored private var blend = BlendedRumble()
     @ObservationIgnored private var twoVoices = TwoVoiceRumble()
     /// Scene frames still to play, and what the motor pad reported since the last frame.
@@ -81,6 +99,7 @@ final class HapticsLab {
         engine.prewarm(Self.designs)
         engine.prepareSounds()
         #endif
+        if benchPlaying { updateBench() }
     }
 
     /// Every button, d-pad and stick design as it plays unscaled.
@@ -107,6 +126,20 @@ final class HapticsLab {
 
     func play(_ recipe: HapticRecipe) {
         engine.play(recipe)
+    }
+
+    /// Plays a one-off pattern (scattered grit) without keeping its player.
+    func playOnce(_ recipe: HapticRecipe) {
+        engine.playOnce(recipe)
+    }
+
+    /// The feel with the noise tuning's density on its scattered grit.
+    func noiseTuned(_ feel: StickFeel) -> StickFeel {
+        guard var scatter = feel.scatter, noiseTuning.density != 1 else { return feel }
+        var copy = feel
+        scatter.degrees /= max(noiseTuning.density, 0.1)
+        copy.scatter = scatter
+        return copy
     }
 
     // MARK: Rumble
@@ -240,10 +273,62 @@ final class HapticsLab {
         humVoice?.set(level)
     }
 
+    /// A stick's noise bed at `level` and playback `rate` (0 quiets it; no bed stops it).
+    func bed(_ bed: NoiseBed?, level: Double, rate: Double) {
+        guard let bed else {
+            bedVoice?.silence()
+            return
+        }
+        guard level > 0 else {
+            bedVoice?.set(0)
+            return
+        }
+        let density = noiseTuning.density, color = noiseTuning.color
+        if bedSource?.bed != bed || bedSource?.density != density || bedSource?.color != color {
+            dropBed()
+            let fitted = bed.fitted(density: density)
+            bedVoice = engine.bed(fitted.recipe(density: density, color: color), loop: fitted.seconds)
+            bedSource = (bed, density, color)
+        }
+        bedVoice?.set(level, rate: rate)
+    }
+
+    // MARK: Noise bench
+
+    func toggleBench() {
+        benchPlaying.toggle()
+        updateBench()
+    }
+
+    /// Plays the bench's bed at its settings (the recipe is remade only when its grain,
+    /// depth, colour or density change; strength, speed and sharpness move live).
+    private func updateBench() {
+        guard benchPlaying, let bed = bench.bed(for: benchTexture) else {
+            benchVoice?.silence()
+            return
+        }
+        if benchSource?.bed != bed || benchSource?.density != bench.density {
+            if let benchVoice { engine.discard(benchVoice) }
+            let fitted = bed.fitted(density: bench.density)
+            benchVoice = engine.bed(fitted.recipe(density: bench.density), loop: fitted.seconds)
+            benchSource = (bed, bench.density)
+        }
+        benchVoice?.set(bench.level, sharpness: bench.sharpness, rate: bench.rate)
+    }
+
+    private func dropBed() {
+        if let bedVoice { engine.discard(bedVoice) }
+        bedVoice = nil
+        bedSource = nil
+    }
+
     /// The page went away: everything stops.
     func stopAll() {
         stopRumble()
         humVoice?.silence()
+        dropBed()
+        benchPlaying = false
+        benchVoice?.silence()
         engine.stop()
     }
 }

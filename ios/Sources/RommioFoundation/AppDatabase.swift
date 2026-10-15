@@ -44,6 +44,15 @@ public struct DownloadRecord: Codable, Hashable, Sendable, Identifiable {
     public var contentSHA256: String?
     public var retryAfterEpochMS: Int64?
     public var parkedForAuthentication: Bool?
+    /// The download's identity when it last matched `contentSHA256`. It isn't hashed again until
+    /// it changes.
+    public var verifiedFile: FileIdentity? = nil
+    /// The game unzipped from an archive download (a 3DS ZIP), kept next to it so it's unzipped
+    /// once. `contentSHA256` stays the archive's digest, which the game's progress is bound to
+    /// (docs/save-sync-spec.md §3.1), also after the user deletes the archive.
+    public var extracted: ExtractedContent? = nil
+    /// The user chose to keep the archive of an unzipped game, so Rommio doesn't offer again.
+    public var keepsArchive: Bool? = nil
 
     public var id: String {
         "\(profileID):\(romID):\(fileID)"
@@ -86,6 +95,37 @@ public struct DownloadRecord: Codable, Hashable, Sendable, Identifiable {
         self.completedAtEpochMS = completedAtEpochMS
         self.updatedAtEpochMS = updatedAtEpochMS
     }
+}
+
+/// A game unzipped from an archive download.
+public struct ExtractedContent: Codable, Hashable, Sendable {
+    /// Under the library root, next to the archive.
+    public var relativePath: String
+    /// Its path inside the archive.
+    public var memberPath: String
+    public var sha256: String
+    public var byteCount: Int64
+    /// Its identity when it last matched `sha256`.
+    public var verifiedFile: FileIdentity?
+
+    public init(relativePath: String, memberPath: String, sha256: String, byteCount: Int64, verifiedFile: FileIdentity?) {
+        self.relativePath = relativePath; self.memberPath = memberPath; self.sha256 = sha256
+        self.byteCount = byteCount; self.verifiedFile = verifiedFile
+    }
+}
+
+extension DownloadRecord {
+    /// The file a player opens: the unzipped game once there is one, else the download.
+    public func playablePath(libraryRoot: URL) -> String? {
+        if let extracted {
+            let path = libraryRoot.appending(path: extracted.relativePath).path
+            if FileManager.default.fileExists(atPath: path) { return path }
+        }
+        return localPath
+    }
+
+    /// An unzipped game whose archive is still on this device.
+    public var hasRemovableArchive: Bool { extracted != nil && localPath != nil }
 }
 
 public final class AppDatabase: @unchecked Sendable {
@@ -348,6 +388,11 @@ public final class AppDatabase: @unchecked Sendable {
         // The pause menu's sound toggle: sound on by default, device-local.
         migrator.registerMigration("v10_player_audio_muted") { db in
             try db.execute(sql: "ALTER TABLE player_control_preferences ADD COLUMN audio_muted INTEGER NOT NULL DEFAULT 0")
+        }
+        // Remapped controller buttons and keyboard keys per console (JSON, `ControllerBindings`);
+        // NULL is the standard layout. Device-local; never synced.
+        migrator.registerMigration("v11_controller_button_map") { db in
+            try db.execute(sql: "ALTER TABLE player_hardware_bindings ADD COLUMN button_map TEXT")
         }
         return migrator
     }

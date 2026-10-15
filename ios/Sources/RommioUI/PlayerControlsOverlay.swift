@@ -134,7 +134,7 @@ private struct PlayerTouchSurface: UIViewRepresentable {
 /// fall through to the views below.
 final class PlayerTouchSurfaceView: UIView {
     var onInput: ((PlayerTouchOutput) -> Void)?
-    var hapticsEnabled = true
+    var hapticsEnabled = true { didSet { if hapticsEnabled != oldValue { updateWarmth() } } }
     private var tracker = PlayerTouchTracker(layout: PlayerTouchLayout(controls: [], faceZone: nil, chord: nil, menuCenter: .zero,
                                                                         menuDiameter: 44, metrics: PlayerControlMetrics(scale: 1)))
     private var renderer: PlayerControlStyleRenderer?
@@ -301,6 +301,24 @@ final class PlayerTouchSurfaceView: UIView {
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window == nil { releaseAll() }
+        updateWarmth()
+    }
+
+    /// UIKit powers the Taptic Engine down a few seconds after a generator's last use and starts it
+    /// again on the next press, which can cost a frame of a game running on the main thread. While
+    /// the controls are on screen, preparing every generator every 2 seconds keeps it running.
+    private var warmth: Timer?
+    private func updateWarmth() {
+        guard window != nil, hapticsEnabled else { warmth?.invalidate(); warmth = nil; return }
+        guard warmth == nil else { return }
+        prepareGenerators()
+        warmth = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] timer in
+            guard let self else { return timer.invalidate() }
+            MainActor.assumeIsolated { self.prepareGenerators() }
+        }
+    }
+    private func prepareGenerators() {
+        impact.prepare(); selection.prepare(); stickTick.prepare(); notchClick.prepare(); cornerBump.prepare()
     }
 
     /// Presses a control for VoiceOver (and UI tests' accessibility activation).

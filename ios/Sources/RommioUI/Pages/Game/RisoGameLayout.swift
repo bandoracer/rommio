@@ -11,6 +11,9 @@ struct RisoGameLayout: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let content: GameContent
     let actions: GameActions
+    @State private var width: CGFloat?
+
+    private var wide: Bool { WideLayout.fits(horizontalSizeClass, width: width, minimum: WideLayout.threeColumns) }
 
     var body: some View {
         ScrollView {
@@ -18,13 +21,13 @@ struct RisoGameLayout: View {
                 GameArtHero(url: content.artworkURL, title: content.rom.displayName)
                     .accessibilityIdentifier("gameDetail.hero")
                 Group {
-                    if horizontalSizeClass == .regular {
+                    if wide {
                         RisoGameBroadsheet(content: content, actions: actions)
                     } else {
                         RisoGameColumn(content: content, actions: actions)
                     }
                 }
-                .padding(.horizontal, horizontalSizeClass == .regular ? 28 : theme.spacing.gutter)
+                .padding(.horizontal, wide ? 28 : theme.spacing.gutter)
                 .padding(.top, 16)
                 .padding(.bottom, 40)
                 .frame(maxWidth: 1100)
@@ -32,6 +35,7 @@ struct RisoGameLayout: View {
             }
         }
         .ignoresSafeArea(edges: .top)
+        .measuringWidth($width)
         .themedPage(artUnderBar: true)
     }
 }

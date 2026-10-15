@@ -14,6 +14,7 @@ import subprocess
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 PIN = pathlib.Path(__file__).with_name('azahar-candidate.json')
 PATCH = pathlib.Path(__file__).parent / 'patches/azahar.patch'
+MVD_PATCH = pathlib.Path(__file__).parent / 'patches/azahar-mvd.patch'
 GPU_PATCH = pathlib.Path(__file__).parent / 'patches/azahar-vulkan-probe.patch'
 EXTENSIONS = sorted((pathlib.Path(__file__).parent / 'extensions').glob('rommio_3ds_file_bundle.*'))
 
@@ -43,6 +44,7 @@ def build(sdk, arch):
     extension_hash = hashlib.sha256(b''.join(path.read_bytes() for path in EXTENSIONS)).hexdigest()
     if (record.get('sourceRevision') != pin['revision'] or
             record.get('patchSha256') != sha256(PATCH) or
+            record.get('mvdPatchSha256') != sha256(MVD_PATCH) or
             record.get('extensionSha256') != extension_hash or
             record.get('sha256') != sha256(candidate / 'output/azahar.dylib') or
             read('git', '-C', source, 'rev-parse', 'HEAD') != pin['revision']):
@@ -90,6 +92,7 @@ def build(sdk, arch):
         'architecture': arch,
         'sourceRevision': pin['revision'],
         'patchSha256': sha256(PATCH),
+        'mvdPatchSha256': sha256(MVD_PATCH),
         'gpuPatchSha256': sha256(GPU_PATCH),
         'extensionSha256': extension_hash,
         'persistenceExtension': pin['persistenceExtension'],

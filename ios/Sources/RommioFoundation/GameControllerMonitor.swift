@@ -39,20 +39,30 @@ public final class GameControllerMonitor: @unchecked Sendable, ControllerMonitor
 
     public func currentControllers() -> [ConnectedController] {
         #if targetEnvironment(simulator)
-        []
-        #else
+        // A Simulator counts only the Debug virtual controller (PlayerGamepadInput).
+        guard ProcessInfo.processInfo.environment["ROMMIO_VIRTUAL_CONTROLLER"] == "1" else { return [] }
+        #endif
         #if canImport(GameController)
-        GCController.controllers()
-            .enumerated()
-            .map { index, controller in
+        // Only full gamepads count: a controller that can play (touch controls hide for it),
+        // identified for as long as it stays connected (the router's players use the same ID).
+        return GCController.controllers()
+            .filter { $0.extendedGamepad != nil }
+            .filter { controller in
+                #if targetEnvironment(simulator)
+                // Not the Simulator's own stand-in gamepad (the Mac's input).
+                return controller.vendorName == "Apple Touch Controller"
+                #else
+                return true
+                #endif
+            }
+            .map { controller in
                 ConnectedController(
-                    deviceID: index,
+                    deviceID: Self.deviceID(controller),
                     name: controller.vendorName ?? "Game Controller"
                 )
             }
         #else
-        []
-        #endif
+        return []
         #endif
     }
 
@@ -73,6 +83,11 @@ public final class GameControllerMonitor: @unchecked Sendable, ControllerMonitor
     }
 
     #if canImport(GameController)
+    /// A connected controller's identity while it stays connected.
+    public static func deviceID(_ controller: GCController) -> Int {
+        ObjectIdentifier(controller).hashValue
+    }
+
     @objc
     private func handleControllerChange() {
         let snapshot = currentControllers()

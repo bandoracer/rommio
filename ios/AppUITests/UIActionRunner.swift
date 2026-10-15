@@ -129,11 +129,13 @@ struct UIActionRunner {
         if let label = action["tapTab"] {
             // A keyboard (an active search) covers the tab bar and would take the tap.
             endEditing()
+            // A tab bar's button, or (an iPad in landscape) the sidebar's cell.
             let inBar = app.tabBars.buttons[label].exists
-            let tab = inBar ? app.tabBars.buttons[label] : button(label)
+            let inSidebar = !inBar && app.cells[label].exists
+            let tab = inBar ? app.tabBars.buttons[label] : inSidebar ? app.cells[label] : button(label)
             guard tab.waitForExistence(timeout: timeout(action, 10)) else { XCTFail("Missing tab \(label)"); return }
             tab.tap()
-            if inBar && !selected(tab, within: 5) { XCTFail("The \(label) tab did not open: \(app.debugDescription)") }
+            if (inBar || inSidebar) && !selected(tab, within: 5) { XCTFail("The \(label) tab did not open: \(app.debugDescription)") }
         }
         if action["back"] != nil {
             let back = app.navigationBars.buttons.element(boundBy: 0)
@@ -162,6 +164,17 @@ struct UIActionRunner {
             let start = target.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 420)), withVelocity: .slow, thenHoldForDuration: 0.3)
         }
+        // Taps (or holds, with `hold`) a normalised point on the screen, e.g. "0.9,0.85": for
+        // controls without accessibility, like the system's virtual game controller.
+        if let point = action["tapAt"] {
+            let parts = point.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+            if parts.count == 2 {
+                let target = app.coordinate(withNormalizedOffset: CGVector(dx: parts[0], dy: parts[1]))
+                target.press(forDuration: Double(action["hold"] ?? "0.1") ?? 0.1)
+            }
+        }
+        // A hardware-keyboard key, without a text field (games read the keyboard directly).
+        if let key = action["key"] { app.typeKey(key, modifierFlags: []) }
         if let text = action["type"] { app.typeText(text) }
         // Types into a text field found by identifier or label (e.g. a rename alert's field).
         if let identifier = action["field"] {
@@ -234,10 +247,17 @@ struct UIActionRunner {
     }
 
     /// Ends an active search (its Close button) so the keyboard no longer covers the tab bar.
+    /// An iPad's search field has no Close button and hides the tabs while it's active: there
+    /// the keyboard's own dismiss key (or Search) ends it.
     func endEditing() {
         guard app.keyboards.firstMatch.exists else { return }
         let close = app.buttons.matching(NSPredicate(format: "label == 'Close' OR label == 'Cancel'")).firstMatch
-        if close.exists && close.isHittable { close.tap() }
+        if close.exists && close.isHittable {
+            close.tap()
+        } else {
+            let dismiss = app.keyboards.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'dismiss' OR label CONTAINS[c] 'hide keyboard'")).firstMatch
+            if dismiss.exists && dismiss.isHittable { dismiss.tap() } else { app.typeText("\n") }
+        }
         let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.keyboards.firstMatch)
         _ = XCTWaiter.wait(for: [gone], timeout: 3)
     }

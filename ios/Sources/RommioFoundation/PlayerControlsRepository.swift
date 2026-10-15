@@ -150,17 +150,21 @@ public struct PlayerControlsRepository: Sendable {
                     platform_family_id,
                     controller_type_id,
                     deadzone,
+                    button_map,
                     updated_at_epoch_ms
-                ) VALUES (?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(platform_family_id) DO UPDATE SET
                     controller_type_id = excluded.controller_type_id,
                     deadzone = excluded.deadzone,
+                    button_map = excluded.button_map,
                     updated_at_epoch_ms = excluded.updated_at_epoch_ms
                 """,
                 arguments: [
                     profile.platformFamilyID,
                     profile.controllerTypeID,
                     profile.deadzone,
+                    // The standard layout is stored as nothing, so it follows the app's default.
+                    profile.bindings.isStandard ? nil : String(data: try JSONEncoder().encode(profile.bindings), encoding: .utf8),
                     profile.updatedAtEpochMS,
                 ]
             )
@@ -318,6 +322,7 @@ public struct PlayerControlsRepository: Sendable {
                 sql: """
                 SELECT controller_type_id,
                        deadzone,
+                       button_map,
                        updated_at_epoch_ms
                 FROM player_hardware_bindings
                 WHERE platform_family_id = ?
@@ -326,10 +331,12 @@ public struct PlayerControlsRepository: Sendable {
             ) else {
                 return profile.defaultHardwareBinding()
             }
+            let map: String? = row["button_map"]
             return HardwareBindingProfile(
                 platformFamilyID: profile.familyID,
                 controllerTypeID: row["controller_type_id"],
                 deadzone: row["deadzone"],
+                bindings: map.flatMap { try? JSONDecoder().decode(ControllerBindings.self, from: Data($0.utf8)) } ?? .standard,
                 updatedAtEpochMS: row["updated_at_epoch_ms"]
             )
         }

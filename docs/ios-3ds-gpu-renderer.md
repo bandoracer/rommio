@@ -29,6 +29,8 @@ python3 scripts/cores/build_azahar_vulkan_probe.py --sdk iphonesimulator
 The recipe builds the same pinned source and Rommio save extension with
 `ENABLE_VULKAN=ON` into `build/azahar-gpu-probe/`. The normal iOS app build
 runs this recipe, embeds the resulting framework, and records its digest.
+The pinned source includes Rommio's New 3DS movie decoder patch; see
+[ios-3ds-mvd.md](ios-3ds-mvd.md).
 
 `RMLVulkanHost` now supplies the libretro Vulkan context using pinned MoltenVK
 1.4.2, accepts Azahar's zero-semaphore image submission, waits for the Vulkan
@@ -37,13 +39,45 @@ that texture without CPU readback. Metal completion is serialized before the
 core reuses the image. The host rejects unsupported queue or semaphore
 submissions instead of treating them as rendered frames.
 
+`PlayerFrameImage.hardware` turns that texture into the image the stage and save
+previews draw. It differs from the raw texture in two ways:
+- **Opaque.** Azahar passes the 3DS framebuffer's alpha through, and the console's
+  screens ignore it. Pokémon Ultra Sun's intro video call leaves it at zero, so the
+  call showed the view behind the player instead of Professor Kukui.
+- **sRGB.** The texture holds display values. Core Image reads an untagged texture as
+  linear light, which washed every Vulkan frame out (mid-grey 128 showed as 188).
+  Software frames were already shown as stored.
+
+The native probe's `capture` fixture writes frames the same way. To check a scene:
+run `frames` frames, hold a libretro button (`presses`), and write every `every`th
+frame to the fixture's `frames/` directory. With it, Ultra Sun's video call on the
+simulator matches the macOS software renderer. The visible player has not yet been
+rechecked on the simulator or an iPhone.
+
 The GPU-only Azahar patch rebuilds its Vulkan shader cache after loading a
 resume snapshot. Without that step, the next rendered frame dereferenced an
 empty cache. On the simulator, it also stages texture-buffer writes into
 GPU-private memory before shader reads; MoltenVK cannot create the required
-linear texture view of a shared buffer there. The bridge reboots a retained
-Vulkan context after applying the portable game-save tree, before applying a
-snapshot. The normal software core and its save format are unchanged.
+linear texture view of a shared buffer there.
+
+It also makes Azahar's user folder follow each game's session. The core stays loaded between
+games, and Azahar kept the first session's SD card and NAND folders, so a later 3DS session in the
+same app run saved outside the folder Rommio captures (see
+[ios-progress-player.md](ios-progress-player.md), Launch and storage).
+
+The patch also fixes how procedural textures update: it uploads their lookup tables when any
+table changes, as Azahar's OpenGL renderer does. Upstream Vulkan uploads only when the colour
+table changes. A game that rewrites just the noise, colour-map or alpha-map table kept drawing
+with the old one until its colour table next changed. Mario & Luigi: Paper Jam and Kirby:
+Planet Robobot use procedural textures for their sea.
+
+This was checked with a temporary debug hook on the simulator, which no build keeps. The hook
+gave Ultra Sun's video-call background a procedural texture and then rewrote only its colour
+map. The unpatched core kept showing the old gradient; the patched core drew the new solid
+colour. Neither game above is in the test library, so no game has shown the fix yet.
+
+The bridge reboots a retained Vulkan context after applying the portable game-save tree,
+before applying a snapshot. The normal software core and its save format are unchanged.
 
 Build the simulator app with the GPU core:
 

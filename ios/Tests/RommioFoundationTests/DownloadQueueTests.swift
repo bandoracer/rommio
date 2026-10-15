@@ -42,6 +42,14 @@ final class DownloadQueueTests: XCTestCase {
         try h.db.write { try $0.execute(sql: "UPDATE download_records SET payload = ? WHERE profile_id = ?", arguments: [try h.db.encoded(record), profile.id]) }
         let corrupt = try await h.queue.records(profileID: profile.id).first
         XCTAssertEqual(corrupt?.localPath, record.localPath, "Never adopt a different file after relocation")
+        let stillCorrupt = try await h.queue.records(profileID: profile.id).first
+        XCTAssertEqual(stillCorrupt?.localPath, record.localPath)
+
+        // Once the file changes back it is checked again and adopted.
+        try Data("MOVE".utf8).write(to: URL(fileURLWithPath: actualPath))
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(5)], ofItemAtPath: actualPath)
+        let repaired = try await h.queue.records(profileID: profile.id).first
+        XCTAssertEqual(repaired?.localPath, actualPath)
     }
 
     func testMovedContainerPrefersCurrentOwnedCopyEvenWhileOldPathExists() async throws {
@@ -318,6 +326,134 @@ final class DownloadQueueTests: XCTestCase {
         try await h.queue.resumePending()
         let calls = await h.pipe.count
         XCTAssertEqual(calls, 1, "Backoff was ignored")
+    }
+}
+
+extension DownloadQueueTests {
+    /// A launch reads the identity kept with the digest instead of hashing gigabytes. A file whose
+    /// identity matches isn't hashed: a wrong recorded digest goes unnoticed until the file changes.
+    func testVerifiedDownloadIsHashedAgainOnlyAfterItChanges() async throws {
+        let h = try Harness(); defer { h.clean() }
+        let profile = try await h.profile("A", userID: 1)
+        try await h.queue.enqueue(rom: h.rom, file: h.file)
+        _ = try await h.pipe.waitForCall(0)
+        await h.pipe.finish(0, bytes: "GOOD")
+        var installed = try await h.waitFor(profile.id, .completed)
+        let url = URL(fileURLWithPath: try XCTUnwrap(installed.localPath))
+        XCTAssertEqual(installed.verifiedFile, FileIdentity(url))
+        let first = try await h.queue.verifiedInstall(profileID: profile.id, romID: 42, fileID: 7)
+        XCTAssertEqual(first?.playable, url)
+        XCTAssertEqual(first?.playableIdentity, installed.verifiedFile)
+
+        installed.contentSHA256 = String(repeating: "0", count: 64)
+        try h.db.write { try $0.execute(sql: "UPDATE download_records SET payload = ? WHERE profile_id = ?", arguments: [try h.db.encoded(installed), profile.id]) }
+        let unchanged = try await h.queue.verifiedInstall(profileID: profile.id, romID: 42, fileID: 7)
+        XCTAssertEqual(unchanged?.playable, url, "An unchanged file isn't hashed again")
+        try Data("GOOD".utf8).write(to: url)
+        do { _ = try await h.queue.verifiedInstall(profileID: profile.id, romID: 42, fileID: 7); XCTFail("A changed file must be hashed") }
+        catch DownloadOwnershipError.corruptInstall { }
+    }
+
+    /// A 3DS ZIP is unzipped once and the game kept next to it. With the user's permission the ZIP
+    /// goes, and the record keeps its digest, which the game's progress is bound to.
+    func testUnzippedGameOutlivesItsArchive() async throws {
+        let h = try Harness(); defer { h.clean() }
+        let profile = try await h.profile("A", userID: 1)
+        try await h.queue.enqueue(rom: h.rom, file: h.file)
+        _ = try await h.pipe.waitForCall(0)
+        await h.pipe.finish(0, bytes: "ZIP!")
+        let installed = try await h.waitFor(profile.id, .completed)
+        let archive = URL(fileURLWithPath: try XCTUnwrap(installed.localPath))
+        let archiveSHA256 = try XCTUnwrap(installed.contentSHA256)
+        XCTAssertFalse(installed.hasRemovableArchive)
+
+        let staged = h.library.rootDirectory.appending(path: "roms/staging/unzip/game.3ds")
+        try FileManager.default.createDirectory(at: staged.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("UNZIPPED GAME".utf8).write(to: staged)
+        let gameSHA256 = try ProgressFileHash.sha256(staged)
+        let adopted = try await h.queue.adoptExtracted(staged, recordID: installed.id, archiveSHA256: archiveSHA256,
+                                                       memberPath: "roms/Game (USA).3ds", sha256: gameSHA256)
+        XCTAssertEqual(adopted.playable.lastPathComponent, "Game (USA).3ds")
+        XCTAssertEqual(adopted.playable.deletingLastPathComponent(), archive.deletingLastPathComponent(), "Kept next to the ZIP")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staged.path))
+
+        let launch = try await h.queue.verifiedInstall(profileID: profile.id, romID: 42, fileID: 7)
+        XCTAssertEqual(launch?.playable, adopted.playable)
+        XCTAssertEqual(launch?.download, archive)
+        XCTAssertEqual(launch?.downloadSHA256, archiveSHA256)
+        XCTAssertEqual(launch?.extracted?.sha256, gameSHA256)
+        XCTAssertEqual(launch?.extracted?.memberPath, "roms/Game (USA).3ds")
+
+        try await h.queue.keepArchive(recordID: installed.id)
+        let kept = try await h.queue.records(profileID: profile.id).first
+        XCTAssertEqual(kept?.keepsArchive, true)
+        XCTAssertTrue(kept?.hasRemovableArchive == true)
+
+        try await h.queue.deleteArchive(recordID: installed.id)
+        let rows = try await h.queue.records(profileID: profile.id)
+        let withoutArchive = try XCTUnwrap(rows.first)
+        XCTAssertNil(withoutArchive.localPath)
+        XCTAssertEqual(withoutArchive.status, .completed)
+        XCTAssertEqual(withoutArchive.contentSHA256, archiveSHA256, "Progress stays bound to the archive's digest")
+        XCTAssertFalse(withoutArchive.hasRemovableArchive)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: archive.path))
+        XCTAssertEqual(withoutArchive.playablePath(libraryRoot: h.library.rootDirectory), adopted.playable.path)
+
+        let afterDeletion = try await h.queue.verifiedInstall(profileID: profile.id, romID: 42, fileID: 7)
+        XCTAssertNil(afterDeletion?.download)
+        XCTAssertEqual(afterDeletion?.downloadSHA256, archiveSHA256)
+        XCTAssertEqual(afterDeletion?.playable, adopted.playable)
+
+        // Installed: downloading it again does nothing.
+        try await h.queue.enqueue(rom: h.rom, file: h.file)
+        let calls = await h.pipe.count
+        XCTAssertEqual(calls, 1)
+
+        try await h.queue.deleteLocalContent(recordID: installed.id)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: adopted.playable.path))
+    }
+
+    func testNewDownloadReplacesTheGameUnzippedFromTheOldOne() async throws {
+        let h = try Harness(); defer { h.clean() }
+        let profile = try await h.profile("A", userID: 1)
+        try await h.queue.enqueue(rom: h.rom, file: h.file)
+        _ = try await h.pipe.waitForCall(0)
+        await h.pipe.finish(0, bytes: "ZIP!")
+        let installed = try await h.waitFor(profile.id, .completed)
+        let staged = h.library.rootDirectory.appending(path: "roms/staging/unzip/game.3ds")
+        try FileManager.default.createDirectory(at: staged.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("OLD GAME".utf8).write(to: staged)
+        let adopted = try await h.queue.adoptExtracted(staged, recordID: installed.id, archiveSHA256: try XCTUnwrap(installed.contentSHA256),
+                                                       memberPath: "game.3ds", sha256: try ProgressFileHash.sha256(staged))
+        try await h.queue.retry(recordID: installed.id)
+        _ = try await h.pipe.waitForCall(1)
+        await h.pipe.finish(1, bytes: "NEW!")
+        let replaced = try await h.waitFor(profile.id, .completed)
+        XCTAssertNil(replaced.extracted)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: adopted.playable.path))
+    }
+
+    func testOnlyAVerifiedArchiveDownloadAdoptsAnUnzippedGame() async throws {
+        let h = try Harness(); defer { h.clean() }
+        let profile = try await h.profile("A", userID: 1)
+        try await h.queue.enqueue(rom: h.rom, file: h.file)
+        _ = try await h.pipe.waitForCall(0)
+        await h.pipe.finish(0, bytes: "ZIP!")
+        let installed = try await h.waitFor(profile.id, .completed)
+        let staged = h.library.rootDirectory.appending(path: "roms/staging/unzip/game.3ds")
+        try FileManager.default.createDirectory(at: staged.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("GAME".utf8).write(to: staged)
+        do {
+            _ = try await h.queue.adoptExtracted(staged, recordID: installed.id, archiveSHA256: String(repeating: "f", count: 64),
+                                                 memberPath: "game.3ds", sha256: "x")
+            XCTFail("A different archive's game must not be adopted")
+        } catch DownloadOwnershipError.corruptInstall { }
+        do {
+            _ = try await h.queue.adoptExtracted(staged, recordID: installed.id, archiveSHA256: try XCTUnwrap(installed.contentSHA256),
+                                                 memberPath: "../\(h.file.fileName)", sha256: "x")
+            XCTFail("The unzipped game must not replace its archive")
+        } catch DownloadOwnershipError.invalidDestination { }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staged.path))
     }
 }
 

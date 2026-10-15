@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 import RommioContract
 
@@ -455,9 +454,7 @@ private extension URL {
     }
 
     func sha256() throws -> String {
-        let data = try Data(contentsOf: self)
-        let digest = SHA256.hash(data: data)
-        return digest.map { String(format: "%02x", $0) }.joined()
+        try ProgressFileHash.sha256(self)
     }
 }
 

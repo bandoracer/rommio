@@ -97,7 +97,7 @@ final class HapticsPlaygroundTests: XCTestCase {
             XCTAssertTrue(feel.grain != nil || feel.hum != nil, "\(feel.id) has nothing at the rim")
         }
         for texture in RimTexture.all where texture != .designed {
-            XCTAssertTrue(texture.grain != nil || texture.hum != nil, texture.id)
+            XCTAssertTrue(texture.grain != nil || texture.hum != nil || texture.isNoisy, texture.id)
             if let grain = texture.grain {
                 XCTAssertTrue(grain.intensity.lowerBound >= 0 && grain.intensity.upperBound <= 1, texture.id)
             }

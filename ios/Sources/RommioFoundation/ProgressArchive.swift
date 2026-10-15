@@ -70,16 +70,17 @@ public enum ProgressArchive {
     static func read(_ input: FileHandle, count: Int) throws -> Data {
         var result = Data()
         while result.count < count {
-            guard let chunk = try input.read(upToCount: count - result.count), !chunk.isEmpty else { throw ProgressStoreError.invalid("Truncated progress backup") }
-            result.append(chunk)
+            guard try FileChunks.next(input, upTo: count - result.count, { result.append($0) }) else { throw ProgressStoreError.invalid("Truncated progress backup") }
         }
         return result
     }
     static func copy(_ input: FileHandle, _ output: FileHandle, length: Int64) throws {
         var remaining = length
         while remaining > 0 {
-            let chunk = try read(input, count: Int(min(remaining, 65536)))
-            try output.write(contentsOf: chunk); remaining -= Int64(chunk.count)
+            try autoreleasepool {
+                let chunk = try read(input, count: Int(min(remaining, 65536)))
+                try output.write(contentsOf: chunk); remaining -= Int64(chunk.count)
+            }
         }
     }
     static func output(_ url: URL) throws -> FileHandle {

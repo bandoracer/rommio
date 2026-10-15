@@ -108,9 +108,28 @@ final class HapticsEngine {
         #endif
     }
 
+    /// Plays a recipe now with a player of its own, not kept: for one-off patterns (scattered
+    /// grit, each batch different) that would only crowd the cache.
+    func playOnce(_ recipe: HapticRecipe) {
+        #if canImport(CoreHaptics)
+        guard !recipe.events.isEmpty, let engine = ready(),
+              let pattern = try? recipe.hapticPattern(strength: strength, sharpnessBias: sharpnessBias),
+              let player = try? engine.makePlayer(with: pattern) else { return }
+        try? player.start(atTime: CHHapticTimeImmediate)
+        #endif
+    }
+
     /// A continuous voice at `sharpness`, silent until its level is set.
     func voice(sharpness: Double) -> HapticVoice {
         let voice = HapticVoice(owner: self, sharpness: sharpness)
+        voices.append(voice)
+        return voice
+    }
+
+    /// A looped bed (a noise texture), silent until its level is set; its playback speed
+    /// can change as it plays.
+    func bed(_ recipe: HapticRecipe, loop seconds: Double) -> HapticVoice {
+        let voice = HapticVoice(owner: self, bed: recipe, loop: seconds)
         voices.append(voice)
         return voice
     }
@@ -342,6 +361,9 @@ final class HapticVoice {
     private(set) var level: Double = 0
     /// The sharpness it plays at now (live changes add to `sharpness`).
     private(set) var currentSharpness: Double
+    /// A looped recipe instead of a steady buzz (a noise bed), and its loop's length.
+    let bed: HapticRecipe?
+    private let loop: Double
     private unowned let owner: HapticsEngine
     #if canImport(CoreHaptics)
     private var player: CHHapticAdvancedPatternPlayer?
@@ -352,13 +374,34 @@ final class HapticVoice {
         self.owner = owner
         self.sharpness = sharpness
         self.currentSharpness = sharpness
+        bed = nil
+        loop = 30
+    }
+
+    fileprivate init(owner: HapticsEngine, bed: HapticRecipe, loop: Double) {
+        self.owner = owner
+        sharpness = 0
+        currentSharpness = 0
+        self.bed = bed
+        self.loop = loop
+    }
+
+    /// A bed's level, playback speed (1: as made) and, optionally, a sharpness shift.
+    func set(_ newLevel: Double, sharpness newSharpness: Double? = nil, rate: Double) {
+        set(newLevel, sharpness: newSharpness)
+        #if canImport(CoreHaptics)
+        if newLevel > 0, let player, playerGeneration == owner.generation {
+            player.playbackRate = Float(min(max(rate, 0.25), 3))
+        }
+        #endif
     }
 
     /// Sets the voice's level (0 silences it) and, optionally, its sharpness.
     func set(_ newLevel: Double, sharpness newSharpness: Double? = nil) {
         let clamped = min(max(newLevel, 0), 1)
         level = clamped
-        if let newSharpness { currentSharpness = min(max(newSharpness, 0), 1) }
+        // A bed's sharpness is a shift on its own (−1…1); a voice's is its sharpness (0…1).
+        if let newSharpness { currentSharpness = bed != nil ? min(max(newSharpness, -1), 1) : min(max(newSharpness, 0), 1) }
         #if canImport(CoreHaptics)
         owner.noteStopIfAny()
         if clamped <= 0 {
@@ -373,7 +416,8 @@ final class HapticVoice {
         guard let player = startedPlayer() else { return }
         var parameters = [CHHapticDynamicParameter(parameterID: .hapticIntensityControl,
                                                    value: Float(clamped * owner.strength), relativeTime: 0)]
-        if currentSharpness != sharpness {
+        // Whenever a sharpness is given, even the voice's own (a shift going back to none).
+        if newSharpness != nil || currentSharpness != sharpness {
             parameters.append(CHHapticDynamicParameter(parameterID: .hapticSharpnessControl,
                                                        value: Float(currentSharpness - sharpness), relativeTime: 0))
         }
@@ -411,13 +455,15 @@ final class HapticVoice {
         if let player, playerGeneration == owner.generation { return player }
         player = nil
         guard let engine = owner.ready() else { return nil }
-        // A 30 s buzz (Core Haptics' longest), looped: it holds until silenced.
-        let recipe = HapticRecipe.buzz(1, sharpness, for: 30, sustained: true)
+        // A 30 s buzz (Core Haptics' longest), looped: it holds until silenced. A bed loops its
+        // own recipe, from a random point so each touch starts somewhere new.
+        let recipe = bed ?? HapticRecipe.buzz(1, sharpness, for: 30, sustained: true)
         guard let pattern = try? recipe.hapticPattern(strength: 1, sharpnessBias: owner.sharpnessBias),
               let made = try? engine.makeAdvancedPlayer(with: pattern) else { return nil }
         made.loopEnabled = true
-        made.loopEnd = 30
+        made.loopEnd = loop
         do {
+            if bed != nil { try made.seek(toOffset: Double.random(in: 0..<loop)) }
             try made.start(atTime: CHHapticTimeImmediate)
         } catch {
             return nil

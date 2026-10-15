@@ -458,7 +458,7 @@ struct GameActionDeck: View {
                     FlowRow(spacing: 10) {
                         ForEach(deck.secondary, id: \.kind) { action in
                             Button(action.title) { actions.perform(action) }
-                                .buttonStyle(SecondaryButtonStyle(destructive: action.kind == .deleteLocal || action.kind == .cancel))
+                                .buttonStyle(SecondaryButtonStyle(destructive: action.kind == .deleteLocal || action.kind == .deleteArchive || action.kind == .cancel))
                                 .disabled(!action.enabled)
                                 .accessibilityIdentifier("gameDetail.secondary.\(fileID).\(action.kind.rawValue)")
                         }

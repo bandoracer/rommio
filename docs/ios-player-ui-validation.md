@@ -87,7 +87,26 @@ Other actions: `{"touch": "identifier", "x": "0.5", "y": "0.5"}` taps any elemen
 field, `{"swipe": "up"}`, and `{"tapIfPresent": "label", "timeout": "4"}` taps a button only when it
 appears (for example `launch.start` on the Launch choice sheet, which opens before the player when
 the cloud check did not finish; the player's own fallback buttons are `player.start.resume`,
-`player.start.gameSave` and `player.start.back`).
+`player.start.gameSave` and `player.start.back`). `{"tapAt": "0.9,0.85", "hold": "4"}` presses a
+normalised screen point (controls without accessibility, like the virtual game controller) and
+`{"key": "k"}` presses a hardware-keyboard key without a text field. On an iPad an active search
+hides the tab bar and has no Close button; `tapTab` ends it with the keyboard's dismiss key.
+
+### Controllers in the Simulator (2026-10-03)
+
+A Debug build launched with `ROMMIO_VIRTUAL_CONTROLLER=1` connects the system's on-screen
+controller (`GCVirtualController`, A and B) when a game starts and counts only it (not the
+Simulator's own stand-in gamepad), so the controller path runs end to end:
+`{"launch": "…", "env": "ROMMIO_VIRTUAL_CONTROLLER=1"}`, then `tapAt` its buttons (iPhone Air
+portrait: B at `0.857,0.811`, A at `0.671,0.897`). `ROMMIO_VIRTUAL_CONTROLLER_DROP_AFTER=<seconds>`
+disconnects it then, to check that a held button is let go. A held press can't be captured from the
+pass itself; screenshot the Simulator from the host while the pass holds (`xcrun simctl io UDID
+screenshot`). A small homebrew NES program that paints the screen by the button held (player 1: A
+red, B green, Up blue…; anything on player 2 pink) makes each press visible
+(`python3 scripts/ios/make_input_test_rom.py input-test.nes`; installed in place of a downloaded NES
+game, the download record's SHA-256 and size updated to match, since the player verifies both). On 2026-10-03 it showed
+standard and remapped buttons, keyboard remapping, live remaps in game and release on disconnect on
+the iPhone Air simulator. Physical controllers on iPhone and iPad remain unqualified.
 
 The controls QA harness (`ROMMIO_CONTROLS_QA=<family>` in a Debug build, e.g.
 `SIMCTL_CHILD_ROMMIO_CONTROLS_QA=snes xcrun simctl launch UDID io.github.mattsays.rommio.ios`) draws

@@ -238,6 +238,17 @@ and observed behavior take precedence over those descriptions.
   current-container copy even when the old path still exists, and does not
   expose a stale install while a replacement is running. Focused queue tests
   cover all three cases.
+- On a physical iPhone that relocation then killed the app at every launch.
+  After iOS moved the data container, startup re-hashed every install (about
+  4 GB with the Pokémon Ultra Sun ZIP) inside one database write, and in
+  Release builds FileHandle's autoreleased chunks were held until the loop
+  ended, so the process passed its 3,376 MB limit about 2.4 s in and nothing
+  was saved for the next launch. File hashing and copying now stream through
+  `FileChunks`, which frees each chunk. Relocation hashes outside any
+  transaction, adopts the new path only if the record is unchanged, and
+  doesn't hash a failed candidate again until the file changes. On the phone
+  all 29 installs were adopted on the first launch and later launches don't
+  hash.
 - Advancing Pokémon X beyond its title screen exposed a reproducible simulator
   crash in Azahar's software texture rasterizer. Its shared physical-region
   cache could race across renderer workers, pairing a bank pointer with a

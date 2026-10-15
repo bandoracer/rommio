@@ -25,6 +25,10 @@ Rules that hold everywhere:
 - Regular width (iPhone Duo open, iPad) is "one canvas": the page background is
   shared across the fold; heroes and headers span it; list/detail only in
   Library.
+- A page's columns also need the room (iOS `WideLayout`, 2026-10-03): the Library's
+  detail column on an iPad in portrait is regular width but about 570 pt, so Game
+  takes its two-column (Aurora, 720 pt) or three-column (Riso, 820 pt) layout only
+  when it has that much; otherwise the compact one.
 - Pages draw whole from their first frame, from what is on the device (iOS
   2026-09-27, Android 2026-09-28). At launch (and on a switch of profile) iOS reads this device's downloads, its stats with
   the cached library, and its saves before any server call, and publishes stats

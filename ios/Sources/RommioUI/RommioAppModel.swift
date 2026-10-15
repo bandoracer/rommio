@@ -259,6 +259,17 @@ public final class RommioAppModel {
         // Hash-verify the bundled cores once, in the background, before any page needs them.
         BackgroundScans.warmCoreVerification(installer: coreInstaller, catalog: coreCatalog,
                                              libraryStore: services.libraryStore, bundle: coreBundle)
+        // An unzip the app was stopped in the middle of leaves its half-written game here. No
+        // launch is unzipping yet; the folder moves aside at once and is deleted in the background.
+        services.progress.releaseInterruptedSessionContent()
+        let roms = services.libraryStore.rootDirectory.appending(path: "roms")
+        try? FileManager.default.moveItem(at: roms.appending(path: "staging"), to: roms.appending(path: ".staging-\(UUID().uuidString.lowercased())"))
+        Task.detached(priority: .utility) {
+            for leftover in (try? FileManager.default.contentsOfDirectory(at: roms, includingPropertiesForKeys: nil)) ?? []
+            where leftover.lastPathComponent.hasPrefix(".staging-") {
+                try? FileManager.default.removeItem(at: leftover)
+            }
+        }
         await reloadProfiles()
         await resumeDownloads()
         transitionFromGateDecision()
@@ -794,7 +805,7 @@ public final class RommioAppModel {
 
     public func localROMPath(for rom: RomDTO, file: RomFileDTO) -> String? {
         if let record = downloadsFeature.records.first(where: { $0.profileID == activeProfile?.id && $0.romID == rom.id && $0.fileID == file.id }) {
-            return record.localPath.flatMap { FileManager.default.fileExists(atPath: $0) ? $0 : nil }
+            return record.playablePath(libraryRoot: services.libraryStore.rootDirectory).flatMap { FileManager.default.fileExists(atPath: $0) ? $0 : nil }
         }
         let url = services.libraryStore.romURL(platformSlug: rom.platformSlug, fileName: file.fileName)
         return FileManager.default.fileExists(atPath: url.path) ? url.path : nil
@@ -1065,6 +1076,9 @@ public final class RommioAppModel {
             },
             onDeleteLocalContent: { [weak self] recordID in
                 await self?.deleteLocalDownloadContent(recordID: recordID)
+            },
+            onRequestArchiveDeletion: { [weak self] recordID in
+                await self?.requestArchiveDeletion(recordID: recordID)
             }
         )
     }
@@ -1305,6 +1319,42 @@ public final class RommioAppModel {
     }
 
     private var progressPlayerLease: String?
+
+    /// Asks to delete an unzipped game's ZIP: once after the game closes, and whenever the Game
+    /// page's Delete ZIP is tapped.
+    public struct ArchiveDeletionOffer: Identifiable, Equatable, Sendable {
+        public let id: String
+        public let title: String
+        public let archiveBytes: Int64
+    }
+    public var archiveDeletionOffer: ArchiveDeletionOffer?
+    private var archiveOfferRecordID: String?
+
+    func requestArchiveDeletion(recordID: String) async {
+        await offerArchiveDeletion(recordID: recordID, evenIfKept: true)
+    }
+
+    public func deleteArchive(_ offer: ArchiveDeletionOffer) async {
+        archiveDeletionOffer = nil
+        do {
+            try await services.downloadQueue.deleteArchive(recordID: offer.id)
+            noticeMessage = "Deleted the ZIP of \(offer.title), freeing \(PlayFormat.bytes(offer.archiveBytes))."
+            await downloadsFeature.refresh()
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    public func keepArchive(_ offer: ArchiveDeletionOffer) async {
+        archiveDeletionOffer = nil
+        try? await services.downloadQueue.keepArchive(recordID: offer.id)
+    }
+
+    private func offerArchiveDeletion(recordID: String, evenIfKept: Bool) async {
+        guard let record = try? await services.downloadQueue.records(profileID: nil).first(where: { $0.id == recordID }),
+              record.hasRemovableArchive, evenIfKept || record.keepsArchive != true, let path = record.localPath else { return }
+        let bytes = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? NSNumber)?.int64Value ?? record.fileSizeBytes
+        archiveDeletionOffer = ArchiveDeletionOffer(id: recordID, title: record.romName, archiveBytes: bytes)
+    }
+
     private func presentInstalledGame(rom: RomDTO, file: RomFileDTO) async throws {
         if let activePlayer {
             await activePlayer.leaveGame()
@@ -1320,10 +1370,12 @@ public final class RommioAppModel {
         logger.info("presentInstalledGame romID=\(rom.id, privacy: .public) fileID=\(file.id, privacy: .public)")
         NSLog("[RommioAppModel] presentInstalledGame romID=%d fileID=%d", rom.id, file.id)
         let launchProfileID = activeProfile?.id
+        var install: VerifiedInstall?
         let launchPath: String?
         if let launchProfileID,
            try await services.downloadQueue.records(profileID: launchProfileID).contains(where: { $0.romID == rom.id && $0.fileID == file.id }) {
-            launchPath = try await services.downloadQueue.verifiedLocalURL(profileID: launchProfileID, romID: rom.id, fileID: file.id)?.path
+            install = try await services.downloadQueue.verifiedInstall(profileID: launchProfileID, romID: rom.id, fileID: file.id)
+            launchPath = install?.playable.path
         } else { launchPath = localROMPath(for: rom, file: file) }
         guard activeProfile?.id == launchProfileID else { throw CancellationError() }
         guard let romPath = launchPath else {
@@ -1376,30 +1428,33 @@ public final class RommioAppModel {
         let workspace = services.progress.root.appending(path: "sessions/\(sessionID)")
         var cloudMessage: String?
         var legacyProgressFiles: [URL] = []
-        var threeDSArchiveMember: ThreeDSArchive.Member?
+        var cloudCheck: Task<String?, Never>?
+        var upgradeWarnings: [String] = []
+        var archiveRecordID: String?
         if (runtime.runtimeID == "fceumm" || PinnedAppleCore.cartridgeRuntimes.contains(runtime.runtimeID) || PinnedAppleCore.candidateRuntimes.contains(runtime.runtimeID)), FileManager.default.fileExists(atPath: manifest.path), let profile = selectedProfile,
            let record = try await services.downloadQueue.records(profileID: profile.id).first(where: { $0.romID == rom.id && $0.fileID == file.id }),
-           let owner = record.owner, let digest = record.contentSHA256 {
+           let owner = record.owner, let digest = record.contentSHA256, var verified = install {
             guard try await services.authController.verifiedAccount(profileID: profile.id) == owner,
-                  owner.baseURL == profile.baseURL, try ProgressFileHash.sha256(URL(fileURLWithPath: romPath)) == digest else { throw AccountBindingError() }
-            coreDigest = try PinnedAppleCore.verify(core: coreURL, manifest: manifest, runtimeID: runtime.runtimeID)
-            if runtime.runtimeID == "azahar", file.effectiveFileExtension.lowercased() == "zip" {
-                threeDSArchiveMember = try ThreeDSArchive.materialize(URL(fileURLWithPath: romPath), in: workspace.appending(path: "content"))
+                  owner.baseURL == profile.baseURL, verified.downloadSHA256 == digest else { throw AccountBindingError() }
+            let runtimeID = runtime.runtimeID
+            coreDigest = try await Task.detached(priority: .userInitiated) {
+                try PinnedAppleCore.verify(core: coreURL, manifest: manifest, runtimeID: runtimeID)
+            }.value
+            if runtime.runtimeID == "azahar", file.effectiveFileExtension.lowercased() == "zip", verified.extracted == nil {
+                verified = try await unzipOnce(verified)
+                install = verified
             }
-            let binding = ProgressBinding(serverKey: ApplicationProgress.serverKey(owner.baseURL), accountId: String(owner.userID), romId: Int64(rom.id), files: [ProgressContentFile(fileId: Int64(file.id), discIndex: 0, contentSha256: threeDSArchiveMember?.sha256 ?? digest, containerSha256: threeDSArchiveMember == nil ? nil : digest, memberPath: threeDSArchiveMember?.path)])
+            if verified.extracted != nil { archiveRecordID = verified.recordID }
+            // The binding keeps the archive's digest and the unzipped game's (docs/save-sync-spec.md §3.1).
+            let extracted = verified.extracted
+            let binding = ProgressBinding(serverKey: ApplicationProgress.serverKey(owner.baseURL), accountId: String(owner.userID), romId: Int64(rom.id), files: [ProgressContentFile(fileId: Int64(file.id), discIndex: 0, contentSha256: extracted?.sha256 ?? digest, containerSha256: extracted == nil ? nil : digest, memberPath: extracted?.memberPath)])
             let store = try await services.progress.store()
-            progressIdentity = try await store.resolveIdentity(binding)
-            let upgradeWarnings = try await ProgressUpgrade.run(store: store, identity: progressIdentity!)
-            cloudMessage = await services.progress.checkBeforeLaunch(progressIdentity!)
-            if !upgradeWarnings.isEmpty { cloudMessage = upgradeWarnings.joined(separator: " ") }
-            let oldDirectory = services.libraryStore.saveStatesDirectory(for: installation)
-            legacyProgressFiles = [services.libraryStore.saveRAMURL(for: installation), services.libraryStore.continuityResumeStateURL(for: installation)]
-                + ((try? FileManager.default.contentsOfDirectory(at: oldDirectory, includingPropertiesForKeys: [.isRegularFileKey])) ?? [])
-            legacyProgressFiles += try await services.progress.legacyRecoveryFiles()
-            legacyProgressFiles = Array(Set(legacyProgressFiles)).filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
-            if !(try await store.references(progressIdentity!)).keys.contains("game/current") && !legacyProgressFiles.isEmpty {
-                cloudMessage = "Older local progress is retained and needs an explicit import. Continue with local progress to open recovery, then choose the file to assign to this account and game. " + (cloudMessage ?? "")
-            }
+            let identity = try await store.resolveIdentity(binding)
+            progressIdentity = identity
+            upgradeWarnings = try await ProgressUpgrade.run(store: store, identity: identity)
+            // The cloud is checked while the session and the core get ready; the launch still waits for it.
+            let progress = services.progress
+            cloudCheck = Task { await progress.checkBeforeLaunch(identity) }
         }
         if progressIdentity != nil {
             launchPreparation = PlayerLaunchPreparation()
@@ -1426,7 +1481,8 @@ public final class RommioAppModel {
                 connectivity: offlineState.connectivity
             )
         }
-        if runtime.runtimeID == "azahar", file.effectiveFileExtension.lowercased() == "zip", threeDSArchiveMember == nil {
+        if runtime.runtimeID == "azahar", file.effectiveFileExtension.lowercased() == "zip",
+           progressIdentity == nil || install?.extracted == nil {
             throw ProgressStoreError.invalid("This 3DS ZIP needs a verified download and account before it can be opened.")
         }
         updateFrontendUsername()
@@ -1436,21 +1492,20 @@ public final class RommioAppModel {
             file: file,
             installation: installation,
             runtime: runtime,
-            romURL: threeDSArchiveMember?.url ?? URL(fileURLWithPath: romPath),
+            romURL: install?.playable ?? URL(fileURLWithPath: romPath),
             coreURL: coreURL
         )
 
-        if progressIdentity != nil {
+        if let identity = progressIdentity {
             session.ownsProgress = true; session.initialSaveRAM = nil
-            if threeDSArchiveMember == nil {
-                let isolatedContent = workspace.appending(path: "content/game.\(file.effectiveFileExtension.lowercased())")
-                try FileManager.default.createDirectory(at: isolatedContent.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try FileManager.default.copyItem(at: session.romURL, to: isolatedContent)
-                guard try ProgressFileHash.sha256(isolatedContent) == progressIdentity?.binding.files.first?.contentSha256 else {
-                    throw ProgressStoreError.invalid("Content changed while preparing the session")
-                }
-                session.romURL = isolatedContent
-            }
+            let fileExtension = install?.extracted == nil ? file.effectiveFileExtension : session.romURL.pathExtension
+            let isolatedContent = workspace.appending(path: "content/game.\(fileExtension.lowercased())")
+            let source = session.romURL, verifiedIdentity = install?.playableIdentity
+            let sha256 = identity.binding.files.first?.contentSha256 ?? ""
+            try await Task.detached(priority: .userInitiated) {
+                try SessionContent.isolate(source, to: isolatedContent, sha256: sha256, verified: verifiedIdentity)
+            }.value
+            session.romURL = isolatedContent
             session.savesDirectory = workspace.appending(path: "saves")
             session.saveRAMURL = session.savesDirectory.appending(path: "save.srm")
             session.saveStatesDirectory = workspace.appending(path: "states")
@@ -1464,6 +1519,11 @@ public final class RommioAppModel {
             logger.info("player prepare begin")
             NSLog("[RommioAppModel] player prepare begin")
             try await playerEngine.prepare(session: session)
+            if let cloudCheck, let identity = progressIdentity {
+                (cloudMessage, legacyProgressFiles) = try await launchCheckResult(
+                    cloudMessage: await cloudCheck.value, upgradeWarnings: upgradeWarnings,
+                    identity: identity, installation: installation)
+            }
             if let identity = progressIdentity, let coreDigest {
                 guard let engine = playerEngine as? any ProgressPlayerEngine else { throw ProgressStoreError.invalid("The player does not implement coherent persistence") }
                 let capture = try await engine.captureProgress(includeState: false)
@@ -1515,6 +1575,8 @@ public final class RommioAppModel {
         player.backdropURL = artworkURL(path: rom.urlCover)
         let chosen = pendingStartOption
         pendingStartOption = nil
+        // After this game closes, Rommio offers to delete its ZIP.
+        archiveOfferRecordID = archiveRecordID
         // The choice is made before the player opens (docs/theme-layouts.md, Launch choice).
         if let progressOwner, pendingResolution == nil,
            let choice = await preLaunchChoice(rom: rom, owner: progressOwner, cloudMessage: cloudMessage, fileID: file.id, preferred: chosen) {
@@ -1525,6 +1587,32 @@ public final class RommioAppModel {
         if let chosen { player.preferColdBoot = chosen == .gameSave }
         self.activePlayer = player
         self.noticeMessage = "Launching \(rom.displayName) with \(runtime.displayName)."
+    }
+
+    /// The cloud check's answer, and older progress that needs an explicit import.
+    private func launchCheckResult(cloudMessage: String?, upgradeWarnings: [String], identity: ProgressIdentity,
+                                   installation: InstalledROMReference) async throws -> (String?, [URL]) {
+        var message = upgradeWarnings.isEmpty ? cloudMessage : upgradeWarnings.joined(separator: " ")
+        let oldDirectory = services.libraryStore.saveStatesDirectory(for: installation)
+        var legacy = [services.libraryStore.saveRAMURL(for: installation), services.libraryStore.continuityResumeStateURL(for: installation)]
+            + ((try? FileManager.default.contentsOfDirectory(at: oldDirectory, includingPropertiesForKeys: [.isRegularFileKey])) ?? [])
+        legacy += try await services.progress.legacyRecoveryFiles()
+        legacy = Array(Set(legacy)).filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
+        if !(try await services.progress.store().references(identity)).keys.contains("game/current") && !legacy.isEmpty {
+            message = "Older local progress is retained and needs an explicit import. Continue with local progress to open recovery, then choose the file to assign to this account and game. " + (message ?? "")
+        }
+        return (message, legacy)
+    }
+
+    /// A 3DS ZIP is unzipped once and the game kept next to it, so later launches open it directly.
+    /// After the game closes, Rommio offers to delete the ZIP.
+    private func unzipOnce(_ install: VerifiedInstall) async throws -> VerifiedInstall {
+        guard let archive = install.download, let archiveSHA256 = install.downloadSHA256 else { throw DownloadOwnershipError.corruptInstall }
+        let staging = services.libraryStore.rootDirectory.appending(path: "roms/staging/\(UUID().uuidString.lowercased())")
+        defer { try? FileManager.default.removeItem(at: staging) }
+        let member = try await Task.detached(priority: .userInitiated) { try ThreeDSArchive.materialize(archive, in: staging) }.value
+        return try await services.downloadQueue.adoptExtracted(member.url, recordID: install.recordID, archiveSHA256: archiveSHA256,
+                                                               memberPath: member.path, sha256: member.sha256)
     }
 
     public func importBIOS(_ url: URL) throws -> String {
@@ -1571,6 +1659,12 @@ public final class RommioAppModel {
         activePlayer = nil
         if let noticeMessage {
             self.noticeMessage = noticeMessage
+        }
+        let progress = services.progress
+        Task { await progress.removeClosedSessions() }
+        if let recordID = archiveOfferRecordID {
+            archiveOfferRecordID = nil
+            await offerArchiveDeletion(recordID: recordID, evenIfKept: false)
         }
         // The session row, new saves and previews show up on Play and Stats.
         Task { [weak self] in

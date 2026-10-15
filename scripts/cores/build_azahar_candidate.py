@@ -15,6 +15,8 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 PIN = pathlib.Path(__file__).with_name('azahar-candidate.json')
 PATCH = pathlib.Path(__file__).parent / 'patches/azahar.patch'
+# The New 3DS movie decoder (mvd:STD), applied after azahar.patch; see docs/ios-3ds-mvd.md.
+MVD_PATCH = pathlib.Path(__file__).parent / 'patches/azahar-mvd.patch'
 EXTENSIONS = sorted((pathlib.Path(__file__).parent / 'extensions').glob('rommio_3ds_file_bundle.*'))
 
 
@@ -60,7 +62,7 @@ def build(sdk, arch, source_cache):
     manifest = output / 'provenance.json'
     toolchain = read(['xcrun', 'clang', '--version'])
     extension_hash = hashlib.sha256(b''.join(path.read_bytes() for path in EXTENSIONS)).hexdigest()
-    key = hashlib.sha256(PIN.read_bytes() + PATCH.read_bytes() +
+    key = hashlib.sha256(PIN.read_bytes() + PATCH.read_bytes() + MVD_PATCH.read_bytes() +
                          extension_hash.encode() + pathlib.Path(__file__).read_bytes() +
                          target.encode() + toolchain.encode()).hexdigest()
     if binary.exists() and manifest.exists():
@@ -79,6 +81,8 @@ def build(sdk, arch, source_cache):
         shutil.copy2(extension, source / 'src/citra_libretro' / extension.name)
     run(['git', '-C', source, 'apply', '--check', PATCH])
     run(['git', '-C', source, 'apply', PATCH])
+    run(['git', '-C', source, 'apply', '--check', MVD_PATCH])
+    run(['git', '-C', source, 'apply', MVD_PATCH])
     options = ['-DCMAKE_BUILD_TYPE=Release', '-DBUILD_TESTING=OFF', '-DENABLE_QT=OFF',
                '-DENABLE_SDL2=OFF', '-DENABLE_LIBRETRO=ON', '-DENABLE_VULKAN=OFF',
                '-DENABLE_WEB_SERVICE=OFF', f'-DCMAKE_OSX_ARCHITECTURES={arch}',
@@ -101,7 +105,8 @@ def build(sdk, arch, source_cache):
     shutil.copy2(source / 'license.txt', output / 'LICENSE.txt')
     record = dict(schemaVersion=1, runtimeId='azahar', status='integration-candidate',
                   sdk=sdk, architecture=arch, sourceRevision=pin['revision'],
-                  patchSha256=digest(PATCH), extensionSha256=extension_hash,
+                  patchSha256=digest(PATCH), mvdPatchSha256=digest(MVD_PATCH),
+                  extensionSha256=extension_hash,
                   recipeSha256=digest(pathlib.Path(__file__)), buildKey=key,
                   sha256=digest(binary), persistenceExtension=pin['persistenceExtension'])
     manifest.write_text(json.dumps(record, indent=2) + '\n')

@@ -19,6 +19,9 @@ struct AuroraGameLayout: View {
     @State private var scrolledPastArt = false
     @State private var heroSize = CGSize(width: 402, height: 400)
     @State private var topInset: CGFloat = 62
+    @State private var width: CGFloat?
+
+    private var wide: Bool { WideLayout.fits(horizontalSizeClass, width: width, minimum: WideLayout.twoColumns) }
 
     var body: some View {
         ScrollView {
@@ -27,13 +30,13 @@ struct AuroraGameLayout: View {
                     .accessibilityIdentifier("gameDetail.hero")
                     .onGeometryChange(for: CGSize.self) { $0.size } action: { heroSize = $0 }
                 Group {
-                    if horizontalSizeClass == .regular {
+                    if wide {
                         AuroraGameRegular(content: content, actions: actions)
                     } else {
                         AuroraGameCompact(content: content, actions: actions)
                     }
                 }
-                .padding(.horizontal, horizontalSizeClass == .regular ? 32 : theme.spacing.gutter)
+                .padding(.horizontal, wide ? 32 : theme.spacing.gutter)
                 .padding(.top, -64)
                 .padding(.bottom, 40)
                 .frame(maxWidth: 1100)
@@ -41,6 +44,7 @@ struct AuroraGameLayout: View {
             }
         }
         .ignoresSafeArea(edges: .top)
+        .measuringWidth($width)
         .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > 120 } action: { _, past in scrolledPastArt = past }
         .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topInset = $0 }
         // Over the art: no scroll-edge fade, and the status bar in the art's tone.

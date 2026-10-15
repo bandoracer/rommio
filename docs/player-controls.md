@@ -278,6 +278,39 @@ Sticks and per-console layouts (iOS):
 - `PlayerTouchLayout.gameScreens`: a touch on a game screen never starts a control, even
   inside a control's grown hit region; it falls through to the game (DS/3DS pointer).
 
+## Controllers and keyboards (iOS)
+
+Added 2026-10-03 (remediation R14). `PlayerGamepadInput` reads GameController and hands each
+device's whole state to `ControllerRouter` (`RommioFoundation/ControllerMapping.swift`), which
+does the logic and is unit-tested without hardware.
+
+- **Players.** Each full gamepad (`extendedGamepad`) takes the lowest free port when it
+  connects, up to four, and keeps it until it disconnects; its lights show its player
+  (`playerIndex`). A keyboard plays as player 1. A port holds a button while any of its
+  devices holds it, so a keyboard and player 1's controller never release each other.
+  Touch plays as player 1 too.
+- **Nothing sticks.** A controller disconnecting, the app resigning active or entering the
+  background, and the session ending release everything held and centre the sticks.
+- **Bindings.** `ControllerBindings`: controller element (by position: Apple's A is the
+  bottom face button) → libretro joypad button, and keyboard key (HID usage, `GCKeyCode`) →
+  joypad button. The standard layout is positional (bottom → B, right → A, left → Y, top →
+  X, Menu → Start, Options → Select) and, on a keyboard, arrows, Z X A S, Q W, Return and
+  right Shift. Pause › Controls › Controller › Remap buttons lists the console's own buttons
+  (its touch controls' labels); tap one and press a control. The control that pressed it
+  before takes over the old one (a swap), so nothing becomes unreachable. Per console,
+  device-local (`player_hardware_bindings.button_map`, migration
+  `v11_controller_button_map`; NULL is the standard layout). Changing the deadzone or the
+  controller type keeps them; Reset control tuning leaves them alone (Remap buttons has
+  its own reset).
+- **Hotkeys** never reach the game: Home (its system gesture disabled, so iOS's games
+  overlay doesn't take it) or both stick clicks open the pause menu; Escape does on a
+  keyboard, and ⌘S and ⌘L quick-save and quick-load. Modifiers and Escape can't be bound.
+- **Touch controls** hide only for a full gamepad (with Auto-hide on controller) and come
+  back when it disconnects. A controller's press clears a notice without waking them.
+- **Not yet:** the Siri Remote and other micro gamepads, rumble to a controller's own
+  motors (Rumble to device plays on the phone), physical-controller qualification on iPhone
+  and iPad, and Android's equivalent of remapping and multiple ports.
+
 ## Android implementation (2026-09-24)
 
 The same model with the iOS names and the choices above (details in

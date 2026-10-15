@@ -447,15 +447,19 @@ func localStorageSummary(
     offlineState: OfflineState
 ) -> LocalStorageSummary {
     let installedRecords = downloads.filter {
-        guard let localPath = $0.localPath else { return false }
-        return FileManager.default.fileExists(atPath: localPath)
+        guard let path = $0.playablePath(libraryRoot: libraryStore.rootDirectory) else { return false }
+        return FileManager.default.fileExists(atPath: path)
+    }
+    // Both files of an unzipped game, so deleting its ZIP changes the measured total.
+    let installedPaths = installedRecords.flatMap {
+        [$0.localPath, $0.extracted.map { libraryStore.rootDirectory.appending(path: $0.relativePath).path }].compactMap { $0 }
     }
 
     return LocalStorageSummary(
         installedGameCount: Set(installedRecords.map(\.romID)).count,
         installedFileCount: installedRecords.count,
         totalBytes: LibrarySizeCache.size(of: libraryStore.rootDirectory,
-                                          installedPaths: installedRecords.compactMap(\.localPath),
+                                          installedPaths: installedPaths,
                                           measure: directorySize(at:)),
         cacheBytes: offlineState.cacheBytes
     )

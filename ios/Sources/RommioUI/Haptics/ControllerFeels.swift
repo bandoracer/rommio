@@ -221,6 +221,10 @@ struct StickFeel: Identifiable, Hashable, Sendable {
     var notch: HapticRecipe = .empty
     var edge: HapticRecipe = .empty
     var center: HapticRecipe = .empty
+    /// Noisy grit (RimNoise.swift): grains at random spacing and times.
+    var scatter: Scatter?
+    /// A looped noise bed while the thumb slides along the rim (RimNoise.swift).
+    var bed: NoiseBed?
 
     static let n64New = StickFeel(
         id: "n64-new", name: "N64, new", source: "The octagon gate: a clean click into each notch",
@@ -275,8 +279,13 @@ struct StickFeel: Identifiable, Hashable, Sendable {
         var copy = self
         copy.grain = texture.grain
         copy.hum = texture.hum
+        copy.scatter = texture.scatter
+        copy.bed = texture.bed
         return copy
     }
+
+    /// Whether the rim plays noise (scattered grit or a bed), for the Noise controls.
+    var isNoisy: Bool { scatter != nil || bed != nil }
 
     static let all: [StickFeel] = [n64New, n64Worn, dualShock, circlePad, pspNub, ratchet, today]
 }
@@ -290,8 +299,44 @@ struct RimTexture: Identifiable, Hashable, Sendable {
     let source: String
     var grain: StickFeel.Grain?
     var hum: StickFeel.Hum?
+    var scatter: StickFeel.Scatter?
+    var bed: NoiseBed?
 
     static let designed = RimTexture(id: "designed", name: "As designed", source: "The stick's own texture")
+
+    // Noise (2026-10-06): random spacing and timing instead of a tap every so many degrees.
+    static let scatterSand = RimTexture(
+        id: "scatter-sand", name: "Scattered sand", source: "Fine specks at random, between touch updates",
+        scatter: .init(degrees: 2.5, intensity: 0.12...0.4, sharpness: 0.65...1, clumping: 0.15))
+    static let scatterGrit = RimTexture(
+        id: "scatter-grit", name: "Scattered grit", source: "Uneven grit at random, a few in clumps",
+        scatter: .init(degrees: 5, intensity: 0.18...0.5, sharpness: 0.45...0.85, clumping: 0.3))
+    static let scatterGravel = RimTexture(
+        id: "scatter-gravel", name: "Scattered gravel", source: "Heavy, dull lumps in clumps",
+        scatter: .init(degrees: 9, intensity: 0.3...0.75, sharpness: 0.15...0.5, clumping: 0.55))
+    static let hiss = RimTexture(
+        id: "hiss", name: "Hiss", source: "A buzz whose strength is white noise, crisp",
+        bed: NoiseBed(hiss: .init(sharpness: 0.75, sharpnessSpread: 0.2, step: 0.005, floor: 0.15, color: .white), level: 0.32))
+    static let rasp = RimTexture(
+        id: "rasp", name: "Rasp", source: "Pink noise: mostly fine, now and then a catch",
+        bed: NoiseBed(hiss: .init(sharpness: 0.5, sharpnessSpread: 0.3, step: 0.006, floor: 0, color: .pink), level: 0.42))
+    static let grind = RimTexture(
+        id: "grind", name: "Grind", source: "Brown noise: a slow, lumpy drag",
+        bed: NoiseBed(hiss: .init(sharpness: 0.3, sharpnessSpread: 0.25, step: 0.01, floor: 0, color: .brown), level: 0.5))
+    static let sandBed = RimTexture(
+        id: "sand-bed", name: "Sand bed", source: "A loop of random specks, faster as you slide faster",
+        bed: NoiseBed(grains: .init(rate: 220, intensity: 0.1...0.45, sharpness: 0.65...1, clumping: 0.1), level: 0.7))
+    static let gravelBed = RimTexture(
+        id: "gravel-bed", name: "Gravel bed", source: "A loop of random lumps, in clumps",
+        bed: NoiseBed(grains: .init(rate: 50, intensity: 0.25...0.95, sharpness: 0.15...0.55, clumping: 0.5), level: 0.8))
+    static let sandpaperHiss = RimTexture(
+        id: "sandpaper-hiss", name: "Sandpaper hiss", source: "White-noise hiss with light specks in it",
+        bed: NoiseBed(hiss: .init(sharpness: 0.85, sharpnessSpread: 0.15, step: 0.004, floor: 0.1, color: .white),
+                      grains: .init(rate: 90, intensity: 0.1...0.35, sharpness: 0.8...1), level: 0.45))
+    static let wornPlastic = RimTexture(
+        id: "worn-plastic", name: "Worn plastic", source: "Scattered grit over a soft pink hiss",
+        scatter: .init(degrees: 6, intensity: 0.15...0.45, sharpness: 0.4...0.8, clumping: 0.35),
+        bed: NoiseBed(hiss: .init(sharpness: 0.4, sharpnessSpread: 0.2, step: 0.008, floor: 0.1, color: .pink), level: 0.25))
     static let silk = RimTexture(
         id: "silk", name: "Silk", source: "The faintest drag, only while moving",
         hum: .init(sharpness: 0.4, level: 0.24))
@@ -327,9 +372,13 @@ struct RimTexture: Identifiable, Hashable, Sendable {
         id: "fizz", name: "Fizz", source: "A buzz, like the PSP nub",
         hum: .init(sharpness: 0.55, level: 0.26))
 
+    /// The noisy ones first, then the first, regular designs.
     static let all: [RimTexture] = [
-        designed, silk, satin, glide, fineSand, sandpaper, coarseGrit, gravel, ribbed, rumbleStrip, velvet, fizz,
+        designed, scatterSand, scatterGrit, scatterGravel, hiss, rasp, grind, sandBed, gravelBed, sandpaperHiss, wornPlastic,
+        silk, satin, glide, fineSand, sandpaper, coarseGrit, gravel, ribbed, rumbleStrip, velvet, fizz,
     ]
+
+    var isNoisy: Bool { scatter != nil || bed != nil }
 }
 
 /// A labelled control on a console's pad and its material.
@@ -561,6 +610,8 @@ struct StickTexture: Sendable {
         /// Springing back to the centre; `strength` 0…1.
         case center(strength: Double)
         case grain(intensity: Double, sharpness: Double)
+        /// Grains at random moments before the next touch update (`ScatterGrain.offset`).
+        case scatter([ScatterGrain])
     }
 
     private var atEdge = false
@@ -578,6 +629,7 @@ struct StickTexture: Sendable {
     private(set) var rimSpeed = 0.0
     /// The last arrival at the rim, 0…1.
     private(set) var lastImpact: Double?
+    private var random = NoiseSource(seed: 0xC0FFEE)
 
     /// The cues for the thumb at `dx, dy` points from the stick's centre, moving at `vx, vy`
     /// points per second (the profile's points, as `dx, dy`).
@@ -619,6 +671,12 @@ struct StickTexture: Sendable {
             return cues
         }
         let angle = atan2(dy, dx) * 180 / .pi
+        if let last = lastRimAngle, let scatter = feel.scatter {
+            var delta = angle - last
+            if delta > 180 { delta -= 360 } else if delta < -180 { delta += 360 }
+            let grains = scatterGrains(scatter, degrees: abs(delta), tuning: tuning)
+            if !grains.isEmpty { cues.append(.scatter(grains)) }
+        }
         if let last = lastRimAngle, let grain = feel.grain {
             var delta = angle - last
             if delta > 180 { delta -= 360 } else if delta < -180 { delta += 360 }
@@ -648,6 +706,27 @@ struct StickTexture: Sendable {
         return cues
     }
 
+    /// Scattered grains for `degrees` of travel along the rim: a random (Poisson) number for the
+    /// distance, at random moments, sometimes in clumps; pushing harder makes them denser,
+    /// stronger and sharper, like the regular grit.
+    private mutating func scatterGrains(_ scatter: StickFeel.Scatter, degrees: Double, tuning: StickTuning) -> [ScatterGrain] {
+        let density = 1.25 - 0.5 * force
+        var grains: [ScatterGrain] = []
+        let count = min(random.poisson(degrees / (scatter.degrees * density)), 6)
+        for _ in 0..<count {
+            let clump = random.unit() < scatter.clumping ? 1 + Int(random.unit() * 1.99) : 0
+            let offset = random.unit()
+            for member in 0...clump where grains.count < 8 {
+                let raw = random.skewed(scatter.intensity) * (0.6 + 0.4 * force + 0.3 * glide)
+                let sharpness = random.uniform(scatter.sharpness) + 0.08 * force + 0.12 * glide - 0.05
+                grains.append(ScatterGrain(offset: min(offset + Double(member) * (0.25 + 0.5 * random.unit()), 1.5),
+                                           intensity: max(tuning.contactFloor, min(raw, 1)),
+                                           sharpness: min(max(sharpness, 0), 1)))
+            }
+        }
+        return grains.sorted { $0.offset < $1.offset }
+    }
+
     /// A hum's level now: while the thumb slides along the rim, at least near the contact
     /// floor, and more with speed and push.
     func humLevel(_ hum: StickFeel.Hum, tuning: StickTuning = StickTuning()) -> Double {
@@ -660,7 +739,10 @@ struct StickTexture: Sendable {
     /// The thumb lifted: the stick springs back to the centre, harder from further out.
     mutating func release() -> [Cue] {
         let cues: [Cue] = engaged ? [.center(strength: Self.step(max(reach, 0.2)))] : []
+        // The noise carries on where it left off: each touch gets new grit.
+        let random = self.random
         self = StickTexture()
+        self.random = random
         return cues
     }
 

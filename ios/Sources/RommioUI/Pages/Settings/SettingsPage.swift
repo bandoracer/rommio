@@ -11,6 +11,7 @@ enum SettingsDestination: Hashable {
     case cores
     case backup
     case haptics
+    case screens
 }
 
 /// Settings: account and sync at the top, then Appearance, the sub-pages,
@@ -68,6 +69,8 @@ private struct SettingsDestinationView: View {
             ProgressRecoveryView(service: feature.progressService)
         case .haptics:
             HapticsPlaygroundPage()
+        case .screens:
+            ScreenPlaygroundPage(samples: ScreenSample.recent(model))
         }
     }
 }
@@ -99,6 +102,10 @@ private struct SettingsLinks: View {
                 IconTile(systemImage: "hand.tap.fill", tone: .tint)
             }
             .accessibilityIdentifier("settings.haptics")
+            NavigationRow(value: SettingsDestination.screens, title: "Screen playground", subtitle: "CRTs and handheld screens") {
+                IconTile(systemImage: "tv.fill", tone: .live)
+            }
+            .accessibilityIdentifier("settings.screens")
         }
     }
 }

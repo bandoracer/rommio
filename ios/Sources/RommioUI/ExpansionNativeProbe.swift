@@ -9,7 +9,11 @@ import RommioPlayerBridge
 @MainActor
 extension RommioAppModel {
     func runExpansionNativeProbe(root: URL) throws {
-        struct Fixture: Decodable { let runtime: String; let system: String; let rom: String; let variables: [String: String]; let enduranceSeconds: Int?; let audioOnly: Bool?; let bootOnly: Bool? }
+        /// Frame capture for comparing renderers: run `frames` frames, holding each press's button
+        /// (a libretro joypad id) for its length, and write every `every`th frame as a PNG.
+        struct Capture: Decodable { let frames: Int; let every: Int; let presses: [Press] }
+        struct Press: Decodable { let frame: Int; let button: Int; let length: Int }
+        struct Fixture: Decodable { let runtime: String; let system: String; let rom: String; let variables: [String: String]; let enduranceSeconds: Int?; let audioOnly: Bool?; let bootOnly: Bool?; let capture: Capture? }
         let fixtures = try JSONDecoder().decode([Fixture].self, from: Data(contentsOf: root.appending(path: "cases.json")))
         var results: [[String: String]] = []
         for fixture in fixtures {
@@ -43,6 +47,32 @@ extension RommioAppModel {
                     throw ProgressStoreError.invalid("The core did not render a video frame")
                 }
                 return frame.pixelData
+            }
+            if let capture = fixture.capture {
+                guard vulkan3DS, (1...36_000).contains(capture.frames), capture.every > 0 else { throw ProgressStoreError.invalid("Invalid frame capture") }
+                let frames = root.appending(path: "frames")
+                try FileManager.default.createDirectory(at: frames, withIntermediateDirectories: true)
+                let context = CIContext()
+                var written = 0
+                for index in 0..<capture.frames {
+                    for press in capture.presses where press.frame == index || press.frame + press.length == index {
+                        bridge.setDigitalInputPressed(press.frame == index, keyCode: press.button, port: 0)
+                    }
+                    try bridge.runFrame()
+                    guard index.isMultiple(of: capture.every) || index == capture.frames - 1,
+                          let texture = bridge.copyLatestHardwareTexture(),
+                          let space = CGColorSpace(name: CGColorSpace.sRGB),
+                          // Opaque sRGB, as the player draws it (PlayerFrameImage.hardware).
+                          let image = CIImage(mtlTexture: texture, options: nil)?
+                            .settingAlphaOne(in: CGRect(x: 0, y: 0, width: texture.width, height: texture.height))
+                            .matchedToWorkingSpace(from: space)?
+                            .oriented(.downMirrored) else { continue }
+                    try context.writePNGRepresentation(of: image, to: frames.appending(path: String(format: "frame-%06d.png", index)), format: .RGBA8, colorSpace: space)
+                    written += 1
+                }
+                results.append(["runtime": fixture.runtime, "rom": fixture.rom, "coreSHA256": digest, "capturedFrames": String(written)])
+                bridge.stop()
+                continue
             }
             for _ in 0..<(["ppsspp", "azahar"].contains(fixture.runtime) ? 180 : 30) { try bridge.runFrame() }
             if fixture.runtime == "azahar", fixture.bootOnly == true {

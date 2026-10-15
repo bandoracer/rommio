@@ -565,11 +565,9 @@ public final class PlayerFeatureModel: Identifiable {
 
     func updateDeadzone(_ deadzone: Double) async {
         guard let controlsState else { return }
-        let binding = HardwareBindingProfile(
-            platformFamilyID: controlsState.platformProfile.familyID,
-            controllerTypeID: controlsState.hardwareBinding.controllerTypeID,
-            deadzone: deadzone
-        )
+        var binding = controlsState.hardwareBinding
+        binding.deadzone = deadzone
+        binding.updatedAtEpochMS = Int64(Date().timeIntervalSince1970 * 1000)
         do {
             try await services.playerControlsRepository.saveHardwareBinding(binding)
             try await engine.updateInputConfiguration(PlayerInputConfiguration(deadzone: deadzone))
@@ -581,11 +579,9 @@ public final class PlayerFeatureModel: Identifiable {
 
     func setControllerType(_ controllerTypeID: Int?) async {
         guard let controlsState else { return }
-        let binding = HardwareBindingProfile(
-            platformFamilyID: controlsState.platformProfile.familyID,
-            controllerTypeID: controllerTypeID,
-            deadzone: controlsState.hardwareBinding.deadzone
-        )
+        var binding = controlsState.hardwareBinding
+        binding.controllerTypeID = controllerTypeID
+        binding.updatedAtEpochMS = Int64(Date().timeIntervalSince1970 * 1000)
         do {
             try await services.playerControlsRepository.saveHardwareBinding(binding)
             if let controllerTypeID = controllerTypeID ?? defaultConsoleControllerType {
@@ -601,8 +597,10 @@ public final class PlayerFeatureModel: Identifiable {
         guard let controlsState else { return }
         do {
             try await services.playerControlsRepository.resetTouchLayout(platformSlug: presentation.platformSlug)
+            // Remapped buttons have their own reset (Remap buttons).
             try await services.playerControlsRepository.saveHardwareBinding(
-                HardwareBindingProfile(platformFamilyID: controlsState.platformProfile.familyID)
+                HardwareBindingProfile(platformFamilyID: controlsState.platformProfile.familyID,
+                                       bindings: controlsState.hardwareBinding.bindings)
             )
             try await engine.updateInputConfiguration(PlayerInputConfiguration(deadzone: 0.2))
             await reloadControlsState()
@@ -616,6 +614,114 @@ public final class PlayerFeatureModel: Identifiable {
         case "sega16": return 513 // Genesis Plus GX six-button pad
         case "psx": return 517 // PCSX-ReARMed DualShock
         default: return nil
+        }
+    }
+
+    // MARK: Controllers and keyboards
+
+    /// The console's bindings: which controller buttons and keys press which of its buttons.
+    var controllerBindings: ControllerBindings { controlsState?.hardwareBinding.bindings ?? .standard }
+
+    /// The console's buttons a controller can press, with the console's own names, in the
+    /// order of its touch controls (d-pad, face buttons, shoulders, Select and Start).
+    var remappableButtons: [(button: Int, name: String)] {
+        let family = controlsState?.platformProfile.familyID ?? ""
+        var seen = Set<Int>()
+        let console = (ExpansionControls.controls(for: family) ?? []).compactMap { control -> (Int, String)? in
+            guard let key = control.key, control.combo.isEmpty, seen.insert(key).inserted else { return nil }
+            return (key, control.label)
+        }
+        if !console.isEmpty { return console }
+        return [RetroJoypad.up, RetroJoypad.down, RetroJoypad.left, RetroJoypad.right, RetroJoypad.b, RetroJoypad.a,
+                RetroJoypad.y, RetroJoypad.x, RetroJoypad.l, RetroJoypad.r, RetroJoypad.l2, RetroJoypad.r2,
+                RetroJoypad.l3, RetroJoypad.r3, RetroJoypad.select, RetroJoypad.start].map { ($0, RetroJoypad.name($0)) }
+    }
+
+    /// Each connected controller's player (1-based), by controller.
+    var controllerPlayers: [Int: Int] {
+        #if canImport(GameController)
+        gamepadInput?.players ?? [:]
+        #else
+        [:]
+        #endif
+    }
+
+    var keyboardConnected: Bool {
+        #if canImport(GameController)
+        gamepadInput?.keyboardConnected ?? false
+        #else
+        false
+        #endif
+    }
+
+    /// The connected controller's own symbol for a control, when it has one.
+    func controllerSymbol(_ element: ControllerElement) -> String? {
+        #if canImport(GameController)
+        gamepadInput?.symbol(for: element)
+        #else
+        nil
+        #endif
+    }
+
+    /// Sends the next control pressed on a controller or keyboard to `handler` instead of the
+    /// game, until `stopListeningForControl()`.
+    func listenForControl(_ handler: @escaping (ControllerCapture) -> Void) {
+        #if canImport(GameController)
+        gamepadInput?.releaseAll()
+        gamepadInput?.capture = handler
+        #endif
+    }
+
+    func stopListeningForControl() {
+        #if canImport(GameController)
+        gamepadInput?.capture = nil
+        #endif
+    }
+
+    /// The control now presses the console's `button` (what pressed it before swaps over).
+    func assign(_ control: ControllerCapture, to button: Int) async {
+        guard let controlsState else { return }
+        var binding = controlsState.hardwareBinding
+        switch control {
+        case .element(let element): binding.bindings.assign(element, to: button)
+        case .key(let key): binding.bindings.assign(key: key, to: button)
+        }
+        await saveBinding(binding)
+    }
+
+    func resetControllerBindings() async {
+        guard let controlsState else { return }
+        var binding = controlsState.hardwareBinding
+        binding.bindings = .standard
+        await saveBinding(binding)
+    }
+
+    private func saveBinding(_ binding: HardwareBindingProfile) async {
+        var binding = binding
+        binding.updatedAtEpochMS = Int64(Date().timeIntervalSince1970 * 1000)
+        do {
+            try await services.playerControlsRepository.saveHardwareBinding(binding)
+            await reloadControlsState()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// What the controller router asks for: presses on each controller's port, and hotkeys.
+    func applyControllerEvents(_ events: [ControllerEvent]) {
+        for event in events {
+            switch event {
+            case let .digital(port, button, pressed):
+                sendDigital(button, pressed: pressed, port: port, fromTouch: false)
+            case let .motion(port, stick, x, y):
+                sendMotion(stick, x: x, y: y, port: port, fromTouch: false)
+            case .pauseMenu:
+                Task { await handleHotkey(.pauseMenu) }
+            case .quickSave:
+                Task { await handleHotkey(.quickSave) }
+            case .quickLoad:
+                Task { await handleHotkey(.quickLoad) }
+            }
         }
     }
 
@@ -676,29 +782,31 @@ public final class PlayerFeatureModel: Identifiable {
         }
     }
 
-    private func sendDigital(_ key: Int, pressed: Bool) {
-        if pressed { dismissTransientMessages() }
+    /// A press on `port` (touch plays as player 1). A controller's press clears a notice
+    /// without waking the touch controls it hid.
+    private func sendDigital(_ key: Int, pressed: Bool, port: Int = 0, fromTouch: Bool = true) {
+        if pressed { dismissTransientMessages(wakeControls: fromTouch) }
         if let immediate = engine as? ImmediatePlayerInput {
-            do { try immediate.sendDigital(keyCode: key, pressed: pressed, port: 0) } catch { reportInputError(error) }
+            do { try immediate.sendDigital(keyCode: key, pressed: pressed, port: port) } catch { reportInputError(error) }
         } else {
             let previous = consoleInputTask
             consoleInputTask = Task { @MainActor in
                 await previous?.value
-                do { try await engine.dispatchDigital(keyCode: key, pressed: pressed, port: 0) } catch { reportInputError(error) }
+                do { try await engine.dispatchDigital(keyCode: key, pressed: pressed, port: port) } catch { reportInputError(error) }
             }
         }
     }
 
-    private func sendMotion(_ stick: Int, x: Double, y: Double) {
-        if abs(x) + abs(y) > 0.01 { dismissTransientMessages() }
+    private func sendMotion(_ stick: Int, x: Double, y: Double, port: Int = 0, fromTouch: Bool = true) {
+        if abs(x) + abs(y) > 0.01 { dismissTransientMessages(wakeControls: fromTouch) }
         let source: PlayerMotionSource = stick == 0 ? .analogLeft : .analogRight
         if let immediate = engine as? ImmediatePlayerInput {
-            do { try immediate.sendMotion(source: source, x: x, y: y, port: 0) } catch { reportInputError(error) }
+            do { try immediate.sendMotion(source: source, x: x, y: y, port: port) } catch { reportInputError(error) }
         } else {
             let previous = consoleInputTask
             consoleInputTask = Task { @MainActor in
                 await previous?.value
-                do { try await engine.dispatchMotion(source: source, x: x, y: y, port: 0) } catch { reportInputError(error) }
+                do { try await engine.dispatchMotion(source: source, x: x, y: y, port: port) } catch { reportInputError(error) }
             }
         }
     }
@@ -710,17 +818,14 @@ public final class PlayerFeatureModel: Identifiable {
     }
 
     /// Clears a notice or error on the first press, without touching observed state otherwise.
-    private func dismissTransientMessages() {
+    private func dismissTransientMessages(wakeControls: Bool = true) {
         if errorMessage != nil { errorMessage = nil }
         if noticeMessage != nil { noticeMessage = nil }
-        if !primaryControlsVisible { bumpPrimaryControls() }
+        if wakeControls, !primaryControlsVisible { bumpPrimaryControls() }
     }
 
     // Stylus input shares one ordered queue (a press is held long enough to be sampled).
     private var consoleInputTask: Task<Void, Never>?
-    /// Controller buttons and sticks: immediate and ordered, like touch.
-    func enqueueConsoleDigital(_ key: Int, pressed: Bool) { sendDigital(key, pressed: pressed) }
-    func enqueueConsoleMotion(_ stick: Int, x: Double, y: Double) { sendMotion(stick, x: x, y: y) }
 
     #if canImport(GameController)
     @ObservationIgnored private var gamepadInput: PlayerGamepadInput?
@@ -974,13 +1079,19 @@ public final class PlayerFeatureModel: Identifiable {
         }
     }
 
+    #if canImport(UIKit)
+    /// One generator per weight, kept prepared between pulses; a new one each pulse started the
+    /// Taptic Engine cold every time.
+    @ObservationIgnored private lazy var rumbleGenerators: [UIImpactFeedbackGenerator.FeedbackStyle: UIImpactFeedbackGenerator] =
+        [.light: UIImpactFeedbackGenerator(style: .light), .medium: UIImpactFeedbackGenerator(style: .medium), .heavy: UIImpactFeedbackGenerator(style: .heavy)]
+    #endif
+
     private func deliverDeviceRumble(_ signal: PlayerRumbleSignal) async {
         #if canImport(UIKit)
         let intensity = max(signal.weakStrength, signal.strongStrength)
-        guard intensity > 0 else { return }
-        let generator = UIImpactFeedbackGenerator(style: intensity > 0.66 ? .heavy : (intensity > 0.33 ? .medium : .light))
-        generator.prepare()
+        guard intensity > 0, let generator = rumbleGenerators[intensity > 0.66 ? .heavy : (intensity > 0.33 ? .medium : .light)] else { return }
         generator.impactOccurred(intensity: CGFloat(min(max(intensity, 0.15), 1.0)))
+        generator.prepare()
         #else
         _ = signal
         #endif

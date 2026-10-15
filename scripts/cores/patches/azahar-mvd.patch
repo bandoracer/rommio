@@ -1,0 +1,3617 @@
+Rommio patch for Azahar (applied after azahar.patch): emulates the New 3DS movie decoder,
+mvd:STD (Hantro G1's H.264 decoder and postprocessor), decoding with VideoToolbox on Apple
+platforms. See docs/ios-3ds-mvd.md.
+
+This patch was written with Claude, an AI model. Azahar's AI-POLICY.md prohibits AI-written
+contributions of this size, so it must not be submitted to Azahar.
+
+diff --git a/src/common/logging/filter.cpp b/src/common/logging/filter.cpp
+index 27deddb..509cf06 100644
+--- a/src/common/logging/filter.cpp
++++ b/src/common/logging/filter.cpp
+@@ -98,6 +98,7 @@ bool ParseFilterRule(Filter& instance, Iterator begin, Iterator end) {
+     SUB(Service, PTM)                                                                              \
+     SUB(Service, LDR)                                                                              \
+     SUB(Service, MIC)                                                                              \
++    SUB(Service, MVD)                                                                              \
+     SUB(Service, NDM)                                                                              \
+     SUB(Service, NFC)                                                                              \
+     SUB(Service, NIM)                                                                              \
+diff --git a/src/common/logging/types.h b/src/common/logging/types.h
+index 78dc165..a90e27b 100644
+--- a/src/common/logging/types.h
++++ b/src/common/logging/types.h
+@@ -65,6 +65,7 @@ enum class Class : u8 {
+     Service_PTM,     ///< The PTM (Power status & misc.) service
+     Service_LDR,     ///< The LDR (3ds dll loader) service
+     Service_MIC,     ///< The MIC (Microphone) service
++    Service_MVD,     ///< The MVD (Movie Decoder) service
+     Service_NDM,     ///< The NDM (Network daemon manager) service
+     Service_NFC,     ///< The NFC service
+     Service_NIM,     ///< The NIM (Network interface manager) service
+diff --git a/src/core/CMakeLists.txt b/src/core/CMakeLists.txt
+index 00a3ac6..ca2c761 100644
+--- a/src/core/CMakeLists.txt
++++ b/src/core/CMakeLists.txt
+@@ -354,10 +354,14 @@ add_library(citra_core STATIC EXCLUDE_FROM_ALL
+     hle/service/mcu/mcu.h
+     hle/service/mic/mic_u.cpp
+     hle/service/mic/mic_u.h
++    hle/service/mvd/h264_decoder.cpp
++    hle/service/mvd/h264_decoder.h
+     hle/service/mvd/mvd.cpp
+     hle/service/mvd/mvd.h
+     hle/service/mvd/mvd_std.cpp
+     hle/service/mvd/mvd_std.h
++    hle/service/mvd/postprocessor.cpp
++    hle/service/mvd/postprocessor.h
+     hle/service/ndm/ndm_u.cpp
+     hle/service/ndm/ndm_u.h
+     hle/service/news/news.cpp
+@@ -512,6 +516,15 @@ if (ENABLE_WEB_SERVICE)
+     target_link_libraries(citra_core PRIVATE web_service)
+ endif()
+ 
++if (APPLE)
++    target_sources(citra_core PRIVATE
++        hle/service/mvd/h264_decoder_videotoolbox.cpp
++        hle/service/mvd/h264_decoder_videotoolbox.h
++    )
++    target_link_libraries(citra_core PRIVATE "-framework CoreFoundation" "-framework CoreMedia"
++                                             "-framework CoreVideo" "-framework VideoToolbox")
++endif()
++
+ if (ENABLE_SCRIPTING)
+     target_compile_definitions(citra_core PUBLIC -DENABLE_SCRIPTING)
+     target_sources(citra_core PRIVATE
+diff --git a/src/core/hle/service/mvd/h264_decoder.cpp b/src/core/hle/service/mvd/h264_decoder.cpp
+new file mode 100644
+index 0000000..d3b70de
+--- /dev/null
++++ b/src/core/hle/service/mvd/h264_decoder.cpp
+@@ -0,0 +1,339 @@
++// Copyright 2026 Azahar Emulator Project
++// Licensed under GPLv2 or any later version
++// Refer to the license.txt file included.
++
++#include <array>
++#include "core/hle/service/mvd/h264_decoder.h"
++
++#ifdef __APPLE__
++#include "core/hle/service/mvd/h264_decoder_videotoolbox.h"
++#endif
++
++namespace Service::MVD {
++
++namespace {
++
++/// Reads Exp-Golomb codes from a NAL unit's payload, skipping emulation prevention bytes.
++class RbspReader {
++public:
++    explicit RbspReader(std::span<const u8> payload) : payload(payload) {}
++
++    std::optional<u32> ReadBits(u32 count) {
++        u32 value = 0;
++        for (u32 i = 0; i < count; ++i) {
++            const auto bit = ReadBit();
++            if (!bit) {
++                return std::nullopt;
++            }
++            value = (value << 1) | *bit;
++        }
++        return value;
++    }
++
++    std::optional<s32> ReadSignedExpGolomb() {
++        const auto code = ReadUnsignedExpGolomb();
++        if (!code) {
++            return std::nullopt;
++        }
++        const s32 magnitude = static_cast<s32>((*code + 1) / 2);
++        return (*code & 1) ? magnitude : -magnitude;
++    }
++
++    std::optional<u32> ReadUnsignedExpGolomb() {
++        u32 leading_zeros = 0;
++        while (true) {
++            const auto bit = ReadBit();
++            if (!bit) {
++                return std::nullopt;
++            }
++            if (*bit) {
++                break;
++            }
++            if (++leading_zeros > 31) {
++                return std::nullopt;
++            }
++        }
++        u32 value = 0;
++        for (u32 i = 0; i < leading_zeros; ++i) {
++            const auto bit = ReadBit();
++            if (!bit) {
++                return std::nullopt;
++            }
++            value = (value << 1) | *bit;
++        }
++        return (1u << leading_zeros) - 1 + value;
++    }
++
++    std::optional<u32> ReadBit() {
++        if (bit_offset == 0) {
++            if (!NextByte()) {
++                return std::nullopt;
++            }
++        }
++        const u32 bit = (current >> (7 - bit_offset)) & 1;
++        bit_offset = (bit_offset + 1) % 8;
++        return bit;
++    }
++
++private:
++    bool NextByte() {
++        if (position >= payload.size()) {
++            return false;
++        }
++        // 00 00 03 inside a NAL unit is an emulation prevention sequence; the 03 isn't payload.
++        if (zero_run >= 2 && payload[position] == 0x03) {
++            zero_run = 0;
++            if (++position >= payload.size()) {
++                return false;
++            }
++        }
++        current = payload[position++];
++        zero_run = current == 0 ? zero_run + 1 : 0;
++        return true;
++    }
++
++    std::span<const u8> payload;
++    std::size_t position = 0;
++    u32 zero_run = 0;
++    u8 current = 0;
++    u32 bit_offset = 0;
++};
++
++/// Skips a scaling_list() (7.3.2.1.1.1); only its length matters here.
++bool SkipScalingList(RbspReader& reader, u32 size) {
++    s32 last_scale = 8;
++    s32 next_scale = 8;
++    for (u32 j = 0; j < size; ++j) {
++        if (next_scale != 0) {
++            const auto delta = reader.ReadSignedExpGolomb();
++            if (!delta) {
++                return false;
++            }
++            next_scale = (last_scale + *delta + 256) % 256;
++        }
++        last_scale = next_scale == 0 ? last_scale : next_scale;
++    }
++    return true;
++}
++
++/// Sample aspect ratios for aspect_ratio_idc 1..16 (table E-1).
++constexpr std::array<std::array<u32, 2>, 16> sample_aspect_ratios{{
++    {1, 1},
++    {12, 11},
++    {10, 11},
++    {16, 11},
++    {40, 33},
++    {24, 11},
++    {20, 11},
++    {32, 11},
++    {80, 33},
++    {18, 11},
++    {15, 11},
++    {64, 33},
++    {160, 99},
++    {4, 3},
++    {3, 2},
++    {2, 1},
++}};
++
++} // namespace
++
++H264Decoder::~H264Decoder() = default;
++
++NalUnitType GetNalUnitType(std::span<const u8> nal_unit) {
++    return nal_unit.empty() ? NalUnitType{0} : static_cast<NalUnitType>(nal_unit[0] & 0x1F);
++}
++
++u32 GetNalRefIdc(std::span<const u8> nal_unit) {
++    return nal_unit.empty() ? 0 : (nal_unit[0] >> 5) & 0x3;
++}
++
++std::optional<SequenceInfo> ParseSequenceParameterSet(std::span<const u8> nal_unit) {
++    if (GetNalUnitType(nal_unit) != NalUnitType::Sps) {
++        return std::nullopt;
++    }
++    RbspReader reader(nal_unit.subspan(1));
++    const auto profile_idc = reader.ReadBits(8);
++    if (!profile_idc || !reader.ReadBits(16) || !reader.ReadUnsignedExpGolomb()) {
++        return std::nullopt;
++    }
++
++    SequenceInfo info;
++    u32 chroma_format_idc = 1;
++    bool separate_colour_plane = false;
++    switch (*profile_idc) {
++    case 100:
++    case 110:
++    case 122:
++    case 244:
++    case 44:
++    case 83:
++    case 86:
++    case 118:
++    case 128:
++    case 138:
++    case 139:
++    case 134:
++    case 135: {
++        const auto chroma = reader.ReadUnsignedExpGolomb();
++        if (!chroma || *chroma > 3) {
++            return std::nullopt;
++        }
++        chroma_format_idc = *chroma;
++        if (chroma_format_idc == 3) {
++            separate_colour_plane = reader.ReadBit().value_or(0) != 0;
++        }
++        // bit_depth_luma/chroma_minus8, qpprime_y_zero_transform_bypass_flag
++        if (!reader.ReadUnsignedExpGolomb() || !reader.ReadUnsignedExpGolomb() ||
++            !reader.ReadBit()) {
++            return std::nullopt;
++        }
++        const auto scaling_matrix = reader.ReadBit();
++        if (!scaling_matrix) {
++            return std::nullopt;
++        }
++        if (*scaling_matrix) {
++            for (u32 i = 0; i < (chroma_format_idc != 3 ? 8u : 12u); ++i) {
++                const auto present = reader.ReadBit();
++                if (!present || (*present && !SkipScalingList(reader, i < 6 ? 16 : 64))) {
++                    return std::nullopt;
++                }
++            }
++        }
++        break;
++    }
++    default:
++        break;
++    }
++
++    // log2_max_frame_num_minus4
++    if (!reader.ReadUnsignedExpGolomb()) {
++        return std::nullopt;
++    }
++    const auto poc_type = reader.ReadUnsignedExpGolomb();
++    if (!poc_type) {
++        return std::nullopt;
++    }
++    if (*poc_type == 0) {
++        if (!reader.ReadUnsignedExpGolomb()) {
++            return std::nullopt;
++        }
++    } else if (*poc_type == 1) {
++        if (!reader.ReadBit() || !reader.ReadSignedExpGolomb() || !reader.ReadSignedExpGolomb()) {
++            return std::nullopt;
++        }
++        const auto cycle = reader.ReadUnsignedExpGolomb();
++        if (!cycle || *cycle > 255) {
++            return std::nullopt;
++        }
++        for (u32 i = 0; i < *cycle; ++i) {
++            if (!reader.ReadSignedExpGolomb()) {
++                return std::nullopt;
++            }
++        }
++    }
++
++    const auto max_ref_frames = reader.ReadUnsignedExpGolomb();
++    const auto gaps = reader.ReadBit();
++    const auto width_in_mbs = reader.ReadUnsignedExpGolomb();
++    const auto height_in_map_units = reader.ReadUnsignedExpGolomb();
++    const auto frame_mbs_only = reader.ReadBit();
++    if (!max_ref_frames || !gaps || !width_in_mbs || !height_in_map_units || !frame_mbs_only ||
++        *width_in_mbs >= 512 || *height_in_map_units >= 512) {
++        return std::nullopt;
++    }
++    if (!*frame_mbs_only && !reader.ReadBit()) {
++        return std::nullopt;
++    }
++    // direct_8x8_inference_flag
++    if (!reader.ReadBit()) {
++        return std::nullopt;
++    }
++    info.max_ref_frames = *max_ref_frames;
++    info.monochrome = chroma_format_idc == 0;
++    info.interlaced = !*frame_mbs_only;
++    info.coded_width = (*width_in_mbs + 1) * 16;
++    info.coded_height = (2 - *frame_mbs_only) * (*height_in_map_units + 1) * 16;
++
++    u32 crop_left = 0, crop_right = 0, crop_top = 0, crop_bottom = 0;
++    const auto cropping = reader.ReadBit();
++    if (!cropping) {
++        return std::nullopt;
++    }
++    if (*cropping) {
++        const auto left = reader.ReadUnsignedExpGolomb();
++        const auto right = reader.ReadUnsignedExpGolomb();
++        const auto top = reader.ReadUnsignedExpGolomb();
++        const auto bottom = reader.ReadUnsignedExpGolomb();
++        if (!left || !right || !top || !bottom) {
++            return std::nullopt;
++        }
++        crop_left = *left, crop_right = *right, crop_top = *top, crop_bottom = *bottom;
++    }
++    const u32 chroma_array_type = separate_colour_plane ? 0 : chroma_format_idc;
++    const u32 crop_unit_x = chroma_array_type == 0 ? 1 : (chroma_array_type == 3 ? 1 : 2);
++    const u32 crop_unit_y =
++        (chroma_array_type == 1 ? 2 : 1) * (2 - static_cast<u32>(*frame_mbs_only));
++    if (crop_unit_x * (crop_left + crop_right) >= info.coded_width ||
++        crop_unit_y * (crop_top + crop_bottom) >= info.coded_height) {
++        return std::nullopt;
++    }
++    info.crop_left = crop_unit_x * crop_left;
++    info.crop_top = crop_unit_y * crop_top;
++    info.crop_width = info.coded_width - crop_unit_x * (crop_left + crop_right);
++    info.crop_height = info.coded_height - crop_unit_y * (crop_top + crop_bottom);
++
++    // The VUI is optional; a truncated one keeps what was read so far.
++    if (reader.ReadBit().value_or(0)) {
++        if (reader.ReadBit().value_or(0)) {
++            const u32 idc = reader.ReadBits(8).value_or(0);
++            if (idc == 255) {
++                info.sar_width = reader.ReadBits(16).value_or(0);
++                info.sar_height = reader.ReadBits(16).value_or(0);
++            } else if (idc >= 1 && idc <= sample_aspect_ratios.size()) {
++                info.sar_width = sample_aspect_ratios[idc - 1][0];
++                info.sar_height = sample_aspect_ratios[idc - 1][1];
++            }
++        }
++        if (reader.ReadBit().value_or(0)) {
++            reader.ReadBit(); // overscan_appropriate_flag
++        }
++        if (reader.ReadBit().value_or(0)) {
++            reader.ReadBits(3); // video_format
++            info.full_range = reader.ReadBit().value_or(0) != 0;
++            if (reader.ReadBit().value_or(0)) {
++                reader.ReadBits(16); // colour_primaries, transfer_characteristics
++                info.matrix_coefficients = reader.ReadBits(8).value_or(2);
++            }
++        }
++    }
++    return info;
++}
++
++std::optional<u32> GetFirstMbInSlice(std::span<const u8> nal_unit) {
++    const auto type = GetNalUnitType(nal_unit);
++    if (type != NalUnitType::Slice && type != NalUnitType::IdrSlice) {
++        return std::nullopt;
++    }
++    return RbspReader(nal_unit.subspan(1)).ReadUnsignedExpGolomb();
++}
++
++std::span<const u8> StripStartCode(std::span<const u8> data) {
++    if (data.size() >= 4 && data[0] == 0 && data[1] == 0 && data[2] == 0 && data[3] == 1) {
++        return data.subspan(4);
++    }
++    if (data.size() >= 3 && data[0] == 0 && data[1] == 0 && data[2] == 1) {
++        return data.subspan(3);
++    }
++    return data;
++}
++
++std::unique_ptr<H264Decoder> CreateH264Decoder() {
++#ifdef __APPLE__
++    return std::make_unique<VideoToolboxH264Decoder>();
++#else
++    return nullptr;
++#endif
++}
++
++} // namespace Service::MVD
+diff --git a/src/core/hle/service/mvd/h264_decoder.h b/src/core/hle/service/mvd/h264_decoder.h
+new file mode 100644
+index 0000000..9845f9a
+--- /dev/null
++++ b/src/core/hle/service/mvd/h264_decoder.h
+@@ -0,0 +1,91 @@
++// Copyright 2026 Azahar Emulator Project
++// Licensed under GPLv2 or any later version
++// Refer to the license.txt file included.
++
++#pragma once
++
++#include <memory>
++#include <optional>
++#include <span>
++#include <vector>
++#include "common/common_types.h"
++
++namespace Service::MVD {
++
++/// A decoded picture in NV12: a full-resolution luma plane followed by one half-resolution plane of
++/// interleaved Cb/Cr samples. Both planes are tightly packed (stride equals width, rounded up to an
++/// even number of samples for chroma).
++struct DecodedPicture {
++    u32 width = 0;
++    u32 height = 0;
++    std::vector<u8> luma;
++    std::vector<u8> chroma;
++};
++
++/// NAL unit types from ITU-T H.264 table 7-1 that the decoders care about.
++enum class NalUnitType : u8 {
++    Slice = 1,
++    IdrSlice = 5,
++    Sei = 6,
++    Sps = 7,
++    Pps = 8,
++    AccessUnitDelimiter = 9,
++    EndOfSequence = 10,
++    EndOfStream = 11,
++};
++
++/// What MVD reports about a stream, from its sequence parameter set (ITU-T H.264 7.3.2.1.1, E.1.1).
++struct SequenceInfo {
++    u32 coded_width = 0;  ///< In pixels, a multiple of 16.
++    u32 coded_height = 0; ///< In pixels, a multiple of 16 (32 for field-coded streams).
++    u32 crop_left = 0;
++    u32 crop_top = 0;
++    u32 crop_width = 0;
++    u32 crop_height = 0;
++    bool full_range = false;
++    u32 matrix_coefficients = 2; ///< 2 is "unspecified".
++    u32 sar_width = 0;
++    u32 sar_height = 0;
++    bool monochrome = false;
++    bool interlaced = false;
++    u32 max_ref_frames = 0;
++};
++
++/// The type of a NAL unit given without its start code.
++NalUnitType GetNalUnitType(std::span<const u8> nal_unit);
++
++/// The nal_ref_idc of a NAL unit given without its start code; 0 for non-reference pictures.
++u32 GetNalRefIdc(std::span<const u8> nal_unit);
++
++/// Parses a sequence parameter set NAL unit (given without its start code).
++std::optional<SequenceInfo> ParseSequenceParameterSet(std::span<const u8> nal_unit);
++
++/// For a slice NAL unit, the slice header's first_mb_in_slice; std::nullopt for other NAL units or
++/// a truncated header.
++std::optional<u32> GetFirstMbInSlice(std::span<const u8> nal_unit);
++
++/// Removes a leading Annex B start code (00 00 01 or 00 00 00 01), if present.
++std::span<const u8> StripStartCode(std::span<const u8> data);
++
++/// Decodes an H.264 elementary stream one NAL unit at a time, the way the New 3DS MVD hardware
++/// receives it. Parameter sets are remembered; each picture is decoded once its slices are
++/// complete.
++class H264Decoder {
++public:
++    virtual ~H264Decoder();
++
++    /// Decodes one NAL unit given without its start code. Returns the pictures this unit completed,
++    /// in output order (usually none or one).
++    virtual std::vector<DecodedPicture> Decode(std::span<const u8> nal_unit) = 0;
++
++    /// Completes the picture whose slices have been received so far, if any.
++    virtual std::vector<DecodedPicture> Flush() = 0;
++
++    /// Forgets all parameter sets, reference pictures and pending slices.
++    virtual void Reset() = 0;
++};
++
++/// Creates the best decoder available on this platform, or nullptr when none is.
++std::unique_ptr<H264Decoder> CreateH264Decoder();
++
++} // namespace Service::MVD
+diff --git a/src/core/hle/service/mvd/h264_decoder_videotoolbox.cpp b/src/core/hle/service/mvd/h264_decoder_videotoolbox.cpp
+new file mode 100644
+index 0000000..01158a7
+--- /dev/null
++++ b/src/core/hle/service/mvd/h264_decoder_videotoolbox.cpp
+@@ -0,0 +1,283 @@
++// Copyright 2026 Azahar Emulator Project
++// Licensed under GPLv2 or any later version
++// Refer to the license.txt file included.
++
++#include <cstring>
++#include <map>
++#include <CoreFoundation/CoreFoundation.h>
++#include <CoreMedia/CoreMedia.h>
++#include <CoreVideo/CoreVideo.h>
++#include <VideoToolbox/VideoToolbox.h>
++#include "common/logging/log.h"
++#include "core/hle/service/mvd/h264_decoder_videotoolbox.h"
++
++namespace Service::MVD {
++
++namespace {
++
++/// The session is gone, e.g. iOS reclaimed the hardware decoder while the app was in the
++/// background (kVTInvalidSessionErr).
++constexpr OSStatus InvalidSession = -12903;
++
++template <typename T>
++struct CFDeleter {
++    void operator()(T ref) const {
++        if (ref) {
++            CFRelease(ref);
++        }
++    }
++};
++template <typename T>
++using CFPtr = std::unique_ptr<std::remove_pointer_t<T>, CFDeleter<T>>;
++
++DecodedPicture CopyPicture(CVImageBufferRef image) {
++    DecodedPicture picture;
++    CVPixelBufferLockBaseAddress(image, kCVPixelBufferLock_ReadOnly);
++    picture.width = static_cast<u32>(CVPixelBufferGetWidth(image));
++    picture.height = static_cast<u32>(CVPixelBufferGetHeight(image));
++    const std::size_t chroma_width = (picture.width + 1) / 2 * 2;
++    const std::size_t chroma_rows = (picture.height + 1) / 2;
++    picture.luma.resize(std::size_t{picture.width} * picture.height);
++    picture.chroma.resize(chroma_width * chroma_rows);
++
++    const auto* luma = static_cast<const u8*>(CVPixelBufferGetBaseAddressOfPlane(image, 0));
++    const std::size_t luma_stride = CVPixelBufferGetBytesPerRowOfPlane(image, 0);
++    for (u32 row = 0; row < picture.height; ++row) {
++        std::memcpy(picture.luma.data() + std::size_t{row} * picture.width,
++                    luma + row * luma_stride, picture.width);
++    }
++    const auto* chroma = static_cast<const u8*>(CVPixelBufferGetBaseAddressOfPlane(image, 1));
++    const std::size_t chroma_stride = CVPixelBufferGetBytesPerRowOfPlane(image, 1);
++    for (std::size_t row = 0; row < chroma_rows; ++row) {
++        std::memcpy(picture.chroma.data() + row * chroma_width, chroma + row * chroma_stride,
++                    chroma_width);
++    }
++    CVPixelBufferUnlockBaseAddress(image, kCVPixelBufferLock_ReadOnly);
++    return picture;
++}
++
++} // namespace
++
++struct VideoToolboxH264Decoder::Impl {
++    ~Impl() {
++        DestroySession();
++    }
++
++    std::vector<DecodedPicture> Decode(std::span<const u8> nal_unit) {
++        std::vector<DecodedPicture> pictures;
++        if (nal_unit.empty()) {
++            return pictures;
++        }
++        const auto type = GetNalUnitType(nal_unit);
++        if (type == NalUnitType::Slice || type == NalUnitType::IdrSlice) {
++            const auto first_mb = GetFirstMbInSlice(nal_unit);
++            if (!first_mb) {
++                LOG_WARNING(Service_MVD, "Dropping a slice with a truncated header");
++                return pictures;
++            }
++            if (*first_mb == 0) {
++                AppendPictures(pictures, Flush());
++                slices.emplace_back(nal_unit.begin(), nal_unit.end());
++                // Every picture is assumed to be a single slice until a stream shows otherwise,
++                // so it is decoded as soon as its slice arrives, like the hardware reports it.
++                if (single_slice_pictures) {
++                    AppendPictures(pictures, Flush());
++                }
++            } else if (single_slice_pictures) {
++                LOG_WARNING(Service_MVD, "Stream has multi-slice pictures; decoding each picture "
++                                         "when the next one starts");
++                single_slice_pictures = false;
++                // The first slice of this picture was already decoded on its own.
++            } else if (!slices.empty()) {
++                slices.emplace_back(nal_unit.begin(), nal_unit.end());
++            }
++            return pictures;
++        }
++
++        // Any other NAL unit begins a new access unit (H.264 7.4.1.2.3).
++        AppendPictures(pictures, Flush());
++        if (type == NalUnitType::Sps || type == NalUnitType::Pps) {
++            auto& sets = type == NalUnitType::Sps ? sps : pps;
++            std::vector<u8> bytes(nal_unit.begin(), nal_unit.end());
++            if (sets != bytes) {
++                sets = std::move(bytes);
++                DestroySession();
++            }
++        }
++        return pictures;
++    }
++
++    std::vector<DecodedPicture> Flush() {
++        std::vector<DecodedPicture> pictures;
++        if (slices.empty()) {
++            return pictures;
++        }
++        const bool idr = GetNalUnitType(slices.front()) == NalUnitType::IdrSlice;
++        std::vector<u8> sample;
++        for (const auto& slice : slices) {
++            const auto size = static_cast<u32>(slice.size());
++            const u8 length[4] = {static_cast<u8>(size >> 24), static_cast<u8>(size >> 16),
++                                  static_cast<u8>(size >> 8), static_cast<u8>(size)};
++            sample.insert(sample.end(), std::begin(length), std::end(length));
++            sample.insert(sample.end(), slice.begin(), slice.end());
++        }
++        slices.clear();
++
++        if (awaiting_idr && !idr) {
++            return pictures;
++        }
++        if (!session && !CreateSession()) {
++            return pictures;
++        }
++        awaiting_idr = false;
++
++        OSStatus status = DecodeSample(sample);
++        if (status == InvalidSession) {
++            LOG_INFO(Service_MVD, "VideoToolbox session was invalidated; recreating it");
++            DestroySession();
++            if (!idr || !CreateSession()) {
++                awaiting_idr = true;
++                return pictures;
++            }
++            status = DecodeSample(sample);
++        }
++        if (status != noErr) {
++            LOG_ERROR(Service_MVD, "VideoToolbox failed to decode a picture: {}", status);
++        }
++        pictures = std::move(decoded);
++        decoded.clear();
++        return pictures;
++    }
++
++    void Reset() {
++        DestroySession();
++        sps.clear();
++        pps.clear();
++        slices.clear();
++        decoded.clear();
++        awaiting_idr = false;
++        single_slice_pictures = true;
++    }
++
++private:
++    static void AppendPictures(std::vector<DecodedPicture>& into,
++                               std::vector<DecodedPicture>&& pictures) {
++        for (auto& picture : pictures) {
++            into.push_back(std::move(picture));
++        }
++    }
++
++    static void OnDecoded(void* refcon, void*, OSStatus status, VTDecodeInfoFlags,
++                          CVImageBufferRef image, CMTime, CMTime) {
++        auto* self = static_cast<Impl*>(refcon);
++        if (status != noErr || !image) {
++            LOG_ERROR(Service_MVD, "VideoToolbox reported a decode error: {}", status);
++            return;
++        }
++        self->decoded.push_back(CopyPicture(image));
++    }
++
++    bool CreateSession() {
++        if (sps.empty() || pps.empty()) {
++            LOG_WARNING(Service_MVD, "Received a picture before its parameter sets");
++            return false;
++        }
++        const u8* sets[2] = {sps.data(), pps.data()};
++        const std::size_t sizes[2] = {sps.size(), pps.size()};
++        CMVideoFormatDescriptionRef description = nullptr;
++        OSStatus status = CMVideoFormatDescriptionCreateFromH264ParameterSets(
++            kCFAllocatorDefault, 2, sets, sizes, 4, &description);
++        if (status != noErr) {
++            LOG_ERROR(Service_MVD, "Invalid H.264 parameter sets: {}", status);
++            return false;
++        }
++        format.reset(description);
++
++        const SInt32 pixel_format = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
++        CFPtr<CFNumberRef> pixel_format_number(
++            CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &pixel_format));
++        const void* keys[] = {kCVPixelBufferPixelFormatTypeKey};
++        const void* values[] = {pixel_format_number.get()};
++        CFPtr<CFDictionaryRef> attributes(CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1,
++                                                             &kCFTypeDictionaryKeyCallBacks,
++                                                             &kCFTypeDictionaryValueCallBacks));
++
++        const VTDecompressionOutputCallbackRecord callback{&OnDecoded, this};
++        VTDecompressionSessionRef created = nullptr;
++        status = VTDecompressionSessionCreate(kCFAllocatorDefault, format.get(), nullptr,
++                                              attributes.get(), &callback, &created);
++        if (status != noErr) {
++            LOG_ERROR(Service_MVD, "Could not create a VideoToolbox session: {}", status);
++            format.reset();
++            return false;
++        }
++        session = created;
++        return true;
++    }
++
++    void DestroySession() {
++        if (session) {
++            VTDecompressionSessionWaitForAsynchronousFrames(session);
++            VTDecompressionSessionInvalidate(session);
++            CFRelease(session);
++            session = nullptr;
++        }
++        format.reset();
++    }
++
++    OSStatus DecodeSample(const std::vector<u8>& sample) {
++        CMBlockBufferRef block = nullptr;
++        OSStatus status = CMBlockBufferCreateWithMemoryBlock(
++            kCFAllocatorDefault, nullptr, sample.size(), kCFAllocatorDefault, nullptr, 0,
++            sample.size(), kCMBlockBufferAssureMemoryNowFlag, &block);
++        if (status != noErr) {
++            return status;
++        }
++        CFPtr<CMBlockBufferRef> block_owner(block);
++        status = CMBlockBufferReplaceDataBytes(sample.data(), block, 0, sample.size());
++        if (status != noErr) {
++            return status;
++        }
++        CMSampleBufferRef buffer = nullptr;
++        const std::size_t sample_size = sample.size();
++        status = CMSampleBufferCreateReady(kCFAllocatorDefault, block, format.get(), 1, 0, nullptr,
++                                           1, &sample_size, &buffer);
++        if (status != noErr) {
++            return status;
++        }
++        CFPtr<CMSampleBufferRef> buffer_owner(buffer);
++        // Without the asynchronous flag the output callback runs before this returns.
++        status = VTDecompressionSessionDecodeFrame(session, buffer, 0, nullptr, nullptr);
++        if (status == noErr) {
++            VTDecompressionSessionWaitForAsynchronousFrames(session);
++        }
++        return status;
++    }
++
++    std::vector<u8> sps;
++    std::vector<u8> pps;
++    std::vector<std::vector<u8>> slices;
++    std::vector<DecodedPicture> decoded;
++    CFPtr<CMVideoFormatDescriptionRef> format;
++    VTDecompressionSessionRef session = nullptr;
++    bool awaiting_idr = false;
++    bool single_slice_pictures = true;
++};
++
++VideoToolboxH264Decoder::VideoToolboxH264Decoder() : impl(std::make_unique<Impl>()) {}
++
++VideoToolboxH264Decoder::~VideoToolboxH264Decoder() = default;
++
++std::vector<DecodedPicture> VideoToolboxH264Decoder::Decode(std::span<const u8> nal_unit) {
++    return impl->Decode(nal_unit);
++}
++
++std::vector<DecodedPicture> VideoToolboxH264Decoder::Flush() {
++    return impl->Flush();
++}
++
++void VideoToolboxH264Decoder::Reset() {
++    impl->Reset();
++}
++
++} // namespace Service::MVD
+diff --git a/src/core/hle/service/mvd/h264_decoder_videotoolbox.h b/src/core/hle/service/mvd/h264_decoder_videotoolbox.h
+new file mode 100644
+index 0000000..c8c1892
+--- /dev/null
++++ b/src/core/hle/service/mvd/h264_decoder_videotoolbox.h
+@@ -0,0 +1,27 @@
++// Copyright 2026 Azahar Emulator Project
++// Licensed under GPLv2 or any later version
++// Refer to the license.txt file included.
++
++#pragma once
++
++#include <memory>
++#include "core/hle/service/mvd/h264_decoder.h"
++
++namespace Service::MVD {
++
++/// Decodes with Apple's VideoToolbox, in hardware where the device has a decoder.
++class VideoToolboxH264Decoder final : public H264Decoder {
++public:
++    VideoToolboxH264Decoder();
++    ~VideoToolboxH264Decoder() override;
++
++    std::vector<DecodedPicture> Decode(std::span<const u8> nal_unit) override;
++    std::vector<DecodedPicture> Flush() override;
++    void Reset() override;
++
++private:
++    struct Impl;
++    std::unique_ptr<Impl> impl;
++};
++
++} // namespace Service::MVD
+diff --git a/src/core/hle/service/mvd/mvd.cpp b/src/core/hle/service/mvd/mvd.cpp
+index c865a52..af7b74f 100644
+--- a/src/core/hle/service/mvd/mvd.cpp
++++ b/src/core/hle/service/mvd/mvd.cpp
+@@ -10,7 +10,7 @@ namespace Service::MVD {
+ 
+ void InstallInterfaces(Core::System& system) {
+     auto& service_manager = system.ServiceManager();
+-    std::make_shared<MVD_STD>()->InstallAsService(service_manager);
++    std::make_shared<MVD_STD>(system)->InstallAsService(service_manager);
+ }
+ 
+ } // namespace Service::MVD
+diff --git a/src/core/hle/service/mvd/mvd_std.cpp b/src/core/hle/service/mvd/mvd_std.cpp
+index e4b025d..9de03b1 100644
+--- a/src/core/hle/service/mvd/mvd_std.cpp
++++ b/src/core/hle/service/mvd/mvd_std.cpp
+@@ -1,33 +1,863 @@
+-// Copyright 2016-2025 Citra Emulator Project / Azahar Emulator Project
++// Copyright 2016-2026 Citra Emulator Project / Azahar Emulator Project
+ // Licensed under GPLv2 or any later version
+ // Refer to the license.txt file included.
+ 
++#include <algorithm>
++#include <cstring>
++#include <boost/serialization/optional.hpp>
++#include <boost/serialization/vector.hpp>
++#include "common/alignment.h"
+ #include "common/archives.h"
++#include "common/logging/log.h"
++#include "core/core.h"
+ #include "core/hle/ipc_helpers.h"
++#include "core/hle/kernel/process.h"
+ #include "core/hle/service/mvd/mvd_std.h"
++#include "core/memory.h"
++#include "video_core/gpu.h"
++#include "video_core/rasterizer_interface.h"
++#include "video_core/renderer_base.h"
+ 
++SERVICE_CONSTRUCT_IMPL(Service::MVD::MVD_STD)
+ SERIALIZE_EXPORT_IMPL(Service::MVD::MVD_STD)
+ 
+ namespace Service::MVD {
+ 
+-MVD_STD::MVD_STD() : ServiceFramework("mvd:std", 1) {
++namespace {
++
++// Codec and postprocessor commands return a Hantro status as 0x17000 + status. Initialize,
++// Shutdown, the size calculations and the release commands return a plain 0.
++constexpr u32 StatusOk = 0x17000;
++constexpr u32 StatusStreamProcessed = 0x17001;
++constexpr u32 StatusPictureReady = 0x17002;
++constexpr u32 StatusPictureDecoded = 0x17003;
++constexpr u32 StatusHeadersReady = 0x17004;
++constexpr u32 StatusNonReferenceSkipped = 0x17007;
++
++constexpr u32 ErrorParameter = 0xE16170C9;
++constexpr u32 ErrorNotInitialized = 0xD96170CB;
++constexpr u32 ErrorHeadersNotReady = 0xD96170CE;
++constexpr u32 ErrorCombinedMode = 0xD96172C8;
++constexpr u32 ErrorUnsupported = 0xD9617384;
++
++constexpr u32 MaxOutputBuffers = 17;
++/// Decoded pictures kept for a client that stops asking for them.
++constexpr std::size_t MaxQueuedPictures = 32;
++/// Decoded pictures are placed after this much of the work buffer, in a ring of slots.
++constexpr u32 WorkBufferHeader = 0x1000;
++
++/// An NAL unit of an Annex B buffer and the offset of its start code.
++struct AnnexBUnit {
++    std::size_t start_code;
++    std::span<const u8> nal_unit;
++};
++
++std::vector<AnnexBUnit> SplitAnnexB(std::span<const u8> data) {
++    std::vector<std::size_t> payloads;
++    for (std::size_t i = 0; i + 3 <= data.size(); ++i) {
++        if (data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1) {
++            payloads.push_back(i + 3);
++            i += 2;
++        }
++    }
++    std::vector<AnnexBUnit> units;
++    if (payloads.empty()) {
++        // Without a start code the whole buffer is taken as one NAL unit.
++        if (!data.empty()) {
++            units.push_back({0, data});
++        }
++        return units;
++    }
++    for (std::size_t i = 0; i < payloads.size(); ++i) {
++        const std::size_t start = payloads[i];
++        std::size_t end = i + 1 < payloads.size() ? payloads[i + 1] - 3 : data.size();
++        // Zero bytes before the next start code belong to it (or are trailing_zero_8bits).
++        while (end > start && data[end - 1] == 0) {
++            --end;
++        }
++        std::size_t start_code = start - 3;
++        if (start_code > 0 && data[start_code - 1] == 0) {
++            --start_code;
++        }
++        if (end > start) {
++            units.push_back({start_code, data.subspan(start, end - start)});
++        }
++    }
++    return units;
++}
++
++/// MaxDpbMbs for each MVD level index (H.264 table A-1, levels 1, 1b, 1.1 ... 5.2).
++constexpr std::array<u32, 17> max_dpb_mbs{396,   396,   900,    2376,   2376,  2376,
++                                          4752,  8100,  8100,   18000,  20480, 32768,
++                                          32768, 34816, 110400, 184320, 184320};
++
++} // namespace
++
++template <class Archive>
++void MVD_STD::serialize(Archive& ar, const unsigned int file_version) {
++    DEBUG_SERIALIZATION_POINT;
++    ar& boost::serialization::base_object<Kernel::SessionRequestHandler>(*this);
++    // Version 0 is the stub service, which saved nothing of its own.
++    if (file_version < 1) {
++        return;
++    }
++    ar & config;
++    ar & initialized;
++    ar & h264_initialized;
++    ar & postprocessor_initialized;
++    ar & combined_mode;
++    ar & work_buffer_vaddr;
++    ar & work_buffer_size;
++    ar & next_work_slot;
++    ar & output_buffers;
++    ar & next_output_buffer;
++    ar & last_output_buffer;
++    ar & active_sps;
++    ar & active_pps;
++    ar & headers_pending;
++    if (Archive::is_loading::value) {
++        // The host decoder's state can't be saved. It is given the stream's parameter sets
++        // again and resumes at the next IDR picture; pictures waiting for output are dropped.
++        auto sps = std::move(active_sps);
++        auto pps = std::move(active_pps);
++        const bool pending = headers_pending;
++        ResetDecoder();
++        active_sps = std::move(sps);
++        active_pps = std::move(pps);
++        headers_pending = pending;
++        sequence = active_sps.empty() ? std::nullopt : ParseSequenceParameterSet(active_sps);
++        if (decoder) {
++            for (const auto* set : {&active_sps, &active_pps}) {
++                if (!set->empty()) {
++                    decoder->Decode(*set);
++                }
++            }
++        }
++    }
++}
++
++MVD_STD::MVD_STD(Core::System& system) : MVD_STD(system, system.Memory()) {}
++
++MVD_STD::MVD_STD(Core::System& system, Memory::MemorySystem& memory)
++    : ServiceFramework("mvd:STD", 1), system(system), memory(memory) {
+     static const FunctionInfo functions[] = {
+         // clang-format off
+-        {0x0001, nullptr, "Initialize"},
+-        {0x0002, nullptr, "Shutdown"},
+-        {0x0003, nullptr, "CalculateWorkBufSize"},
+-        {0x0004, nullptr, "CalculateImageSize"},
+-        {0x0008, nullptr, "ProcessNALUnit"},
+-        {0x0009, nullptr, "ControlFrameRendering"},
+-        {0x000A, nullptr, "GetStatus"},
+-        {0x000B, nullptr, "GetStatusOther"},
+-        {0x001D, nullptr, "GetConfig"},
+-        {0x001E, nullptr, "SetConfig"},
+-        {0x001F, nullptr, "SetOutputBuffer"},
+-        {0x0021, nullptr, "OverrideOutputBuffers"} // clang-format on
++        {0x0001, &MVD_STD::Initialize, "Initialize"},
++        {0x0002, &MVD_STD::Shutdown, "Shutdown"},
++        {0x0003, &MVD_STD::CalculateWorkBufSize, "CalculateWorkBufSize"},
++        {0x0004, &MVD_STD::CalculateImageSize, "CalculateImageSize"},
++        {0x0005, &MVD_STD::H264Initialize, "H264Initialize"},
++        {0x0006, &MVD_STD::H264EnableMvc, "H264EnableMvc"},
++        {0x0007, &MVD_STD::H264Release, "H264Release"},
++        {0x0008, &MVD_STD::ProcessNALUnit, "ProcessNALUnit"},
++        {0x0009, &MVD_STD::ControlFrameRendering, "ControlFrameRendering"},
++        {0x000A, &MVD_STD::GetStatus, "GetStatus"},
++        {0x000B, &MVD_STD::H264Peek, "GetStatusOther"},
++        {0x000C, nullptr, "Vp8Initialize"},
++        {0x000D, nullptr, "Vp8Release"},
++        {0x000E, nullptr, "Vp8Decode"},
++        {0x000F, nullptr, "Vp8NextPicture"},
++        {0x0010, nullptr, "Vp8GetInfo"},
++        {0x0011, nullptr, "Vp8Peek"},
++        {0x0012, nullptr, "Vp6Initialize"},
++        {0x0013, nullptr, "Vp6Release"},
++        {0x0014, nullptr, "Vp6Decode"},
++        {0x0015, nullptr, "Vp6NextPicture"},
++        {0x0016, nullptr, "Vp6GetInfo"},
++        {0x0017, nullptr, "Vp6Peek"},
++        {0x0018, &MVD_STD::PpInitialize, "PpInitialize"},
++        {0x0019, &MVD_STD::PpRelease, "PpRelease"},
++        {0x001A, &MVD_STD::PpGetResult, "PpGetResult"},
++        {0x001B, &MVD_STD::PpEnableCombinedMode, "PpEnableCombinedMode"},
++        {0x001C, &MVD_STD::PpDisableCombinedMode, "PpDisableCombinedMode"},
++        {0x001D, &MVD_STD::GetConfig, "GetConfig"},
++        {0x001E, &MVD_STD::SetConfig, "SetConfig"},
++        {0x001F, &MVD_STD::SetupOutputBuffers, "SetupOutputBuffers"},
++        {0x0020, &MVD_STD::GetNextOutput, "GetNextOutput"},
++        {0x0021, &MVD_STD::OverrideOutputBuffers, "OverrideOutputBuffers"},
++        // clang-format on
+     };
+-
+     RegisterHandlers(functions);
+-};
++}
++
++MVD_STD::~MVD_STD() = default;
++
++void MVD_STD::Initialize(Kernel::HLERequestContext& ctx) {
++    IPC::RequestParser rp(ctx);
++    work_buffer_vaddr = rp.Pop<u32>();
++    work_buffer_size = rp.Pop<u32>();
++    rp.PopObject<Kernel::Process>();
++
++    initialized = true;
++    next_work_slot = 0;
++    ResetDecoder();
++
++    IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
++    rb.Push<u32>(0);
++    LOG_DEBUG(Service_MVD, "called, work_buffer=0x{:08X} size=0x{:X}", work_buffer_vaddr,
++              work_buffer_size);
++}
++
++void MVD_STD::Shutdown(Kernel::HLERequestContext& ctx) {
++    IPC::RequestParser rp(ctx);
++    initialized = h264_initialized = postprocessor_initialized = combined_mode = false;
++    output_buffers.clear();
++    last_output_buffer.reset();
++    ResetDecoder();
++
++    IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
++    rb.Push<u32>(0);
++    LOG_DEBUG(Service_MVD, "called");
++}
++
++void MVD_STD::CalculateWorkBufSize(Kernel::HLERequestContext& ctx) {
++    IPC::RequestParser rp(ctx);
++    std::array<u8, 12> bytes;
++    for (std::size_t word = 0; word < 3; ++word) {
++        const u32 value = rp.Pop<u32>();
++        std::memcpy(bytes.data() + word * 4, &value, sizeof(value));
++    }
++    rp.Skip(7, false);
++    const u32 width = rp.Pop<u32>();
++    const u32 height = rp.Pop<u32>();
++
++    const u64 macroblocks = u64{(width + 15) / 16} * ((height + 15) / 16);
++    const u64 frame_size = 384 * macroblocks;
++    u64 size = 0;
++    // Estimate from the H.264 level: as many reference frames as its DPB holds.
++    if (bytes[1] && macroblocks != 0 && bytes[4] < max_dpb_mbs.size()) {
++        const u64 references = std::min<u64>(max_dpb_mbs[bytes[4]] / macroblocks, 16);
++        u64 level_size = frame_size * (references + 1);
++        if (bytes[2] & 6) {
++            level_size += level_size / 6;
++        }
++        if (bytes[3]) {
++            level_size *= 2;
++        }
++        size = std::max(size, level_size + 0xFC8);
++    }
++    // Estimates from a reference frame count.
++    if (bytes[5]) {
++        size = std::max<u64>(size, frame_size * std::clamp<u32>(bytes[6], 2, 16) + 0x10800);
++    }
++    if (bytes[7]) {
++        size = std::max<u64>(size, frame_size * std::clamp<u32>(bytes[8], 2, 16) + 0x858);
++    }
++
++    IPC::RequestBuilder rb = rp.MakeBuilder(2, 0);
++    rb.Push<u32>(0);
++    rb.Push<u32>(static_cast<u32>(std::min<u64>(size, 0xFFFFFFFF)));
++    LOG_DEBUG(Service_MVD, "called, {}x{} -> 0x{:X}", width, height, size);
++}
++
++void MVD_STD::CalculateImageSize(Kernel::HLERequestContext& ctx) {
++    IPC::RequestParser rp(ctx);
++    const u32 word1 = rp.Pop<u32>();
++    const u32 word2 = rp.Pop<u32>();
++    const u32 word3 = rp.Pop<u32>();
++
++    const auto bytes_per_pixel = [](u32 format) -> u32 {
++        switch (format) {
++        case 0x00010001:
++        case 0x00040002:
++            return 2;
++        case 0x00041002:
++            return 4;
++        default:
++            return 0;
++        }
++    };
++    // The width and height come first, then the format (3dbrew lists the format first; its
++    // values 2 and 6 and 0x1006 are accepted in that position too).
++    u32 width = word1, height = word2, pixel_size = bytes_per_pixel(word3);
++    if (pixel_size == 0) {
++        width = word2, height = word3;
++        pixel_size = (word1 == 2 || word1 == 6) ? 2 : (word1 == 0x1006 ? 4 : 0);
++    }
++    IPC::RequestBuilder rb = rp.MakeBuilder(2, 0);
++    if (pixel_size == 0) {
++        LOG_ERROR(Service_MVD, "unknown pixel format in ({:X}, {:X}, {:X})", word1, word2, word3);
++        rb.Push<u32>(ErrorParameter);
++        rb.Push<u32>(0);
++        return;
++    }
++    rb.Push<u32>(0);
++    rb.Push<u32>(std::min(width, 1920u) * std::min(height, 1920u) * pixel_size);
++}
++
++void MVD_STD::H264Initialize(Kernel::HLERequestContext& ctx) {
++    IPC::RequestParser rp(ctx);
++    const auto no_reordering = static_cast<s8>(rp.Pop<u8>());
++    const auto freeze_concealment = static_cast<s8>(rp.Pop<u8>());
++    const auto display_smoothing = static_cast<s8>(rp.Pop<u8>());
++    const auto reference_format = rp.Pop<u32>();
++
++    h264_initialized = true;
++    ResetDecoder();
++
++    IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
++    rb.Push<u32>(initialized ? StatusOk : ErrorNotInitialized);
++    LOG_DEBUG(Service_MVD, "called, no_reordering={} freeze_concealment={} smoothing={} ref=0x{:X}",
++              no_reordering, freeze_concealment, display_smoothing, reference_format);
++}
++
++void MVD_STD::H264EnableMvc(Kernel::HLERequestContext& ctx) {
++    IPC::RequestParser rp(ctx);
++    // The MVD hardware has no MVC (stereoscopic H.264) support.
++    IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
++    rb.Push<u32>(ErrorUnsupported);
++}
++
++void MVD_STD::H264Release(Kernel::HLERequestContext& ctx) {
++    IPC::RequestParser rp(ctx);
++    h264_initialized = false;
++    ResetDecoder();
++
++    IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
++    rb.Push<u32>(0);
++}
++
++void MVD_STD::ProcessNALUnit(Kernel::HLERequestContext& ctx) {
++    IPC::RequestParser rp(ctx);
++    const VAddr vaddr = rp.Pop<u32>();
++    const PAddr paddr = rp.Pop<u32>();
++    const u32 size = rp.Pop<u32>();
++    const u32 picture_id = rp.Pop<u32>();
++    const bool skip_non_reference = rp.Pop<u32>() != 0;
++    const auto process = rp.PopObject<Kernel::Process>();
++
++    IPC::RequestBuilder rb = rp.MakeBuilder(4, 0);
++    if (!h264_initialized) {
++        rb.Push<u32>(ErrorNotInitialized);
++        rb.Push<u32>(vaddr);
++        rb.Push<u32>(paddr);
++        rb.Push<u32>(size);
++        return;
++    }
++
++    // The hardware reads the input from its physical address.
++    std::vector<u8> input(size);
++    if (size != 0 && memory.IsValidPhysicalAddress(paddr) &&
++        memory.IsValidPhysicalAddress(paddr + size - 1)) {
++        std::memcpy(input.data(), memory.GetPhysicalPointer(paddr), size);
++    } else if (process) {
++        memory.ReadBlock(*process, vaddr, input.data(), size);
++    }
++
++    u32 status = StatusStreamProcessed;
++    std::size_t consumed = input.size();
++    for (const auto& unit : SplitAnnexB(input)) {
++        const auto type = GetNalUnitType(unit.nal_unit);
++        const bool slice = type == NalUnitType::Slice || type == NalUnitType::IdrSlice;
++        if (slice && headers_pending) {
++            // A new sequence's first picture: the client reads the stream information, sets up
++            // the output, and passes the rest of the input again.
++            headers_pending = false;
++            status = StatusHeadersReady;
++            consumed = unit.start_code;
++            break;
++        }
++        if (slice && skip_non_reference && GetNalRefIdc(unit.nal_unit) == 0) {
++            status = StatusNonReferenceSkipped;
++            continue;
++        }
++        const u32 unit_status = DecodeNalUnit(unit.nal_unit, picture_id);
++        if (unit_status == StatusPictureDecoded) {
++            status = unit_status;
++        }
++    }
++    if (status == StatusNonReferenceSkipped) {
++        consumed = input.size();
++    }
++
++    rb.Push<u32>(status);
++    rb.Push<u32>(vaddr + static_cast<u32>(consumed));
++    rb.Push<u32>(paddr + static_cast<u32>(consumed));
++    rb.Push<u32>(size - static_cast<u32>(consumed));
++    LOG_TRACE(Service_MVD, "called, size=0x{:X} id={} status=0x{:X} consumed=0x{:X}", size,
++              picture_id, status, consumed);
++}
++
++u32 MVD_STD::DecodeNalUnit(std::span<const u8> nal_unit, u32 picture_id) {
++    const auto type = GetNalUnitType(nal_unit);
++    if (type == NalUnitType::Sps) {
++        if (!std::ranges::equal(nal_unit, active_sps)) {
++            if (auto info = ParseSequenceParameterSet(nal_unit)) {
++                active_sps.assign(nal_unit.begin(), nal_unit.end());
++                sequence = info;
++                headers_pending = true;
++            } else {
++                LOG_WARNING(Service_MVD, "Could not parse a sequence parameter set");
++            }
++        }
++    } else if (type == NalUnitType::Pps) {
++        active_pps.assign(nal_unit.begin(), nal_unit.end());
++    }
++
++    if (!decoder) {
++        if (!warned_no_decoder) {
++            LOG_ERROR(Service_MVD, "No H.264 decoder is available on this platform; MVD video "
++                                   "will not be shown");
++            warned_no_decoder = true;
++        }
++        return StatusStreamProcessed;
++    }
++    const bool idr = type == NalUnitType::IdrSlice;
++    auto decoded = decoder->Decode(nal_unit);
++    if (decoded.empty()) {
++        return StatusStreamProcessed;
++    }
++    QueuePictures(std::move(decoded), picture_id, idr);
++    return StatusPictureDecoded;
++}
++
++void MVD_STD::QueuePictures(std::vector<DecodedPicture>&& decoded, u32 picture_id, bool idr) {
++    for (auto& source : decoded) {
++        Picture picture;
++        picture.id = picture_id;
++        picture.idr = idr;
++        // Pictures are kept in the stream's coded size, with what the host decoder returned
++        // placed at the stream's crop window when it returned only that window.
++        u32 offset_x = 0, offset_y = 0;
++        picture.width = source.width;
++        picture.height = source.height;
++        if (sequence && sequence->coded_width >= source.width &&
++            sequence->coded_height >= source.height) {
++            picture.width = sequence->coded_width;
++            picture.height = sequence->coded_height;
++            if (source.width == sequence->crop_width && source.height == sequence->crop_height) {
++                offset_x = sequence->crop_left;
++                offset_y = sequence->crop_top;
++            }
++        }
++        if (picture.width == source.width && picture.height == source.height) {
++            picture.luma = std::move(source.luma);
++            picture.chroma = std::move(source.chroma);
++        } else {
++            const std::size_t chroma_width = (source.width + 1) / 2 * 2;
++            picture.luma.assign(std::size_t{picture.width} * picture.height, 16);
++            picture.chroma.assign(std::size_t{picture.width} * (picture.height / 2), 128);
++            for (u32 y = 0; y < source.height; ++y) {
++                std::memcpy(&picture.luma[std::size_t{y + offset_y} * picture.width + offset_x],
++                            &source.luma[std::size_t{y} * source.width], source.width);
++            }
++            for (u32 y = 0; y < (source.height + 1) / 2; ++y) {
++                std::memcpy(&picture.chroma[std::size_t{y + offset_y / 2} * picture.width +
++                                            (offset_x & ~1u)],
++                            &source.chroma[y * chroma_width], chroma_width);
++            }
++        }
++        if (pictures.size() == MaxQueuedPictures) {
++            LOG_WARNING(Service_MVD, "Dropping a decoded picture nobody has asked for");
++            pictures.pop_front();
++        }
++        pictures.push_back(std::move(picture));
++    }
++}
++
++void MVD_STD::ControlFrameRendering(Kernel::HLERequestContext& ctx) {
++    IPC::RequestParser rp(ctx);
++    const bool end_of_stream = rp.Pop<u8>() != 0;
++    rp.PopObject<Kernel::Process>();
++
++    IPC::RequestBuilder rb = rp.MakeBuilder(17, 0);
++    if (!h264_initialized) {
++        rb.Push<u32>(ErrorNotInitialized);
++        rb.PushRaw(std::array<u32, 16>{});
++        return;
++    }
++    if (end_of_stream && decoder) {
++        QueuePictures(decoder->Flush(), pictures.empty() ? 0 : pictures.back().id, false);
++    }
++    if (pictures.empty()) {
++        rb.Push<u32>(StatusOk);
++        rb.PushRaw(std::array<u32, 16>{});
++        return;
++    }
++
++    const Picture picture = std::move(pictures.front());
++    pictures.pop_front();
++    if (combined_mode) {
++        const SourceImage source{.width = picture.width,
++                                 .height = picture.height,
++                                 .luma = picture.luma,
++                                 .luma_stride = picture.width,
++                                 .chroma = picture.chroma,
++                                 .chroma_stride = picture.width,
++                                 .monochrome = sequence && sequence->monochrome};
++        std::optional<OutputBuffer> target;
++        if (!output_buffers.empty()) {
++            last_output_buffer = next_output_buffer;
++            target = output_buffers[next_output_buffer];
++            next_output_buffer = (next_output_buffer + 1) % output_buffers.size();
++        }
++        RunPostprocessor(source, target);
++    }
++    rb.Push<u32>(StatusPictureReady);
++    rb.PushRaw(PictureRecord(picture));
++}
++
++void MVD_STD::H264Peek(Kernel::HLERequestContext& ctx) {
++    IPC::RequestParser rp(ctx);
++    IPC::RequestBuilder rb = rp.MakeBuilder(17, 0);
++    if (pictures.empty()) {
++        rb.Push<u32>(h264_initialized ? StatusOk : ErrorNotInitialized);
++        rb.PushRaw(std::array<u32, 16>{});
++        return;
++    }
++    rb.Push<u32>(StatusPictureReady);
++    rb.PushRaw(PictureRecord(pictures.front()));
++}
++
++std::array<u32, 16> MVD_STD::PictureRecord(const Picture& picture) {
++    u32 vaddr = 0, paddr = 0;
++    StorePicture(picture, vaddr, paddr);
++    const bool cropped = sequence && sequence->coded_width == picture.width &&
++                         sequence->coded_height == picture.height;
++    return {picture.width,
++            picture.height,
++            cropped ? sequence->crop_left : 0,
++            cropped ? sequence->crop_width : picture.width,
++            cropped ? sequence->crop_top : 0,
++            cropped ? sequence->crop_height : picture.height,
++            vaddr,
++            paddr,
++            picture.id,
++            picture.idr ? 1u : 0u,
++            0,  // concealed macroblocks
++            0,  // interlaced
++            0,  // field picture
++            0,  // top field
++            0,  // MVC view
++            0}; // raster layout
++}
++
++void MVD_STD::StorePicture(const Picture& picture, u32& vaddr, u32& paddr) {
++    // The hardware decodes into the work buffer, and the picture record points there. Keep a
++    // copy at the same kind of place for clients that read the decoded picture directly.
++    const u32 picture_size =
++        Common::AlignUp(static_cast<u32>(picture.luma.size() + picture.chroma.size()), 0x100);
++    if (work_buffer_size <= WorkBufferHeader + picture_size) {
++        return;
++    }
++    const u32 slots = std::min<u32>((work_buffer_size - WorkBufferHeader) / picture_size, 18);
++    const u32 slot_vaddr =
++        work_buffer_vaddr + WorkBufferHeader + (next_work_slot % slots) * picture_size;
++    const auto slot_paddr = LinearToPhysical(slot_vaddr);
++    if (!slot_paddr || !memory.IsValidPhysicalAddress(*slot_paddr) ||
++        !memory.IsValidPhysicalAddress(*slot_paddr + picture_size - 1)) {
++        return;
++    }
++    next_work_slot = (next_work_slot + 1) % slots;
++    SyncRasterizer(*slot_paddr, picture_size, true);
++    u8* target = memory.GetPhysicalPointer(*slot_paddr);
++    std::memcpy(target, picture.luma.data(), picture.luma.size());
++    std::memcpy(target + picture.luma.size(), picture.chroma.data(), picture.chroma.size());
++    vaddr = slot_vaddr;
++    paddr = *slot_paddr;
++}
++
++void MVD_STD::GetStatus(Kernel::HLERequestContext& ctx) {
++    IPC::RequestParser rp(ctx);
++    IPC::RequestBuilder rb = rp.MakeBuilder(17, 0);
++    if (!h264_initialized || !sequence) {
++        rb.Push<u32>(h264_initialized ? ErrorHeadersNotReady : ErrorNotInitialized);
++        rb.PushRaw(std::array<u32, 16>{});
++        return;
++    }
++    const u32 picture_buffers = sequence->max_ref_frames + 1;
++    rb.Push<u32>(StatusOk);
++    rb.PushRaw(std::array<u32, 16>{
++        sequence->coded_width,
++        sequence->coded_height,
++        sequence->full_range ? 1u : 0u,
++        sequence->matrix_coefficients,
++        sequence->crop_left,
++        sequence->crop_width,
++        sequence->crop_top,
++        sequence->crop_height,
++        static_cast<u32>(sequence->monochrome ? PixelFormat::YCbCr400
++                                              : PixelFormat::YCbCr420Semiplanar),
++        sequence->sar_width,
++        sequence->sar_height,
++        sequence->monochrome ? 1u : 0u,
++        sequence->interlaced ? 1u : 0u,
++        0, // frame DPB mode
++        picture_buffers,
++        picture_buffers + 1,
++    });
++}
++
++void MVD_STD::PpInitialize(Kernel::HLERequestContext& ctx) {
++    IPC::RequestParser rp(ctx);
++    // Hantro's postprocessor defaults.
++    config = {};
++    config.input_format = PixelFormat::YCbCr420Semiplanar;
++    config.input_width = 720;
++    config.input_height = 576;
++    config.output_format = PixelFormat::Rgb32;
++    config.rgb_transform = 1;
++    config.coefficients = {298, 409, 208, 100, 516};
++    postprocessor_initialized = true;
++
++    IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
++    rb.Push<u32>(initialized ? StatusOk : ErrorNotInitialized);
++}
++
++void MVD_STD::PpRelease(Kernel::HLERequestContext& ctx) {
++    IPC::RequestParser rp(ctx);
++    postprocessor_initialized = combined_mode = false;
++    output_buffers.clear();
++    last_output_buffer.reset();
++
++    IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
++    rb.Push<u32>(0);
++}
++
++void MVD_STD::PpGetResult(Kernel::HLERequestContext& ctx) {
++    IPC::RequestParser rp(ctx);
++    IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
++    if (!postprocessor_initialized) {
++        rb.Push<u32>(ErrorNotInitialized);
++        return;
++    }
++    if (combined_mode) {
++        // Only reports the result of the last decode-and-convert, which always succeeds here.
++        rb.Push<u32>(StatusOk);
++        return;
++    }
++
++    // Standalone color conversion of the configured input.
++    if (const u32 error = ValidateConfig(config, false)) {
++        rb.Push<u32>(error);
++        return;
++    }
++    const auto sizes =
++        StandaloneInputSizes(config.input_format, config.input_width, config.input_height);
++    std::array<std::span<const u8>, 3> planes;
++    const std::array<u32, 3> addresses{config.input_paddr, config.input_cb_paddr,
++                                       config.input_cr_paddr};
++    for (std::size_t i = 0; i < planes.size(); ++i) {
++        if (sizes[i] == 0) {
++            continue;
++        }
++        if (!memory.IsValidPhysicalAddress(addresses[i]) ||
++            !memory.IsValidPhysicalAddress(addresses[i] + static_cast<u32>(sizes[i]) - 1)) {
++            LOG_ERROR(Service_MVD, "Invalid input address 0x{:08X}", addresses[i]);
++            rb.Push<u32>(ErrorParameter);
++            return;
++        }
++        SyncRasterizer(addresses[i], static_cast<u32>(sizes[i]), false);
++        planes[i] = {memory.GetPhysicalPointer(addresses[i]), sizes[i]};
++    }
++    const auto input = LoadStandaloneInput(config.input_format, config.input_width,
++                                           config.input_height, planes[0], planes[1], planes[2]);
++    if (!input) {
++        rb.Push<u32>(ErrorParameter);
++        return;
++    }
++    rb.Push<u32>(RunPostprocessor(input->image, std::nullopt));
++}
++
++void MVD_STD::PpEnableCombinedMode(Kernel::HLERequestContext& ctx) {
++    IPC::RequestParser rp(ctx);
++    const u8 decoder_type = rp.Pop<u8>();
++
++    IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
++    switch (decoder_type) {
++    case 1: // H.264
++        combined_mode = true;
++        rb.Push<u32>(StatusOk);
++        break;
++    case 6:  // VP6
++    case 9:  // VP8
++    case 10: // WebP
++        // Accepted, but with an H.264 decoder the hardware then produces no output.
++        combined_mode = false;
++        rb.Push<u32>(StatusOk);
++        break;
++    default:
++        rb.Push<u32>(ErrorParameter);
++        break;
++    }
++}
++
++void MVD_STD::PpDisableCombinedMode(Kernel::HLERequestContext& ctx) {
++    IPC::RequestParser rp(ctx);
++    combined_mode = false;
++    IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
++    rb.Push<u32>(StatusOk);
++}
++
++void MVD_STD::GetConfig(Kernel::HLERequestContext& ctx) {
++    IPC::RequestParser rp(ctx);
++    rp.Pop<u32>(); // size; the service always copies the whole configuration
++    auto& buffer = rp.PopMappedBuffer();
++    buffer.Write(&config, 0, std::min(sizeof(config), buffer.GetSize()));
++
++    IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
++    rb.Push<u32>(StatusOk);
++    rb.PushMappedBuffer(buffer);
++}
++
++void MVD_STD::SetConfig(Kernel::HLERequestContext& ctx) {
++    IPC::RequestParser rp(ctx);
++    rp.Pop<u32>(); // size; the service always copies the whole configuration
++    rp.PopObject<Kernel::Process>();
++    auto& buffer = rp.PopMappedBuffer();
++    PostprocessorConfig incoming{};
++    buffer.Read(&incoming, 0, std::min(sizeof(incoming), buffer.GetSize()));
++
++    // A rejected configuration leaves the current one in place.
++    const u32 error = ValidateConfig(incoming, combined_mode);
++    if (error == 0) {
++        config = incoming;
++    } else {
++        LOG_DEBUG(Service_MVD, "rejected configuration: 0x{:08X}", error);
++    }
++    IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
++    rb.Push<u32>(error == 0 ? StatusOk : error);
++    rb.PushMappedBuffer(buffer);
++}
++
++void MVD_STD::SetupOutputBuffers(Kernel::HLERequestContext& ctx) {
++    IPC::RequestParser rp(ctx);
++    const u32 count = rp.Pop<u32>();
++    std::array<std::array<u32, 2>, MaxOutputBuffers> entries;
++    for (auto& entry : entries) {
++        entry[0] = rp.Pop<u32>();
++        entry[1] = rp.Pop<u32>();
++    }
++    rp.Pop<u32>(); // size of each buffer
++    rp.PopObject<Kernel::Process>();
++
++    IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
++    if (!combined_mode) {
++        rb.Push<u32>(ErrorCombinedMode);
++        return;
++    }
++    if (count == 0 || count > MaxOutputBuffers) {
++        rb.Push<u32>(ErrorParameter);
++        return;
++    }
++    std::vector<OutputBuffer> buffers;
++    for (u32 i = 0; i < count; ++i) {
++        const auto paddr = LinearToPhysical(entries[i][0]);
++        const auto chroma_paddr =
++            entries[i][1] != 0 ? LinearToPhysical(entries[i][1]) : std::optional<PAddr>{0};
++        if (entries[i][0] == 0 || !paddr || !chroma_paddr) {
++            rb.Push<u32>(ErrorParameter);
++            return;
++        }
++        buffers.push_back({entries[i][0], entries[i][1], *paddr, *chroma_paddr});
++    }
++    output_buffers = std::move(buffers);
++    next_output_buffer = 0;
++    last_output_buffer.reset();
++    rb.Push<u32>(StatusOk);
++}
++
++void MVD_STD::GetNextOutput(Kernel::HLERequestContext& ctx) {
++    IPC::RequestParser rp(ctx);
++    rp.PopObject<Kernel::Process>();
++
++    IPC::RequestBuilder rb = rp.MakeBuilder(3, 0);
++    rb.Push<u32>(StatusOk);
++    if (last_output_buffer && *last_output_buffer < output_buffers.size()) {
++        rb.Push<u32>(output_buffers[*last_output_buffer].vaddr);
++        rb.Push<u32>(output_buffers[*last_output_buffer].chroma_vaddr);
++    } else {
++        rb.Push<u32>(0);
++        rb.Push<u32>(0);
++    }
++}
++
++void MVD_STD::OverrideOutputBuffers(Kernel::HLERequestContext& ctx) {
++    IPC::RequestParser rp(ctx);
++    const u32 current = rp.Pop<u32>();
++    const u32 current_chroma = rp.Pop<u32>();
++    const u32 replacement = rp.Pop<u32>();
++    const u32 replacement_chroma = rp.Pop<u32>();
++
++    IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
++    const auto entry = std::ranges::find_if(output_buffers, [&](const OutputBuffer& buffer) {
++        return buffer.vaddr == current && buffer.chroma_vaddr == current_chroma;
++    });
++    const auto paddr = LinearToPhysical(replacement);
++    const auto chroma_paddr =
++        replacement_chroma != 0 ? LinearToPhysical(replacement_chroma) : std::optional<PAddr>{0};
++    if (entry == output_buffers.end() || !paddr || !chroma_paddr) {
++        rb.Push<u32>(ErrorParameter);
++        return;
++    }
++    *entry = {replacement, replacement_chroma, *paddr, *chroma_paddr};
++    rb.Push<u32>(StatusOk);
++}
++
++u32 MVD_STD::RunPostprocessor(const SourceImage& source, std::optional<OutputBuffer> target) {
++    PostprocessorConfig effective = config;
++    if (target) {
++        effective.output_paddr = target->paddr;
++        effective.output_chroma_paddr = target->chroma_paddr;
++    }
++    const OutputLayout layout = GetOutputLayout(effective);
++    const auto map = [&](PAddr address, std::size_t size) -> std::span<u8> {
++        if (size == 0) {
++            return {};
++        }
++        if (!memory.IsValidPhysicalAddress(address) ||
++            !memory.IsValidPhysicalAddress(address + static_cast<u32>(size) - 1)) {
++            LOG_ERROR(Service_MVD, "Invalid output address 0x{:08X} (0x{:X} bytes)", address, size);
++            return {};
++        }
++        SyncRasterizer(address, static_cast<u32>(size), true);
++        return {memory.GetPhysicalPointer(address), size};
++    };
++    const OutputPlanes planes{map(effective.output_paddr, layout.plane_size),
++                              map(effective.output_chroma_paddr, layout.chroma_size)};
++    if (planes.plane.size() != layout.plane_size || planes.chroma.size() != layout.chroma_size) {
++        return ErrorParameter;
++    }
++    Postprocess(source, effective, planes);
++    return StatusOk;
++}
++
++void MVD_STD::SyncRasterizer(PAddr address, u32 size, bool invalidate) {
++    // Before reading memory the GPU may have written, flush it; before writing memory the GPU may
++    // have cached, also invalidate it. Without a running system (unit tests) there is no GPU.
++    if (!system.IsPoweredOn()) {
++        return;
++    }
++    auto* rasterizer = system.GPU().Renderer().Rasterizer();
++    if (invalidate) {
++        rasterizer->FlushAndInvalidateRegion(address, size);
++    } else {
++        rasterizer->FlushRegion(address, size);
++    }
++}
++
++std::optional<PAddr> MVD_STD::LinearToPhysical(VAddr address) {
++    if (address >= Memory::NEW_LINEAR_HEAP_VADDR && address < Memory::NEW_LINEAR_HEAP_VADDR_END) {
++        return Memory::FCRAM_PADDR + (address - Memory::NEW_LINEAR_HEAP_VADDR);
++    }
++    if (address >= Memory::LINEAR_HEAP_VADDR && address < Memory::LINEAR_HEAP_VADDR_END) {
++        return Memory::FCRAM_PADDR + (address - Memory::LINEAR_HEAP_VADDR);
++    }
++    return std::nullopt;
++}
++
++void MVD_STD::ResetDecoder() {
++    if (!decoder) {
++        decoder = CreateH264Decoder();
++    }
++    if (decoder) {
++        decoder->Reset();
++    }
++    pictures.clear();
++    sequence.reset();
++    active_sps.clear();
++    active_pps.clear();
++    headers_pending = false;
++}
+ 
+ } // namespace Service::MVD
+diff --git a/src/core/hle/service/mvd/mvd_std.h b/src/core/hle/service/mvd/mvd_std.h
+index fed41e6..cc8c8b8 100644
+--- a/src/core/hle/service/mvd/mvd_std.h
++++ b/src/core/hle/service/mvd/mvd_std.h
+@@ -4,19 +4,130 @@
+ 
+ #pragma once
+ 
++#include <array>
++#include <deque>
++#include <memory>
++#include <optional>
++#include <vector>
++#include "core/hle/service/mvd/h264_decoder.h"
++#include "core/hle/service/mvd/postprocessor.h"
+ #include "core/hle/service/service.h"
+ 
++namespace Core {
++class System;
++}
++
++namespace Memory {
++class MemorySystem;
++}
++
+ namespace Service::MVD {
+ 
++/// The New 3DS movie decoder: Hantro G1's H.264 decoder and postprocessor behind "mvd:STD".
++/// Pictures are decoded with the host's H.264 decoder (see CreateH264Decoder) and converted by
++/// an emulation of the postprocessor.
+ class MVD_STD final : public ServiceFramework<MVD_STD> {
+ public:
+-    MVD_STD();
+-    ~MVD_STD() = default;
++    explicit MVD_STD(Core::System& system);
++    /// With the memory the service reads and writes (tests run it without a booted system).
++    MVD_STD(Core::System& system, Memory::MemorySystem& memory);
++    ~MVD_STD() override;
+ 
+ private:
+-    SERVICE_SERIALIZATION_SIMPLE
++    /// A decoded picture waiting to be output, in the stream's coded size.
++    struct Picture {
++        u32 width = 0;
++        u32 height = 0;
++        std::vector<u8> luma;
++        std::vector<u8> chroma;
++        u32 id = 0;
++        bool idr = false;
++    };
++
++    /// One multibuffer output (SetupOutputBuffers), as the client's virtual addresses and the
++    /// physical addresses the postprocessor writes.
++    struct OutputBuffer {
++        u32 vaddr = 0;
++        u32 chroma_vaddr = 0;
++        u32 paddr = 0;
++        u32 chroma_paddr = 0;
++
++        template <class Archive>
++        void serialize(Archive& ar, const unsigned int) {
++            ar & vaddr;
++            ar & chroma_vaddr;
++            ar & paddr;
++            ar & chroma_paddr;
++        }
++    };
++
++    void Initialize(Kernel::HLERequestContext& ctx);
++    void Shutdown(Kernel::HLERequestContext& ctx);
++    void CalculateWorkBufSize(Kernel::HLERequestContext& ctx);
++    void CalculateImageSize(Kernel::HLERequestContext& ctx);
++    void H264Initialize(Kernel::HLERequestContext& ctx);
++    void H264EnableMvc(Kernel::HLERequestContext& ctx);
++    void H264Release(Kernel::HLERequestContext& ctx);
++    void ProcessNALUnit(Kernel::HLERequestContext& ctx);
++    void ControlFrameRendering(Kernel::HLERequestContext& ctx);
++    void GetStatus(Kernel::HLERequestContext& ctx);
++    void H264Peek(Kernel::HLERequestContext& ctx);
++    void PpInitialize(Kernel::HLERequestContext& ctx);
++    void PpRelease(Kernel::HLERequestContext& ctx);
++    void PpGetResult(Kernel::HLERequestContext& ctx);
++    void PpEnableCombinedMode(Kernel::HLERequestContext& ctx);
++    void PpDisableCombinedMode(Kernel::HLERequestContext& ctx);
++    void GetConfig(Kernel::HLERequestContext& ctx);
++    void SetConfig(Kernel::HLERequestContext& ctx);
++    void SetupOutputBuffers(Kernel::HLERequestContext& ctx);
++    void GetNextOutput(Kernel::HLERequestContext& ctx);
++    void OverrideOutputBuffers(Kernel::HLERequestContext& ctx);
++
++    /// Decodes one NAL unit; returns the status it produced.
++    u32 DecodeNalUnit(std::span<const u8> nal_unit, u32 picture_id);
++    /// Queues decoded pictures, placing each in the stream's coded size.
++    void QueuePictures(std::vector<DecodedPicture>&& decoded, u32 picture_id, bool idr);
++    /// Copies a picture into the work buffer, where the picture record says it is.
++    void StorePicture(const Picture& picture, u32& vaddr, u32& paddr);
++    /// The H.264 picture record (0x40 bytes) for a picture.
++    std::array<u32, 16> PictureRecord(const Picture& picture);
++    /// Runs the postprocessor on a source image into the configured (or next multibuffer) output.
++    u32 RunPostprocessor(const SourceImage& source, std::optional<OutputBuffer> target);
++    /// Flushes (and with `invalidate`, invalidates) the GPU's cached copy of a physical region.
++    void SyncRasterizer(PAddr address, u32 size, bool invalidate);
++    /// The physical address of a linear-memory virtual address, if it is one.
++    static std::optional<PAddr> LinearToPhysical(VAddr address);
++    void ResetDecoder();
++
++    Core::System& system;
++    Memory::MemorySystem& memory;
++    std::unique_ptr<H264Decoder> decoder;
++    std::deque<Picture> pictures;
++    std::optional<SequenceInfo> sequence;
++    std::vector<u8> active_sps;
++    std::vector<u8> active_pps;
++    bool headers_pending = false;
++
++    PostprocessorConfig config{};
++    bool initialized = false;
++    bool h264_initialized = false;
++    bool postprocessor_initialized = false;
++    bool combined_mode = false;
++    u32 work_buffer_vaddr = 0;
++    u32 work_buffer_size = 0;
++    u32 next_work_slot = 0;
++    std::vector<OutputBuffer> output_buffers;
++    u32 next_output_buffer = 0;
++    std::optional<u32> last_output_buffer;
++    bool warned_no_decoder = false;
++
++    template <class Archive>
++    void serialize(Archive& ar, const unsigned int);
++    friend class boost::serialization::access;
+ };
+ 
+ } // namespace Service::MVD
+ 
++SERVICE_CONSTRUCT(Service::MVD::MVD_STD)
+ BOOST_CLASS_EXPORT_KEY(Service::MVD::MVD_STD)
++BOOST_CLASS_VERSION(Service::MVD::MVD_STD, 1)
+diff --git a/src/core/hle/service/mvd/postprocessor.cpp b/src/core/hle/service/mvd/postprocessor.cpp
+new file mode 100644
+index 0000000..381199d
+--- /dev/null
++++ b/src/core/hle/service/mvd/postprocessor.cpp
+@@ -0,0 +1,632 @@
++// Copyright 2026 Azahar Emulator Project
++// Licensed under GPLv2 or any later version
++// Refer to the license.txt file included.
++
++#include <algorithm>
++#include <bit>
++#include <cmath>
++#include "common/logging/log.h"
++#include "core/hle/service/mvd/postprocessor.h"
++
++namespace Service::MVD {
++
++namespace {
++
++/// SetConfig rejections, in Hantro's order starting at PP_SET_IN_SIZE_INVALID (-64).
++enum class ConfigError : u32 {
++    InputSize = 0,
++    InputAddress,
++    InputFormat,
++    Crop,
++    Rotation,
++    OutputSize,
++    OutputAddress,
++    OutputFormat,
++    ColorAdjustment,
++    RgbMasks,
++    FrameBuffer,
++    Mask1,
++    Mask2,
++    Deinterlace,
++    InputStructure,
++    InputRangeMapping,
++};
++
++constexpr u32 Reject(ConfigError error) {
++    return 0xD9617108 + static_cast<u32>(error);
++}
++
++constexpr bool IsAligned(u32 value, u32 alignment) {
++    return value % alignment == 0;
++}
++
++constexpr bool IsValidAddress(u32 address) {
++    return address != 0 && IsAligned(address, 8);
++}
++
++bool IsPacked422(PixelFormat format) {
++    switch (format) {
++    case PixelFormat::YCbCr422Interleaved:
++    case PixelFormat::YCrYCb422Interleaved:
++    case PixelFormat::CbYCrY422Interleaved:
++    case PixelFormat::CrYCbY422Interleaved:
++        return true;
++    default:
++        return false;
++    }
++}
++
++bool IsRgb(PixelFormat format) {
++    return (static_cast<u32>(format) & 0x00040000) != 0;
++}
++
++bool IsRgb32(PixelFormat format) {
++    return (static_cast<u32>(format) & 0x00041000) == 0x00041000;
++}
++
++/// Byte positions of Y0, Cb, Y1 and Cr within a packed 4:2:2 pixel pair.
++std::array<u32, 4> Packed422Order(PixelFormat format) {
++    switch (format) {
++    case PixelFormat::YCrYCb422Interleaved:
++        return {0, 3, 2, 1};
++    case PixelFormat::CbYCrY422Interleaved:
++        return {1, 0, 3, 2};
++    case PixelFormat::CrYCbY422Interleaved:
++        return {1, 2, 3, 0};
++    default:
++        return {0, 1, 2, 3};
++    }
++}
++
++bool IsContiguousMask(u32 mask) {
++    if (mask == 0) {
++        return true;
++    }
++    const u32 shifted = mask >> std::countr_zero(mask);
++    return (shifted & (shifted + 1)) == 0;
++}
++
++struct YCbCr {
++    u8 y, cb, cr;
++};
++
++/// Reads Y, Cb and Cr from the source at a (possibly fractional) luma position.
++class Sampler {
++public:
++    explicit Sampler(const SourceImage& source) : source(source) {}
++
++    YCbCr At(u32 x, u32 y) const {
++        x = std::min(x, source.width - 1);
++        y = std::min(y, source.height - 1);
++        const u8 luma = source.luma[std::size_t{y} * source.luma_stride + x];
++        if (source.monochrome) {
++            return {luma, 128, 128};
++        }
++        const u32 cy = source.chroma_full_height ? y : y / 2;
++        const std::size_t c = std::size_t{cy} * source.chroma_stride + (x / 2) * 2;
++        return {luma, source.chroma[c], source.chroma[c + 1]};
++    }
++
++    YCbCr Bilinear(float x, float y) const {
++        const float luma = Plane(x, y, source.width, source.height, [this](u32 px, u32 py) {
++            return source.luma[std::size_t{py} * source.luma_stride + px];
++        });
++        if (source.monochrome) {
++            return {Round(luma), 128, 128};
++        }
++        // Chroma samples sit at the left of each pixel pair and, for 4:2:0, between the rows.
++        const float cx = x / 2.0f;
++        const float cy = source.chroma_full_height ? y : (y + 0.5f) / 2.0f - 0.5f;
++        const u32 chroma_width = (source.width + 1) / 2;
++        const u32 chroma_height =
++            source.chroma_full_height ? source.height : (source.height + 1) / 2;
++        const float cb = Plane(cx, cy, chroma_width, chroma_height, [this](u32 px, u32 py) {
++            return source.chroma[std::size_t{py} * source.chroma_stride + px * 2];
++        });
++        const float cr = Plane(cx, cy, chroma_width, chroma_height, [this](u32 px, u32 py) {
++            return source.chroma[std::size_t{py} * source.chroma_stride + px * 2 + 1];
++        });
++        return {Round(luma), Round(cb), Round(cr)};
++    }
++
++private:
++    template <typename Fetch>
++    static float Plane(float x, float y, u32 width, u32 height, Fetch&& fetch) {
++        x = std::clamp(x, 0.0f, static_cast<float>(width - 1));
++        y = std::clamp(y, 0.0f, static_cast<float>(height - 1));
++        const u32 x0 = static_cast<u32>(x), y0 = static_cast<u32>(y);
++        const u32 x1 = std::min(x0 + 1, width - 1), y1 = std::min(y0 + 1, height - 1);
++        const float fx = x - static_cast<float>(x0), fy = y - static_cast<float>(y0);
++        const float top = fetch(x0, y0) * (1 - fx) + fetch(x1, y0) * fx;
++        const float bottom = fetch(x0, y1) * (1 - fx) + fetch(x1, y1) * fx;
++        return top * (1 - fy) + bottom * fy;
++    }
++
++    static u8 Round(float value) {
++        return static_cast<u8>(std::clamp(std::lround(value), 0L, 255L));
++    }
++
++    const SourceImage& source;
++};
++
++/// YCbCr to RGB with the postprocessor's 8.8 fixed-point coefficients a..e.
++class ColorConverter {
++public:
++    explicit ColorConverter(const PostprocessorConfig& config) {
++        // Coefficients for BT.601 and BT.709, limited then full range.
++        static constexpr std::array<std::array<s32, 5>, 4> standard{{
++            {298, 409, 208, 100, 516},
++            {256, 350, 179, 86, 443},
++            {298, 459, 137, 55, 544},
++            {256, 403, 120, 48, 475},
++        }};
++        const bool full_range = config.input_full_range != 0;
++        if (config.rgb_transform == 1 || config.rgb_transform == 2) {
++            const auto& set = standard[(config.rgb_transform - 1) * 2 + (full_range ? 1 : 0)];
++            std::copy(set.begin(), set.end(), coefficients.begin());
++        } else {
++            std::transform(config.coefficients.begin(), config.coefficients.end(),
++                           coefficients.begin(), [](u32 c) { return static_cast<s32>(c); });
++        }
++        // Saturation scales the chroma coefficients, as Hantro's driver programs them.
++        const s32 saturation = 64 + config.saturation;
++        for (std::size_t i = 1; i < coefficients.size(); ++i) {
++            coefficients[i] = std::clamp(saturation * coefficients[i] / 64, 0, 1023);
++        }
++        luma_offset = full_range ? 0 : 16;
++        brightness = config.brightness;
++    }
++
++    std::array<u8, 3> ToRgb(YCbCr in) const {
++        const s32 y = coefficients[0] * (static_cast<s32>(in.y) - luma_offset);
++        const s32 cb = static_cast<s32>(in.cb) - 128;
++        const s32 cr = static_cast<s32>(in.cr) - 128;
++        const auto channel = [this](s32 value) {
++            return static_cast<u8>(std::clamp(((value + 128) >> 8) + brightness, 0, 255));
++        };
++        return {channel(y + coefficients[1] * cr),
++                channel(y - coefficients[2] * cr - coefficients[3] * cb),
++                channel(y + coefficients[4] * cb)};
++    }
++
++private:
++    std::array<s32, 5> coefficients{};
++    s32 luma_offset = 16;
++    s32 brightness = 0;
++};
++
++u32 PackMasked(std::array<u8, 3> rgb, u32 mask_r, u32 mask_g, u32 mask_b, u32 mask_alpha) {
++    const auto place = [](u8 value, u32 mask) -> u32 {
++        if (mask == 0) {
++            return 0;
++        }
++        const u32 shift = std::countr_zero(mask);
++        const u32 bits = std::popcount(mask);
++        const u32 scaled = bits >= 8 ? u32{value} << (bits - 8) : u32{value} >> (8 - bits);
++        return (scaled << shift) & mask;
++    };
++    return place(rgb[0], mask_r) | place(rgb[1], mask_g) | place(rgb[2], mask_b) | mask_alpha;
++}
++
++void Write16(std::span<u8> plane, std::size_t offset, u16 value) {
++    plane[offset] = static_cast<u8>(value);
++    plane[offset + 1] = static_cast<u8>(value >> 8);
++}
++
++/// 32-bit RGB words are stored most significant byte first (alpha at the lowest address).
++void Write32(std::span<u8> plane, std::size_t offset, u32 value) {
++    plane[offset] = static_cast<u8>(value >> 24);
++    plane[offset + 1] = static_cast<u8>(value >> 16);
++    plane[offset + 2] = static_cast<u8>(value >> 8);
++    plane[offset + 3] = static_cast<u8>(value);
++}
++
++} // namespace
++
++u32 ValidateConfig(const PostprocessorConfig& config, bool combined) {
++    const u32 min_input_width = combined ? 48 : 16;
++    const u32 max_input = combined ? 8176 : 4096;
++    const u32 input_alignment = combined ? 8 : 16;
++
++    switch (config.input_format) {
++    case PixelFormat::YCbCr420Semiplanar:
++        break;
++    case PixelFormat::YCbCr420Tiled:
++    case PixelFormat::YCbCr400:
++        if (!combined) {
++            return Reject(ConfigError::InputFormat);
++        }
++        break;
++    case PixelFormat::YCbCr420Planar:
++        if (combined) {
++            return Reject(ConfigError::InputFormat);
++        }
++        break;
++    default:
++        if (combined || !IsPacked422(config.input_format)) {
++            return Reject(ConfigError::InputFormat);
++        }
++        break;
++    }
++    if (config.input_width < min_input_width || config.input_height < 16 ||
++        config.input_width > max_input || config.input_height > max_input ||
++        !IsAligned(config.input_width, input_alignment) ||
++        !IsAligned(config.input_height, input_alignment)) {
++        return Reject(ConfigError::InputSize);
++    }
++    if (!combined) {
++        const bool semiplanar = config.input_format == PixelFormat::YCbCr420Semiplanar;
++        const bool planar = config.input_format == PixelFormat::YCbCr420Planar;
++        if (!IsValidAddress(config.input_paddr) ||
++            ((semiplanar || planar) && !IsValidAddress(config.input_cb_paddr)) ||
++            (planar && !IsValidAddress(config.input_cr_paddr))) {
++            return Reject(ConfigError::InputAddress);
++        }
++    }
++    if (config.input_picture_structure > 5) {
++        return Reject(ConfigError::InputStructure);
++    }
++
++    u32 source_width = config.input_width;
++    u32 source_height = config.input_height;
++    if (config.crop_enable) {
++        if (!IsAligned(config.crop_x, 16) || !IsAligned(config.crop_y, 16) ||
++            !IsAligned(config.crop_width, 8) || !IsAligned(config.crop_height, 8) ||
++            config.crop_height < 16 || config.crop_width < min_input_width ||
++            config.crop_x + config.crop_width > config.input_width ||
++            config.crop_y + config.crop_height > config.input_height) {
++            return Reject(ConfigError::Crop);
++        }
++        source_width = config.crop_width;
++        source_height = config.crop_height;
++    }
++    if (config.rotation > 5) {
++        return Reject(ConfigError::Rotation);
++    }
++    if (config.rotation == 1 || config.rotation == 2) {
++        std::swap(source_width, source_height);
++    }
++
++    switch (config.output_format) {
++    case PixelFormat::YCbCr422Interleaved:
++    case PixelFormat::YCrYCb422Interleaved:
++    case PixelFormat::CbYCrY422Interleaved:
++    case PixelFormat::CrYCbY422Interleaved:
++    case PixelFormat::YCbCr420Semiplanar:
++    case PixelFormat::Rgb16Custom:
++    case PixelFormat::Rgb16_555:
++    case PixelFormat::Rgb16_565:
++    case PixelFormat::Bgr16_555:
++    case PixelFormat::Bgr16_565:
++    case PixelFormat::Rgb32Custom:
++    case PixelFormat::Rgb32:
++    case PixelFormat::Bgr32:
++        break;
++    default:
++        return Reject(ConfigError::OutputFormat);
++    }
++    if (config.output_width < 16 || config.output_width > 1920 || config.output_height < 16 ||
++        config.output_height > 4096) {
++        return Reject(ConfigError::OutputSize);
++    }
++    // Scaling: at most 3x up (3x - 2 for height), 1/70 down, and not up in one direction while
++    // down in the other.
++    const bool up_x = config.output_width > source_width;
++    const bool up_y = config.output_height > source_height;
++    const bool down_x = config.output_width < source_width;
++    const bool down_y = config.output_height < source_height;
++    if (config.output_width > 3 * source_width || config.output_height + 2 > 3 * source_height ||
++        config.output_width * 70 < source_width || config.output_height * 70 < source_height ||
++        (up_x && down_y) || (down_x && up_y)) {
++        return Reject(ConfigError::OutputSize);
++    }
++    if (!IsValidAddress(config.output_paddr) ||
++        (config.output_format == PixelFormat::YCbCr420Semiplanar &&
++         !IsValidAddress(config.output_chroma_paddr))) {
++        return Reject(ConfigError::OutputAddress);
++    }
++    if (IsRgb(config.output_format)) {
++        if (config.rgb_transform > 2 || config.contrast < -64 || config.contrast > 64 ||
++            config.brightness < -128 || config.brightness > 127 || config.saturation < -64 ||
++            config.saturation > 128) {
++            return Reject(ConfigError::ColorAdjustment);
++        }
++        if (config.output_format == PixelFormat::Rgb16Custom ||
++            config.output_format == PixelFormat::Rgb32Custom) {
++            const std::array<u32, 4> masks{config.mask_r, config.mask_g, config.mask_b,
++                                           config.mask_alpha};
++            u32 all = 0;
++            for (const u32 mask : masks) {
++                if (!IsContiguousMask(mask) || (all & mask) != 0 ||
++                    (config.output_format == PixelFormat::Rgb16Custom && mask > 0xFFFF)) {
++                    return Reject(ConfigError::RgbMasks);
++                }
++                all |= mask;
++            }
++        }
++    }
++    if (config.frame_buffer_enable) {
++        const bool nv12 = config.output_format == PixelFormat::YCbCr420Semiplanar;
++        const s64 x = config.frame_buffer_x, y = config.frame_buffer_y;
++        if (config.frame_buffer_width == 0 || config.frame_buffer_width > 4096 ||
++            config.frame_buffer_height == 0 || config.frame_buffer_height > 4096 ||
++            x >= config.frame_buffer_width || y >= config.frame_buffer_height ||
++            x + config.output_width <= 0 || y + config.output_height <= 0 ||
++            (nv12 && ((y & 1) != 0 || (config.frame_buffer_height & 1) != 0))) {
++            return Reject(ConfigError::FrameBuffer);
++        }
++    }
++    return 0;
++}
++
++OutputLayout GetOutputLayout(const PostprocessorConfig& config) {
++    OutputLayout layout;
++    layout.width = config.frame_buffer_enable ? config.frame_buffer_width : config.output_width;
++    layout.height = config.frame_buffer_enable ? config.frame_buffer_height : config.output_height;
++    if (config.output_format == PixelFormat::YCbCr420Semiplanar) {
++        layout.bytes_per_pixel = 1;
++        layout.plane_size = std::size_t{layout.width} * layout.height;
++        layout.chroma_size = std::size_t{layout.width} * ((layout.height + 1) / 2);
++        return layout;
++    }
++    layout.bytes_per_pixel = IsRgb32(config.output_format) ? 4 : 2;
++    layout.plane_size = std::size_t{layout.width} * layout.height * layout.bytes_per_pixel;
++    return layout;
++}
++
++void Postprocess(const SourceImage& source, const PostprocessorConfig& config,
++                 const OutputPlanes& output) {
++    if (source.width == 0 || source.height == 0) {
++        return;
++    }
++    if (config.contrast != 0) {
++        LOG_WARNING(Service_MVD, "Contrast adjustment ({}) is not emulated", config.contrast);
++    }
++    for (const u32 enable : {config.overlay1[0], config.overlay2[0], config.deinterlace}) {
++        if (enable) {
++            LOG_WARNING(Service_MVD, "Output masks and deinterlacing are not emulated");
++            break;
++        }
++    }
++
++    // The source rectangle, in the source image (which may be smaller than the configured input
++    // when the stream's crop window is all the decoder kept).
++    u32 crop_x = 0, crop_y = 0;
++    u32 crop_width = std::min(config.input_width, source.width);
++    u32 crop_height = std::min(config.input_height, source.height);
++    if (config.crop_enable) {
++        crop_x = std::min(config.crop_x, source.width - 1);
++        crop_y = std::min(config.crop_y, source.height - 1);
++        crop_width = std::min(config.crop_width, source.width - crop_x);
++        crop_height = std::min(config.crop_height, source.height - crop_y);
++    }
++    const bool transposed = config.rotation == 1 || config.rotation == 2;
++    const u32 rotated_width = transposed ? crop_height : crop_width;
++    const u32 rotated_height = transposed ? crop_width : crop_height;
++
++    // Maps a position in the rotated rectangle to the source image.
++    const auto unrotate = [&](float x, float y) -> std::pair<float, float> {
++        const float w = static_cast<float>(crop_width - 1), h = static_cast<float>(crop_height - 1);
++        float sx = x, sy = y;
++        switch (config.rotation) {
++        case 1: // 90 degrees right: the source's bottom-left lands top-left
++            sx = y, sy = h - x;
++            break;
++        case 2: // 90 degrees left
++            sx = w - y, sy = x;
++            break;
++        case 3: // horizontal flip
++            sx = w - x;
++            break;
++        case 4: // vertical flip
++            sy = h - y;
++            break;
++        case 5: // 180 degrees
++            sx = w - x, sy = h - y;
++            break;
++        default:
++            break;
++        }
++        return {sx + static_cast<float>(crop_x), sy + static_cast<float>(crop_y)};
++    };
++
++    const Sampler sampler(source);
++    const bool identity = config.rotation == 0 && rotated_width == config.output_width &&
++                          rotated_height == config.output_height;
++    const float scale_x =
++        static_cast<float>(rotated_width) / static_cast<float>(config.output_width);
++    const float scale_y =
++        static_cast<float>(rotated_height) / static_cast<float>(config.output_height);
++    const auto sample = [&](u32 ox, u32 oy) {
++        if (identity) {
++            return sampler.At(ox + crop_x, oy + crop_y);
++        }
++        const float rx = (static_cast<float>(ox) + 0.5f) * scale_x - 0.5f;
++        const float ry = (static_cast<float>(oy) + 0.5f) * scale_y - 0.5f;
++        const auto [sx, sy] = unrotate(std::max(rx, 0.0f), std::max(ry, 0.0f));
++        return sampler.Bilinear(sx, sy);
++    };
++
++    const OutputLayout layout = GetOutputLayout(config);
++    const s64 origin_x = config.frame_buffer_enable ? config.frame_buffer_x : 0;
++    const s64 origin_y = config.frame_buffer_enable ? config.frame_buffer_y : 0;
++    const ColorConverter converter(config);
++    const auto order = Packed422Order(config.output_format);
++    const u32 alpha = config.alpha & 0xFF;
++    const u16 transparency = config.transparency ? 0x8000 : 0;
++
++    if (IsPacked422(config.output_format)) {
++        // Pixel pairs of the surface share Cb and Cr, averaged over the pair's picture pixels.
++        for (u32 oy = 0; oy < config.output_height; ++oy) {
++            const s64 y = origin_y + oy;
++            if (y < 0 || y >= layout.height) {
++                continue;
++            }
++            for (s64 pair_x = (origin_x & ~s64{1}); pair_x < origin_x + config.output_width;
++                 pair_x += 2) {
++                if (pair_x < 0 || pair_x + 1 >= layout.width) {
++                    continue;
++                }
++                const std::size_t pair = (static_cast<std::size_t>(y) * layout.width + pair_x) * 2;
++                std::array<std::optional<YCbCr>, 2> pixels;
++                for (s64 i = 0; i < 2; ++i) {
++                    const s64 ox = pair_x + i - origin_x;
++                    if (ox >= 0 && ox < config.output_width) {
++                        pixels[i] = sample(static_cast<u32>(ox), oy);
++                    }
++                }
++                const YCbCr first = pixels[0].value_or(*pixels[1]);
++                const YCbCr second = pixels[1].value_or(*pixels[0]);
++                if (pixels[0]) {
++                    output.plane[pair + order[0]] = first.y;
++                }
++                if (pixels[1]) {
++                    output.plane[pair + order[2]] = second.y;
++                }
++                output.plane[pair + order[1]] = static_cast<u8>((first.cb + second.cb + 1) / 2);
++                output.plane[pair + order[3]] = static_cast<u8>((first.cr + second.cr + 1) / 2);
++            }
++        }
++        return;
++    }
++
++    for (u32 oy = 0; oy < config.output_height; ++oy) {
++        const s64 y = origin_y + oy;
++        if (y < 0 || y >= layout.height) {
++            continue;
++        }
++        for (u32 ox = 0; ox < config.output_width; ++ox) {
++            const s64 x = origin_x + ox;
++            if (x < 0 || x >= layout.width) {
++                continue;
++            }
++            const std::size_t pixel = static_cast<std::size_t>(y) * layout.width + x;
++            switch (config.output_format) {
++            case PixelFormat::YCbCr420Semiplanar: {
++                const YCbCr value = sample(ox, oy);
++                output.plane[pixel] = value.y;
++                if ((y & 1) == 0 && (x & 1) == 0) {
++                    const std::size_t c = static_cast<std::size_t>(y / 2) * layout.width + x;
++                    output.chroma[c] = value.cb;
++                    output.chroma[c + 1] = value.cr;
++                }
++                break;
++            }
++            default: {
++                const auto rgb = converter.ToRgb(sample(ox, oy));
++                const std::size_t offset = pixel * layout.bytes_per_pixel;
++                switch (config.output_format) {
++                case PixelFormat::Rgb16_565:
++                    Write16(
++                        output.plane, offset,
++                        static_cast<u16>((rgb[0] >> 3) << 11 | (rgb[1] >> 2) << 5 | rgb[2] >> 3));
++                    break;
++                case PixelFormat::Bgr16_565:
++                    Write16(
++                        output.plane, offset,
++                        static_cast<u16>((rgb[2] >> 3) << 11 | (rgb[1] >> 2) << 5 | rgb[0] >> 3));
++                    break;
++                case PixelFormat::Rgb16_555:
++                    Write16(output.plane, offset,
++                            static_cast<u16>(transparency | (rgb[0] >> 3) << 10 |
++                                             (rgb[1] >> 3) << 5 | rgb[2] >> 3));
++                    break;
++                case PixelFormat::Bgr16_555:
++                    Write16(output.plane, offset,
++                            static_cast<u16>(transparency | (rgb[2] >> 3) << 10 |
++                                             (rgb[1] >> 3) << 5 | rgb[0] >> 3));
++                    break;
++                case PixelFormat::Rgb16Custom:
++                    Write16(output.plane, offset,
++                            static_cast<u16>(PackMasked(rgb, config.mask_r, config.mask_g,
++                                                        config.mask_b, config.mask_alpha)));
++                    break;
++                case PixelFormat::Rgb32:
++                    Write32(output.plane, offset,
++                            alpha << 24 | u32{rgb[0]} << 16 | u32{rgb[1]} << 8 | rgb[2]);
++                    break;
++                case PixelFormat::Bgr32:
++                    Write32(output.plane, offset,
++                            alpha << 24 | u32{rgb[2]} << 16 | u32{rgb[1]} << 8 | rgb[0]);
++                    break;
++                case PixelFormat::Rgb32Custom:
++                    Write32(output.plane, offset,
++                            PackMasked(rgb, config.mask_r, config.mask_g, config.mask_b,
++                                       config.mask_alpha));
++                    break;
++                default:
++                    break;
++                }
++                break;
++            }
++            }
++        }
++    }
++}
++
++std::array<std::size_t, 3> StandaloneInputSizes(PixelFormat format, u32 width, u32 height) {
++    const std::size_t pixels = std::size_t{width} * height;
++    switch (format) {
++    case PixelFormat::YCbCr420Semiplanar:
++        return {pixels, pixels / 2, 0};
++    case PixelFormat::YCbCr420Planar:
++        return {pixels, pixels / 4, pixels / 4};
++    default:
++        return {IsPacked422(format) ? pixels * 2 : 0, 0, 0};
++    }
++}
++
++std::optional<StandaloneInput> LoadStandaloneInput(PixelFormat format, u32 width, u32 height,
++                                                   std::span<const u8> plane,
++                                                   std::span<const u8> cb, std::span<const u8> cr) {
++    const auto sizes = StandaloneInputSizes(format, width, height);
++    if (sizes[0] == 0 || plane.size() < sizes[0] || cb.size() < sizes[1] || cr.size() < sizes[2]) {
++        return std::nullopt;
++    }
++    StandaloneInput input;
++    input.image.width = width;
++    input.image.height = height;
++    input.image.luma_stride = width;
++    input.image.chroma_stride = (width + 1) / 2 * 2;
++    input.luma.resize(std::size_t{width} * height);
++
++    if (IsPacked422(format)) {
++        const auto order = Packed422Order(format);
++        input.image.chroma_full_height = true;
++        input.chroma.resize(std::size_t{input.image.chroma_stride} * height);
++        for (u32 y = 0; y < height; ++y) {
++            for (u32 x = 0; x < width; x += 2) {
++                const std::size_t pair = (std::size_t{y} * width + x) * 2;
++                input.luma[std::size_t{y} * width + x] = plane[pair + order[0]];
++                if (x + 1 < width) {
++                    input.luma[std::size_t{y} * width + x + 1] = plane[pair + order[2]];
++                }
++                const std::size_t c = std::size_t{y} * input.image.chroma_stride + x;
++                input.chroma[c] = plane[pair + order[1]];
++                input.chroma[c + 1] = plane[pair + order[3]];
++            }
++        }
++    } else {
++        std::copy_n(plane.begin(), input.luma.size(), input.luma.begin());
++        const std::size_t chroma_rows = (height + 1) / 2;
++        input.chroma.resize(std::size_t{input.image.chroma_stride} * chroma_rows);
++        if (format == PixelFormat::YCbCr420Semiplanar) {
++            std::copy_n(cb.begin(), std::min(cb.size(), input.chroma.size()), input.chroma.begin());
++        } else {
++            const u32 chroma_width = (width + 1) / 2;
++            for (std::size_t y = 0; y < chroma_rows; ++y) {
++                for (u32 x = 0; x < chroma_width; ++x) {
++                    const std::size_t c = y * input.image.chroma_stride + x * 2;
++                    input.chroma[c] = cb[y * chroma_width + x];
++                    input.chroma[c + 1] = cr[y * chroma_width + x];
++                }
++            }
++        }
++    }
++    // Moving the vectors into the result keeps their storage, so these views stay valid.
++    input.image.luma = input.luma;
++    input.image.chroma = input.chroma;
++    return input;
++}
++
++} // namespace Service::MVD
+diff --git a/src/core/hle/service/mvd/postprocessor.h b/src/core/hle/service/mvd/postprocessor.h
+new file mode 100644
+index 0000000..d0cb2d7
+--- /dev/null
++++ b/src/core/hle/service/mvd/postprocessor.h
+@@ -0,0 +1,156 @@
++// Copyright 2026 Azahar Emulator Project
++// Licensed under GPLv2 or any later version
++// Refer to the license.txt file included.
++
++#pragma once
++
++#include <array>
++#include <cstddef>
++#include <optional>
++#include <span>
++#include <vector>
++#include <boost/serialization/binary_object.hpp>
++#include "common/common_types.h"
++
++namespace Service::MVD {
++
++/// Hantro postprocessor pixel formats (PP_PIX_FMT_*), used for both input and output.
++enum class PixelFormat : u32 {
++    YCbCr422Interleaved = 0x00010001, ///< Y0 Cb Y1 Cr (YUYV)
++    YCrYCb422Interleaved = 0x00010005,
++    CbYCrY422Interleaved = 0x00010006,
++    CrYCbY422Interleaved = 0x00010007,
++    YCbCr420Planar = 0x00020000,
++    YCbCr420Semiplanar = 0x00020001, ///< NV12, the decoder's native output
++    YCbCr420Tiled = 0x00020002,
++    YCbCr400 = 0x00080000, ///< Luma only
++    Rgb16Custom = 0x00040000,
++    Rgb16_555 = 0x00040001,
++    Rgb16_565 = 0x00040002, ///< R in bits 15..11; libctru calls this MVD_OUTPUT_BGR565
++    Bgr16_555 = 0x00040003,
++    Bgr16_565 = 0x00040004, ///< B in bits 15..11; libctru calls this MVD_OUTPUT_RGB565
++    Rgb32Custom = 0x00041000,
++    Rgb32 = 0x00041001,
++    Bgr32 = 0x00041002,
++};
++
++/// The 0x11C-byte configuration exchanged with GetConfig and SetConfig: Hantro's PPConfig.
++/// Addresses are physical.
++struct PostprocessorConfig {
++    PixelFormat input_format;
++    u32 input_picture_structure;
++    u32 input_full_range;
++    u32 input_width;
++    u32 input_height;
++    u32 input_paddr;
++    u32 input_cb_paddr;
++    u32 input_cr_paddr;
++    u32 input_bottom_paddr;
++    u32 input_bottom_chroma_paddr;
++    std::array<u32, 6> vc1;
++    u32 crop_enable;
++    u32 crop_x;
++    u32 crop_y;
++    u32 crop_height;
++    u32 crop_width;
++    u32 rotation;
++    PixelFormat output_format;
++    u32 output_width;
++    u32 output_height;
++    u32 output_paddr;
++    u32 output_chroma_paddr;
++    u32 rgb_transform; ///< 0 custom (coefficients below), 1 BT.601, 2 BT.709
++    s32 contrast;
++    s32 brightness;
++    s32 saturation;
++    u32 alpha;
++    u32 transparency;
++    std::array<u32, 5> coefficients; ///< a..e, 8.8 fixed point
++    u32 mask_r;
++    u32 mask_g;
++    u32 mask_b;
++    u32 mask_alpha;
++    u32 dithering;
++    std::array<u32, 11> overlay1;
++    std::array<u32, 11> overlay2;
++    u32 frame_buffer_enable;
++    s32 frame_buffer_x;
++    s32 frame_buffer_y;
++    u32 frame_buffer_width;
++    u32 frame_buffer_height;
++    u32 deinterlace;
++
++    template <class Archive>
++    void serialize(Archive& ar, const unsigned int) {
++        ar& boost::serialization::make_binary_object(this, sizeof(*this));
++    }
++};
++static_assert(sizeof(PostprocessorConfig) == 0x11C, "MVD configuration has the wrong size");
++static_assert(offsetof(PostprocessorConfig, crop_enable) == 0x40);
++static_assert(offsetof(PostprocessorConfig, output_format) == 0x58);
++static_assert(offsetof(PostprocessorConfig, output_paddr) == 0x64);
++static_assert(offsetof(PostprocessorConfig, rgb_transform) == 0x6C);
++static_assert(offsetof(PostprocessorConfig, coefficients) == 0x84);
++static_assert(offsetof(PostprocessorConfig, dithering) == 0xA8);
++static_assert(offsetof(PostprocessorConfig, overlay2) == 0xD8);
++static_assert(offsetof(PostprocessorConfig, frame_buffer_enable) == 0x104);
++
++/// An image the postprocessor reads: a luma plane and a plane of interleaved Cb/Cr samples at
++/// half the horizontal resolution and, for 4:2:0 (NV12), half the vertical resolution too.
++struct SourceImage {
++    u32 width = 0;
++    u32 height = 0;
++    std::span<const u8> luma;
++    u32 luma_stride = 0;
++    std::span<const u8> chroma;
++    u32 chroma_stride = 0;
++    bool chroma_full_height = false; ///< 4:2:2 rather than 4:2:0.
++    bool monochrome = false;
++};
++
++/// Where the postprocessor writes: the output plane (or packed image) and, for NV12 output,
++/// the chroma plane.
++struct OutputPlanes {
++    std::span<u8> plane;
++    std::span<u8> chroma;
++};
++
++/// The image layout the configuration writes.
++struct OutputLayout {
++    u32 width = 0; ///< Of the whole surface (the frame buffer, when enabled).
++    u32 height = 0;
++    u32 bytes_per_pixel = 0;
++    std::size_t plane_size = 0;
++    std::size_t chroma_size = 0; ///< Non-zero only for NV12 output.
++};
++
++/// The Hantro status a configuration is rejected with (as a 3DS result), or 0 when it is valid.
++/// `combined` is true when the postprocessor is attached to the decoder.
++u32 ValidateConfig(const PostprocessorConfig& config, bool combined);
++
++/// The surface a (valid) configuration writes.
++OutputLayout GetOutputLayout(const PostprocessorConfig& config);
++
++/// Crops, rotates and scales `source` and converts it to the output format, writing into
++/// `output`, which must be at least as large as GetOutputLayout reports.
++void Postprocess(const SourceImage& source, const PostprocessorConfig& config,
++                 const OutputPlanes& output);
++
++/// A standalone input converted into the planes a SourceImage reads.
++struct StandaloneInput {
++    std::vector<u8> luma;
++    std::vector<u8> chroma;
++    SourceImage image;
++};
++
++/// Reads a standalone color-conversion input (packed 4:2:2, planar or semiplanar 4:2:0) from
++/// its planes; std::nullopt for formats MVD can't take as standalone input.
++std::optional<StandaloneInput> LoadStandaloneInput(PixelFormat format, u32 width, u32 height,
++                                                   std::span<const u8> plane,
++                                                   std::span<const u8> cb, std::span<const u8> cr);
++
++/// Bytes a standalone input of this format occupies (luma or packed plane, and each chroma
++/// plane).
++std::array<std::size_t, 3> StandaloneInputSizes(PixelFormat format, u32 width, u32 height);
++
++} // namespace Service::MVD
+diff --git a/src/tests/CMakeLists.txt b/src/tests/CMakeLists.txt
+index c1e8429..1366744 100644
+--- a/src/tests/CMakeLists.txt
++++ b/src/tests/CMakeLists.txt
+@@ -5,6 +5,10 @@ add_executable(tests
+     core/core_timing.cpp
+     core/file_sys/path_parser.cpp
+     core/hle/kernel/hle_ipc.cpp
++    core/hle/service/mvd/h264_decoder.cpp
++    core/hle/service/mvd/mvd_std.cpp
++    core/hle/service/mvd/postprocessor.cpp
++    core/hle/service/mvd/test_stream.h
+     core/memory/memory.cpp
+     core/memory/vm_manager.cpp
+     precompiled_headers.h
+diff --git a/src/tests/core/hle/service/mvd/h264_decoder.cpp b/src/tests/core/hle/service/mvd/h264_decoder.cpp
+new file mode 100644
+index 0000000..9d9e31a
+--- /dev/null
++++ b/src/tests/core/hle/service/mvd/h264_decoder.cpp
+@@ -0,0 +1,116 @@
++// Copyright 2026 Azahar Emulator Project
++// Licensed under GPLv2 or any later version
++// Refer to the license.txt file included.
++
++#include <array>
++#include <vector>
++#include <catch2/catch_test_macros.hpp>
++#include "core/hle/service/mvd/h264_decoder.h"
++#include "tests/core/hle/service/mvd/test_stream.h"
++
++using namespace Service::MVD;
++
++TEST_CASE("MVD H.264 NAL unit helpers", "[service][mvd]") {
++    const std::array<u8, 6> four_byte{0x00, 0x00, 0x00, 0x01, 0x65, 0x88};
++    const std::array<u8, 5> three_byte{0x00, 0x00, 0x01, 0x41, 0x9A};
++    REQUIRE(StripStartCode(four_byte).size() == 2);
++    REQUIRE(StripStartCode(three_byte).size() == 2);
++    REQUIRE(GetNalUnitType(StripStartCode(four_byte)) == NalUnitType::IdrSlice);
++    REQUIRE(GetNalUnitType(StripStartCode(three_byte)) == NalUnitType::Slice);
++    REQUIRE(GetNalRefIdc(StripStartCode(four_byte)) == 3);
++    REQUIRE(GetNalRefIdc(std::array<u8, 1>{0x01}) == 0);
++
++    // first_mb_in_slice is ue(v): "1" is 0, "00110" is 5.
++    const std::array<u8, 2> first_mb_zero{0x65, 0x80};
++    const std::array<u8, 2> first_mb_five{0x41, 0x30};
++    REQUIRE(GetFirstMbInSlice(first_mb_zero) == 0u);
++    REQUIRE(GetFirstMbInSlice(first_mb_five) == 5u);
++
++    // 23 zero bits, a one and 23 more zero bits (2^23 - 1) need two emulation prevention bytes.
++    const std::array<u8, 9> escaped{0x41, 0x00, 0x00, 0x03, 0x01, 0x00, 0x00, 0x03, 0x00};
++    REQUIRE(GetFirstMbInSlice(escaped) == (1u << 23) - 1);
++
++    const std::array<u8, 2> sps{0x67, 0x42};
++    REQUIRE(GetFirstMbInSlice(sps) == std::nullopt);
++    REQUIRE(GetFirstMbInSlice(std::span<const u8>{}) == std::nullopt);
++}
++
++TEST_CASE("MVD H.264 sequence parameter sets", "[service][mvd]") {
++    const auto units = MvdTest::SplitAnnexB(MvdTest::stream);
++    const auto info = ParseSequenceParameterSet(StripStartCode(units[0]));
++    REQUIRE(info);
++    REQUIRE(info->coded_width == MvdTest::width);
++    REQUIRE(info->coded_height == MvdTest::height);
++    REQUIRE(info->crop_left == 0);
++    REQUIRE(info->crop_width == MvdTest::width);
++    REQUIRE(info->crop_height == MvdTest::height);
++    REQUIRE_FALSE(info->monochrome);
++    REQUIRE_FALSE(info->interlaced);
++    REQUIRE_FALSE(ParseSequenceParameterSet(StripStartCode(units[1])));
++
++    // The SPS of an 854x480 Baseline stream from x264 (`ffmpeg -f lavfi -i
++    // testsrc2=size=854x480 -c:v libx264 -profile:v baseline`): coded as 864x480 with 10
++    // columns cropped on the right.
++    const std::array<u8, 25> cropped{0x67, 0x42, 0xC0, 0x1F, 0xD9, 0x00, 0xD8, 0x3D, 0xE6,
++                                     0xF0, 0x11, 0x00, 0x00, 0x03, 0x00, 0x01, 0x00, 0x00,
++                                     0x03, 0x00, 0x3C, 0x0F, 0x18, 0x32, 0x48};
++    const auto wide = ParseSequenceParameterSet(cropped);
++    REQUIRE(wide);
++    REQUIRE(wide->coded_width == 864);
++    REQUIRE(wide->coded_height == 480);
++    REQUIRE(wide->crop_left == 0);
++    REQUIRE(wide->crop_width == 854);
++    REQUIRE(wide->crop_height == 480);
++}
++
++TEST_CASE("MVD H.264 decoder reproduces a Baseline stream exactly", "[service][mvd]") {
++    auto decoder = CreateH264Decoder();
++    if (!decoder) {
++        SKIP("No H.264 decoder on this platform");
++    }
++    std::vector<DecodedPicture> pictures;
++    for (const auto unit : MvdTest::SplitAnnexB(MvdTest::stream)) {
++        const auto nal_unit = StripStartCode(unit);
++        const auto before = pictures.size();
++        for (auto& picture : decoder->Decode(nal_unit)) {
++            pictures.push_back(std::move(picture));
++        }
++        // A single-slice picture comes out with its slice, as the hardware reports it.
++        const auto type = GetNalUnitType(nal_unit);
++        const bool slice = type == NalUnitType::Slice || type == NalUnitType::IdrSlice;
++        REQUIRE(pictures.size() == before + (slice ? 1 : 0));
++    }
++    REQUIRE(decoder->Flush().empty());
++    REQUIRE(pictures.size() == MvdTest::expected_pictures.size());
++    for (std::size_t i = 0; i < pictures.size(); ++i) {
++        REQUIRE(pictures[i].width == MvdTest::width);
++        REQUIRE(pictures[i].height == MvdTest::height);
++        REQUIRE(MvdTest::Fnv1a(pictures[i].luma, pictures[i].chroma) ==
++                MvdTest::expected_pictures[i]);
++    }
++}
++
++TEST_CASE("MVD H.264 decoder restarts cleanly after a reset", "[service][mvd]") {
++    auto decoder = CreateH264Decoder();
++    if (!decoder) {
++        SKIP("No H.264 decoder on this platform");
++    }
++    const auto units = MvdTest::SplitAnnexB(MvdTest::stream);
++    for (const auto unit : units) {
++        decoder->Decode(StripStartCode(unit));
++    }
++    decoder->Reset();
++
++    // Without parameter sets a slice can't be decoded.
++    REQUIRE(decoder->Decode(StripStartCode(units[3])).empty());
++
++    std::vector<DecodedPicture> pictures;
++    for (const auto unit : units) {
++        for (auto& picture : decoder->Decode(StripStartCode(unit))) {
++            pictures.push_back(std::move(picture));
++        }
++    }
++    REQUIRE(pictures.size() == MvdTest::expected_pictures.size());
++    REQUIRE(MvdTest::Fnv1a(pictures.back().luma, pictures.back().chroma) ==
++            MvdTest::expected_pictures.back());
++}
+diff --git a/src/tests/core/hle/service/mvd/mvd_std.cpp b/src/tests/core/hle/service/mvd/mvd_std.cpp
+new file mode 100644
+index 0000000..2a3c889
+--- /dev/null
++++ b/src/tests/core/hle/service/mvd/mvd_std.cpp
+@@ -0,0 +1,354 @@
++// Copyright 2026 Azahar Emulator Project
++// Licensed under GPLv2 or any later version
++// Refer to the license.txt file included.
++
++#include <cstring>
++#include <vector>
++#include <catch2/catch_test_macros.hpp>
++#include "core/core.h"
++#include "core/core_timing.h"
++#include "core/hle/ipc.h"
++#include "core/hle/kernel/hle_ipc.h"
++#include "core/hle/kernel/process.h"
++#include "core/hle/kernel/server_session.h"
++#include "core/hle/service/mvd/mvd_std.h"
++#include "core/memory.h"
++#include "tests/core/hle/service/mvd/test_stream.h"
++
++using namespace Service::MVD;
++using MvdTest::height;
++using MvdTest::width;
++
++namespace {
++
++// Where the client keeps things, as linear-memory virtual and physical addresses.
++constexpr VAddr WorkBuffer = 0x30100000;
++constexpr u32 WorkBufferSize = 0x9006C8;
++constexpr VAddr Input = 0x31000000;
++constexpr PAddr InputPhysical = 0x21000000;
++constexpr PAddr Output = 0x21100000;
++constexpr VAddr ConfigBuffer = 0x10000000;
++
++/// mvd:STD driven the way libctru's client drives it.
++class MvdClient {
++public:
++    MvdClient() {
++        process->handle_table.Create(std::addressof(process_handle), process);
++        config_memory = std::make_shared<BufferMem>(Memory::CITRA_PAGE_SIZE);
++        REQUIRE(process->vm_manager
++                    .MapBackingMemory(ConfigBuffer, MemoryRef{config_memory},
++                                      Memory::CITRA_PAGE_SIZE, Kernel::MemoryState::Private)
++                    .Code() == ResultSuccess);
++    }
++
++    std::vector<u32> Call(std::vector<u32> request, std::size_t reply_words) {
++        auto [server, client] = kernel.CreateSessionPair();
++        Kernel::HLERequestContext context(kernel, std::move(server), nullptr);
++        context.PopulateFromIncomingCommandBuffer(request.data(), process);
++        service->HandleSyncRequest(context);
++        const u32* reply = context.CommandBuffer();
++        return std::vector<u32>(reply + 1, reply + 1 + reply_words);
++    }
++
++    u32 Initialize() {
++        return Call({IPC::MakeHeader(0x1, 2, 2), WorkBuffer, WorkBufferSize, IPC::CopyHandleDesc(),
++                     process_handle},
++                    1)[0];
++    }
++
++    /// Initialize, H264Initialize, PpInitialize and PpEnableCombinedMode(H.264), as mvdstdInit.
++    void InitializeVideo() {
++        REQUIRE(Initialize() == 0);
++        REQUIRE(Call({IPC::MakeHeader(0x5, 4, 0), 0, 0, 0, 0}, 1)[0] == 0x17000);
++        REQUIRE(Call({IPC::MakeHeader(0x18, 0, 0)}, 1)[0] == 0x17000);
++        REQUIRE(Call({IPC::MakeHeader(0x1B, 1, 0), 1}, 1)[0] == 0x17000);
++    }
++
++    /// ProcessNALUnit: returns {status, end vaddr, end paddr, remaining}.
++    std::vector<u32> ProcessNalUnit(std::span<const u8> data, u32 picture_id, bool skip = false) {
++        std::memcpy(memory.GetPhysicalPointer(InputPhysical), data.data(), data.size());
++        return Call({IPC::MakeHeader(0x8, 5, 2), Input, InputPhysical,
++                     static_cast<u32>(data.size()), picture_id, skip ? 1u : 0u,
++                     IPC::CopyHandleDesc(), process_handle},
++                    4);
++    }
++
++    /// ControlFrameRendering: returns the status and the 16-word picture record.
++    std::vector<u32> NextPicture(bool end_of_stream = false) {
++        return Call({IPC::MakeHeader(0x9, 1, 2), end_of_stream ? 1u : 0u, IPC::CopyHandleDesc(),
++                     process_handle},
++                    17);
++    }
++
++    u32 SetConfig(const PostprocessorConfig& config) {
++        std::memcpy(config_memory->GetPtr(), &config, sizeof(config));
++        return Call({IPC::MakeHeader(0x1E, 1, 4), sizeof(config), IPC::CopyHandleDesc(),
++                     process_handle, IPC::MappedBufferDesc(sizeof(config), IPC::R), ConfigBuffer},
++                    1)[0];
++    }
++
++    PostprocessorConfig GetConfig() {
++        std::memset(config_memory->GetPtr(), 0, sizeof(PostprocessorConfig));
++        REQUIRE(Call({IPC::MakeHeader(0x1D, 1, 2), sizeof(PostprocessorConfig),
++                      IPC::MappedBufferDesc(sizeof(PostprocessorConfig), IPC::W), ConfigBuffer},
++                     1)[0] == 0x17000);
++        PostprocessorConfig config;
++        std::memcpy(&config, config_memory->GetPtr(), sizeof(config));
++        return config;
++    }
++
++    Core::Timing timing{1, 100};
++    Core::System system;
++    Memory::MemorySystem memory{system};
++    Kernel::KernelSystem kernel{memory, timing, [] {}, Kernel::MemoryMode::NewProd, 1};
++    std::shared_ptr<Kernel::Process> process = kernel.CreateProcess(kernel.CreateCodeSet("", 0));
++    Kernel::Handle process_handle{};
++    std::shared_ptr<BufferMem> config_memory;
++    std::shared_ptr<MVD_STD> service = std::make_shared<MVD_STD>(system, memory);
++};
++
++/// The configuration SKATER and libctru's examples use for video: decoder input, RGB565 out.
++PostprocessorConfig VideoConfig(u32 picture_width, u32 picture_height) {
++    PostprocessorConfig config{};
++    config.input_format = PixelFormat::YCbCr420Semiplanar;
++    config.input_width = picture_width;
++    config.input_height = picture_height;
++    config.crop_enable = 1;
++    config.crop_width = picture_width;
++    config.crop_height = picture_height;
++    config.output_format = PixelFormat::Rgb16_565;
++    config.output_width = picture_width;
++    config.output_height = picture_height;
++    config.output_paddr = Output;
++    config.rgb_transform = 1;
++    return config;
++}
++
++/// The reference picture converted with the documented BT.601 limited-range coefficients.
++std::vector<u16> ExpectedRgb565(std::span<const u8> luma, std::span<const u8> chroma) {
++    std::vector<u16> pixels;
++    for (u32 y = 0; y < height; ++y) {
++        for (u32 x = 0; x < width; ++x) {
++            const int luma_term = 298 * (luma[y * width + x] - 16);
++            const int cb = chroma[(y / 2) * width + (x / 2) * 2] - 128;
++            const int cr = chroma[(y / 2) * width + (x / 2) * 2 + 1] - 128;
++            const auto channel = [](int value) { return std::clamp((value + 128) >> 8, 0, 255); };
++            const int r = channel(luma_term + 409 * cr);
++            const int g = channel(luma_term - 208 * cr - 100 * cb);
++            const int b = channel(luma_term + 516 * cb);
++            pixels.push_back(static_cast<u16>((r >> 3) << 11 | (g >> 2) << 5 | b >> 3));
++        }
++    }
++    return pixels;
++}
++
++std::vector<u16> ReadRgb565(Memory::MemorySystem& memory, PAddr address, std::size_t count) {
++    std::vector<u16> pixels(count);
++    std::memcpy(pixels.data(), memory.GetPhysicalPointer(address), count * 2);
++    return pixels;
++}
++
++} // namespace
++
++TEST_CASE("mvd:STD has the real service name", "[service][mvd]") {
++    MvdClient client;
++    REQUIRE(client.service->GetServiceName() == "mvd:STD");
++}
++
++TEST_CASE("mvd:STD calculates the browser's work buffer size", "[service][mvd]") {
++    MvdClient client;
++    // 854x480 at level 3.2 with the level estimate's extra-op flag: 3dbrew's 0x9006C8.
++    std::vector<u32> request(13, 0);
++    request[0] = IPC::MakeHeader(0x3, 12, 0);
++    request[1] = 0x0002'0100; // bytes 1..2: level estimate enabled, flag 2
++    request[2] = 0x0000'000A; // byte 4: level 3.2
++    request[11] = 854;
++    request[12] = 480;
++    const auto reply = client.Call(request, 2);
++    REQUIRE(reply[0] == 0);
++    REQUIRE(reply[1] == 0x9006C8);
++}
++
++TEST_CASE("mvd:STD decodes H.264 into the configured output", "[service][mvd]") {
++    MvdClient client;
++    if (!CreateH264Decoder()) {
++        SKIP("No H.264 decoder on this platform");
++    }
++    client.InitializeVideo();
++    const auto units = MvdTest::SplitAnnexB(MvdTest::stream);
++
++    // Before any stream headers there is no information.
++    REQUIRE(client.Call({IPC::MakeHeader(0xA, 0, 0)}, 17)[0] == 0xD96170CE);
++
++    // Parameter sets and SEI are consumed without a picture.
++    for (std::size_t i = 0; i < 3; ++i) {
++        const auto reply = client.ProcessNalUnit(units[i], 0);
++        REQUIRE(reply[0] == 0x17001);
++        REQUIRE(reply[2] == InputPhysical + units[i].size());
++        REQUIRE(reply[3] == 0);
++    }
++
++    // The first slice of the new sequence stops for the headers and isn't consumed.
++    auto reply = client.ProcessNalUnit(units[3], 0);
++    REQUIRE(reply[0] == 0x17004);
++    REQUIRE(reply[3] == units[3].size());
++    const auto info = client.Call({IPC::MakeHeader(0xA, 0, 0)}, 17);
++    REQUIRE(info[0] == 0x17000);
++    REQUIRE(info[1] == width);
++    REQUIRE(info[2] == height);
++    REQUIRE(info[6] == width);                   // crop width
++    REQUIRE(info[8] == height);                  // crop height
++    REQUIRE(info[9] == 0x00020001);              // NV12 output from the decoder
++    REQUIRE(client.NextPicture()[0] == 0x17000); // nothing decoded yet
++
++    REQUIRE(client.SetConfig(VideoConfig(width, height)) == 0x17000);
++    for (u32 picture = 0; picture < 3; ++picture) {
++        reply = client.ProcessNalUnit(units[3 + picture], picture + 5);
++        REQUIRE(reply[0] == 0x17003);
++        REQUIRE(reply[3] == 0);
++
++        const auto record = client.NextPicture();
++        REQUIRE(record[0] == 0x17002);
++        REQUIRE(record[1] == width);
++        REQUIRE(record[2] == height);
++        REQUIRE(record[9] == picture + 5);     // picture ID
++        REQUIRE(record[10] == (picture == 0)); // IDR
++
++        // The decoded picture is in the work buffer where the record says.
++        const PAddr decoded = record[8];
++        REQUIRE(decoded >= 0x20100000);
++        const u8* nv12 = client.memory.GetPhysicalPointer(decoded);
++        const std::span<const u8> luma(nv12, width * height),
++            chroma(nv12 + width * height, width * height / 2);
++        REQUIRE(MvdTest::Fnv1a(luma, chroma) == MvdTest::expected_pictures[picture]);
++
++        // And converted into the configured RGB565 surface.
++        REQUIRE(ReadRgb565(client.memory, Output, width * height) == ExpectedRgb565(luma, chroma));
++
++        // Only one picture per decode.
++        REQUIRE(client.NextPicture()[0] == 0x17000);
++    }
++    // Draining at the end of the stream returns nothing more.
++    REQUIRE(client.NextPicture(true)[0] == 0x17000);
++}
++
++TEST_CASE("mvd:STD accepts a whole access unit per call", "[service][mvd]") {
++    MvdClient client;
++    if (!CreateH264Decoder()) {
++        SKIP("No H.264 decoder on this platform");
++    }
++    client.InitializeVideo();
++    REQUIRE(client.SetConfig(VideoConfig(width, height)) == 0x17000);
++    const auto units = MvdTest::SplitAnnexB(MvdTest::stream);
++
++    // SPS, PPS, SEI and the IDR slice in one buffer: stops at the slice for the headers, and the
++    // remainder passed again decodes it (video players send their first packet twice for this).
++    const std::span<const u8> first(units[0].data(),
++                                    units[3].data() + units[3].size() - units[0].data());
++    auto reply = client.ProcessNalUnit(first, 1);
++    REQUIRE(reply[0] == 0x17004);
++    REQUIRE(reply[3] == units[3].size());
++    reply = client.ProcessNalUnit(first.last(reply[3]), 1);
++    REQUIRE(reply[0] == 0x17003);
++    REQUIRE(client.NextPicture()[0] == 0x17002);
++}
++
++TEST_CASE("mvd:STD skips non-reference pictures on request", "[service][mvd]") {
++    MvdClient client;
++    if (!CreateH264Decoder()) {
++        SKIP("No H.264 decoder on this platform");
++    }
++    client.InitializeVideo();
++    const auto units = MvdTest::SplitAnnexB(MvdTest::stream);
++    for (std::size_t i = 0; i < 3; ++i) {
++        client.ProcessNalUnit(units[i], 0);
++    }
++    client.ProcessNalUnit(units[3], 0); // headers ready
++    REQUIRE(client.ProcessNalUnit(units[3], 0)[0] == 0x17003);
++
++    // A reference picture is decoded even when skipping is requested.
++    REQUIRE(client.ProcessNalUnit(units[4], 1, true)[0] == 0x17003);
++    // The same slice marked as a non-reference picture (nal_ref_idc 0) is skipped.
++    std::vector<u8> non_reference(units[5].begin(), units[5].end());
++    non_reference[3] &= 0x9F;
++    const auto reply = client.ProcessNalUnit(non_reference, 2, true);
++    REQUIRE(reply[0] == 0x17007);
++    REQUIRE(reply[3] == 0);
++    REQUIRE(client.NextPicture()[0] == 0x17002); // the IDR picture
++    REQUIRE(client.NextPicture()[0] == 0x17002); // the reference P picture
++    REQUIRE(client.NextPicture()[0] == 0x17000); // nothing for the skipped one
++}
++
++TEST_CASE("mvd:STD writes each picture to the next multibuffer output", "[service][mvd]") {
++    MvdClient client;
++    if (!CreateH264Decoder()) {
++        SKIP("No H.264 decoder on this platform");
++    }
++    client.InitializeVideo();
++    REQUIRE(client.SetConfig(VideoConfig(width, height)) == 0x17000);
++
++    std::vector<u32> request(39, 0);
++    request[0] = IPC::MakeHeader(0x1F, 36, 2);
++    request[1] = 2;
++    request[2] = 0x31200000; // buffer 0
++    request[4] = 0x31300000; // buffer 1
++    request[36] = width * height * 2;
++    request[37] = IPC::CopyHandleDesc();
++    request[38] = client.process_handle;
++    REQUIRE(client.Call(request, 1)[0] == 0x17000);
++
++    const auto units = MvdTest::SplitAnnexB(MvdTest::stream);
++    for (std::size_t i = 0; i < 3; ++i) {
++        client.ProcessNalUnit(units[i], 0);
++    }
++    client.ProcessNalUnit(units[3], 0); // headers ready
++    for (u32 picture = 0; picture < 2; ++picture) {
++        REQUIRE(client.ProcessNalUnit(units[3 + picture], picture)[0] == 0x17003);
++        REQUIRE(client.NextPicture()[0] == 0x17002);
++        const auto next = client.Call(
++            {IPC::MakeHeader(0x20, 0, 2), IPC::CopyHandleDesc(), client.process_handle}, 3);
++        REQUIRE(next[1] == (picture == 0 ? 0x31200000u : 0x31300000u));
++    }
++    // Both buffers hold a picture; the configured output was not written.
++    const u8* first = client.memory.GetPhysicalPointer(0x21200000);
++    const u8* second = client.memory.GetPhysicalPointer(0x21300000);
++    REQUIRE(std::memcmp(first, second, width * height * 2) != 0);
++    REQUIRE(ReadRgb565(client.memory, Output, 4) == std::vector<u16>(4, 0));
++}
++
++TEST_CASE("mvd:STD keeps its configuration and rejects invalid ones", "[service][mvd]") {
++    MvdClient client;
++    client.InitializeVideo();
++    // Hantro's defaults after PpInitialize.
++    auto config = client.GetConfig();
++    REQUIRE(config.input_width == 720);
++    REQUIRE(config.output_format == PixelFormat::Rgb32);
++
++    REQUIRE(client.SetConfig(VideoConfig(400, 240)) == 0x17000);
++    config = client.GetConfig();
++    REQUIRE(config.input_width == 400);
++    REQUIRE(config.output_paddr == Output);
++
++    auto invalid = VideoConfig(400, 240);
++    invalid.output_width = 8;
++    REQUIRE(client.SetConfig(invalid) == 0xD961710D);
++    REQUIRE(client.GetConfig().output_width == 400); // unchanged
++}
++
++TEST_CASE("mvd:STD answers the commands libctru's init and exit check", "[service][mvd]") {
++    MvdClient client;
++    REQUIRE(client.Initialize() == 0);
++    REQUIRE(client.Call({IPC::MakeHeader(0x5, 4, 0), 0, 0, 0, 0}, 1)[0] == 0x17000);
++    REQUIRE(client.Call({IPC::MakeHeader(0x18, 0, 0)}, 1)[0] == 0x17000);
++    REQUIRE(client.Call({IPC::MakeHeader(0x1B, 1, 0), 1}, 1)[0] == 0x17000);
++    // An out-of-range decoder type for the postprocessor is a parameter error.
++    REQUIRE(client.Call({IPC::MakeHeader(0x1B, 1, 0), 12}, 1)[0] == 0xE16170C9);
++    // MVC isn't supported by the hardware.
++    REQUIRE(client.Call({IPC::MakeHeader(0x6, 0, 0)}, 1)[0] == 0xD9617384);
++    // mvdstdExit: drain, then the release commands and Shutdown.
++    REQUIRE(client.NextPicture(true)[0] == 0x17000);
++    REQUIRE(client.Call({IPC::MakeHeader(0x1C, 0, 0)}, 1)[0] == 0x17000);
++    REQUIRE(client.Call({IPC::MakeHeader(0x19, 0, 0)}, 1)[0] == 0);
++    REQUIRE(client.Call({IPC::MakeHeader(0x7, 0, 0)}, 1)[0] == 0);
++    REQUIRE(client.Call({IPC::MakeHeader(0x2, 0, 0)}, 1)[0] == 0);
++}
+diff --git a/src/tests/core/hle/service/mvd/postprocessor.cpp b/src/tests/core/hle/service/mvd/postprocessor.cpp
+new file mode 100644
+index 0000000..263275f
+--- /dev/null
++++ b/src/tests/core/hle/service/mvd/postprocessor.cpp
+@@ -0,0 +1,308 @@
++// Copyright 2026 Azahar Emulator Project
++// Licensed under GPLv2 or any later version
++// Refer to the license.txt file included.
++
++#include <array>
++#include <vector>
++#include <catch2/catch_test_macros.hpp>
++#include "core/hle/service/mvd/postprocessor.h"
++
++using namespace Service::MVD;
++
++namespace {
++
++/// A solid-color NV12 picture.
++struct SolidPicture {
++    SolidPicture(u32 width, u32 height, u8 y, u8 cb, u8 cr)
++        : luma(std::size_t{width} * height, y), chroma(std::size_t{width} * (height / 2)) {
++        for (std::size_t i = 0; i < chroma.size(); i += 2) {
++            chroma[i] = cb;
++            chroma[i + 1] = cr;
++        }
++        image = {.width = width,
++                 .height = height,
++                 .luma = luma,
++                 .luma_stride = width,
++                 .chroma = chroma,
++                 .chroma_stride = width};
++    }
++    std::vector<u8> luma;
++    std::vector<u8> chroma;
++    SourceImage image;
++};
++
++/// A picture whose luma encodes each pixel's position: Y = 16 + x + 2 * y (for small sizes).
++struct GradientPicture {
++    GradientPicture(u32 width, u32 height)
++        : luma(std::size_t{width} * height), chroma(std::size_t{width} * (height / 2), 128) {
++        for (u32 y = 0; y < height; ++y) {
++            for (u32 x = 0; x < width; ++x) {
++                luma[std::size_t{y} * width + x] = static_cast<u8>(16 + x + 2 * y);
++            }
++        }
++        image = {.width = width,
++                 .height = height,
++                 .luma = luma,
++                 .luma_stride = width,
++                 .chroma = chroma,
++                 .chroma_stride = width};
++    }
++    u8 At(u32 x, u32 y) const {
++        return luma[std::size_t{y} * image.width + x];
++    }
++    std::vector<u8> luma;
++    std::vector<u8> chroma;
++    SourceImage image;
++};
++
++PostprocessorConfig VideoConfig(u32 width, u32 height, PixelFormat output) {
++    PostprocessorConfig config{};
++    config.input_format = PixelFormat::YCbCr420Semiplanar;
++    config.input_width = width;
++    config.input_height = height;
++    config.output_format = output;
++    config.output_width = width;
++    config.output_height = height;
++    config.output_paddr = 0x20000000;
++    config.output_chroma_paddr = 0x20100000;
++    config.rgb_transform = 1; // BT.601
++    return config;
++}
++
++std::vector<u8> Run(const SourceImage& source, const PostprocessorConfig& config,
++                    std::vector<u8>* chroma = nullptr, u8 fill = 0) {
++    const auto layout = GetOutputLayout(config);
++    std::vector<u8> plane(layout.plane_size, fill);
++    std::vector<u8> chroma_plane(layout.chroma_size, fill);
++    Postprocess(source, config, {plane, chroma_plane});
++    if (chroma) {
++        *chroma = std::move(chroma_plane);
++    }
++    return plane;
++}
++
++u16 Read16(const std::vector<u8>& plane, std::size_t pixel) {
++    return static_cast<u16>(plane[pixel * 2] | plane[pixel * 2 + 1] << 8);
++}
++
++} // namespace
++
++TEST_CASE("MVD postprocessor converts BT.601 colors into each RGB layout", "[service][mvd]") {
++    // Limited-range BT.601 white, black and red.
++    const SolidPicture white(16, 16, 235, 128, 128);
++    const SolidPicture black(16, 16, 16, 128, 128);
++    const SolidPicture red(16, 16, 81, 90, 240);
++
++    const auto rgb565 = VideoConfig(16, 16, PixelFormat::Rgb16_565);
++    REQUIRE(Read16(Run(white.image, rgb565), 0) == 0xFFFF);
++    REQUIRE(Read16(Run(black.image, rgb565), 0) == 0x0000);
++    // 0x00040002 is the GPU's RGB565: red in bits 15..11 (libctru names it MVD_OUTPUT_BGR565).
++    REQUIRE(Read16(Run(red.image, rgb565), 0) == 0xF800);
++    REQUIRE(Read16(Run(red.image, VideoConfig(16, 16, PixelFormat::Bgr16_565)), 0) == 0x001F);
++
++    auto rgb555 = VideoConfig(16, 16, PixelFormat::Rgb16_555);
++    rgb555.transparency = 1;
++    REQUIRE(Read16(Run(red.image, rgb555), 0) == 0xFC00);
++
++    // 32-bit RGB words are stored alpha first.
++    auto bgr32 = VideoConfig(16, 16, PixelFormat::Bgr32);
++    bgr32.alpha = 0xAB;
++    const auto bgr = Run(red.image, bgr32);
++    REQUIRE(std::vector<u8>(bgr.begin(), bgr.begin() + 4) == std::vector<u8>{0xAB, 0, 0, 0xFF});
++    auto rgb32 = VideoConfig(16, 16, PixelFormat::Rgb32);
++    rgb32.alpha = 0xAB;
++    const auto rgb = Run(red.image, rgb32);
++    REQUIRE(std::vector<u8>(rgb.begin(), rgb.begin() + 4) == std::vector<u8>{0xAB, 0xFF, 0, 0});
++
++    // Full-range input uses the full-range coefficients: Y 255 is white, Y 0 is black.
++    auto full = VideoConfig(16, 16, PixelFormat::Rgb16_565);
++    full.input_full_range = 1;
++    REQUIRE(Read16(Run(SolidPicture(16, 16, 255, 128, 128).image, full), 0) == 0xFFFF);
++    REQUIRE(Read16(Run(SolidPicture(16, 16, 0, 128, 128).image, full), 0) == 0x0000);
++
++    // Custom coefficients (rgb_transform 0) are used as given.
++    auto custom = VideoConfig(16, 16, PixelFormat::Rgb16_565);
++    custom.rgb_transform = 0;
++    custom.coefficients = {256, 0, 0, 0, 0};
++    REQUIRE(Read16(Run(SolidPicture(16, 16, 16 + 128, 0, 255).image, custom), 0) ==
++            ((128 >> 3) << 11 | (128 >> 2) << 5 | (128 >> 3)));
++}
++
++TEST_CASE("MVD postprocessor writes YCbCr outputs", "[service][mvd]") {
++    const GradientPicture gradient(16, 16);
++    std::vector<u8> chroma;
++    const auto nv12 =
++        Run(gradient.image, VideoConfig(16, 16, PixelFormat::YCbCr420Semiplanar), &chroma);
++    REQUIRE(nv12 == gradient.luma);
++    REQUIRE(chroma == gradient.chroma);
++
++    const auto yuyv = Run(gradient.image, VideoConfig(16, 16, PixelFormat::YCbCr422Interleaved));
++    REQUIRE(yuyv[0] == gradient.At(0, 0));
++    REQUIRE(yuyv[1] == 128);
++    REQUIRE(yuyv[2] == gradient.At(1, 0));
++    REQUIRE(yuyv[3] == 128);
++    const auto uyvy = Run(gradient.image, VideoConfig(16, 16, PixelFormat::CbYCrY422Interleaved));
++    REQUIRE(uyvy[0] == 128);
++    REQUIRE(uyvy[1] == gradient.At(0, 0));
++}
++
++TEST_CASE("MVD postprocessor crops, places, rotates and scales", "[service][mvd]") {
++    // Video input is at least 48 pixels wide.
++    const GradientPicture gradient(64, 64);
++
++    SECTION("crop into a frame buffer") {
++        auto config = VideoConfig(64, 64, PixelFormat::YCbCr420Semiplanar);
++        config.crop_enable = 1;
++        config.crop_x = 16;
++        config.crop_y = 16;
++        config.crop_width = 48;
++        config.crop_height = 16;
++        config.output_width = 48;
++        config.output_height = 16;
++        config.frame_buffer_enable = 1;
++        config.frame_buffer_x = 4;
++        config.frame_buffer_y = 2;
++        config.frame_buffer_width = 64;
++        config.frame_buffer_height = 24;
++        REQUIRE(ValidateConfig(config, true) == 0);
++        const auto luma = Run(gradient.image, config, nullptr, 0xEE);
++        REQUIRE(luma.size() == 64 * 24);
++        REQUIRE(luma[2 * 64 + 4] == gradient.At(16, 16));
++        REQUIRE(luma[17 * 64 + 51] == gradient.At(63, 31));
++        REQUIRE(luma[0] == 0xEE);
++        REQUIRE(luma[2 * 64 + 3] == 0xEE);
++        REQUIRE(luma[18 * 64 + 4] == 0xEE);
++    }
++
++    SECTION("frame buffer clips a picture placed partly outside") {
++        auto config = VideoConfig(64, 64, PixelFormat::YCbCr420Semiplanar);
++        config.frame_buffer_enable = 1;
++        config.frame_buffer_x = -8;
++        config.frame_buffer_y = -4;
++        config.frame_buffer_width = 16;
++        config.frame_buffer_height = 16;
++        REQUIRE(ValidateConfig(config, true) == 0);
++        const auto luma = Run(gradient.image, config);
++        REQUIRE(luma[0] == gradient.At(8, 4));
++        REQUIRE(luma[15 * 16 + 15] == gradient.At(23, 19));
++    }
++
++    SECTION("rotation") {
++        const GradientPicture tall(48, 64);
++        auto config = VideoConfig(48, 64, PixelFormat::YCbCr420Semiplanar);
++        config.output_width = 64;
++        config.output_height = 48;
++        config.rotation = 1; // 90 degrees right: the source's bottom-left lands top-left
++        REQUIRE(ValidateConfig(config, true) == 0);
++        auto luma = Run(tall.image, config);
++        REQUIRE(luma[0] == tall.At(0, 63));
++        REQUIRE(luma[63] == tall.At(0, 0));
++        config.rotation = 2; // 90 degrees left
++        luma = Run(tall.image, config);
++        REQUIRE(luma[0] == tall.At(47, 0));
++
++        auto flip = VideoConfig(64, 64, PixelFormat::YCbCr420Semiplanar);
++        flip.rotation = 3; // horizontal flip
++        REQUIRE(Run(gradient.image, flip)[0] == gradient.At(63, 0));
++        flip.rotation = 4; // vertical flip
++        REQUIRE(Run(gradient.image, flip)[0] == gradient.At(0, 63));
++        flip.rotation = 5; // 180 degrees
++        REQUIRE(Run(gradient.image, flip)[0] == gradient.At(63, 63));
++    }
++
++    SECTION("scaling") {
++        auto config = VideoConfig(64, 64, PixelFormat::YCbCr420Semiplanar);
++        config.output_width = 128;
++        config.output_height = 128;
++        REQUIRE(ValidateConfig(config, true) == 0);
++        const auto up = Run(gradient.image, config);
++        REQUIRE(up[0] == gradient.At(0, 0));
++        REQUIRE(up[128 * 128 - 1] == gradient.At(63, 63));
++        // Output pixels 1 and 2 sample a quarter and three quarters of the way to the next
++        // source pixel (16 and 17 here).
++        REQUIRE(up[1] == 16);
++        REQUIRE(up[2] == 17);
++
++        config.output_width = 32;
++        config.output_height = 32;
++        REQUIRE(ValidateConfig(config, true) == 0);
++        const auto down = Run(gradient.image, config);
++        // Each output pixel lands between four source pixels: (16 + 17 + 18 + 19) / 4, rounded.
++        REQUIRE(down[0] == 18);
++    }
++}
++
++TEST_CASE("MVD postprocessor rejects configurations like the hardware", "[service][mvd]") {
++    const auto valid = VideoConfig(400, 240, PixelFormat::Rgb16_565);
++    REQUIRE(ValidateConfig(valid, true) == 0);
++
++    auto config = valid;
++    config.input_width = 40; // video needs at least 48
++    REQUIRE(ValidateConfig(config, true) == 0xD9617108);
++    config = valid;
++    config.input_format = PixelFormat::YCbCr422Interleaved; // not from the decoder
++    REQUIRE(ValidateConfig(config, true) == 0xD961710A);
++    config = valid;
++    config.crop_enable = 1;
++    config.crop_x = 8; // crop origin must be a multiple of 16
++    config.crop_width = 240;
++    config.crop_height = 240;
++    REQUIRE(ValidateConfig(config, true) == 0xD961710B);
++    config = valid;
++    config.rotation = 6;
++    REQUIRE(ValidateConfig(config, true) == 0xD961710C);
++    config = valid;
++    config.output_width = 8;
++    REQUIRE(ValidateConfig(config, true) == 0xD961710D);
++    config = valid;
++    config.output_width = 1201; // more than 3x upscaling
++    REQUIRE(ValidateConfig(config, true) == 0xD961710D);
++    config = valid;
++    config.output_paddr = 0x20000004; // must be 8-byte aligned
++    REQUIRE(ValidateConfig(config, true) == 0xD961710E);
++    config = valid;
++    config.output_format = PixelFormat::YCbCr420Planar;
++    REQUIRE(ValidateConfig(config, true) == 0xD961710F);
++    config = valid;
++    config.saturation = 200;
++    REQUIRE(ValidateConfig(config, true) == 0xD9617110);
++    config = valid;
++    config.output_format = PixelFormat::Rgb16Custom;
++    config.mask_r = 0xF800;
++    config.mask_g = 0x0FE0; // overlaps red
++    REQUIRE(ValidateConfig(config, true) == 0xD9617111);
++    config = valid;
++    config.frame_buffer_enable = 1;
++    config.frame_buffer_width = 400;
++    config.frame_buffer_height = 240;
++    config.frame_buffer_x = 400; // entirely outside
++    REQUIRE(ValidateConfig(config, true) == 0xD9617112);
++
++    // Standalone conversion: 16-pixel alignment and an input address.
++    auto standalone = VideoConfig(400, 240, PixelFormat::Rgb16_565);
++    standalone.input_format = PixelFormat::YCbCr422Interleaved;
++    standalone.input_paddr = 0x22000000;
++    REQUIRE(ValidateConfig(standalone, false) == 0);
++    standalone.input_width = 408;
++    REQUIRE(ValidateConfig(standalone, false) == 0xD9617108);
++    standalone.input_width = 400;
++    standalone.input_paddr = 0;
++    REQUIRE(ValidateConfig(standalone, false) == 0xD9617109);
++}
++
++TEST_CASE("MVD postprocessor reads standalone inputs", "[service][mvd]") {
++    // A YUYV image converted to YUYV comes back unchanged.
++    std::vector<u8> yuyv(16 * 16 * 2);
++    for (std::size_t i = 0; i < yuyv.size(); ++i) {
++        yuyv[i] = static_cast<u8>(i % 4 == 1 || i % 4 == 3 ? 100 + (i / 4) % 50 : 20 + i % 200);
++    }
++    const auto input = LoadStandaloneInput(PixelFormat::YCbCr422Interleaved, 16, 16, yuyv, {}, {});
++    REQUIRE(input);
++    auto config = VideoConfig(16, 16, PixelFormat::YCbCr422Interleaved);
++    config.input_format = PixelFormat::YCbCr422Interleaved;
++    REQUIRE(Run(input->image, config) == yuyv);
++
++    REQUIRE_FALSE(LoadStandaloneInput(PixelFormat::Rgb16_565, 16, 16, yuyv, {}, {}));
++    REQUIRE_FALSE(LoadStandaloneInput(PixelFormat::YCbCr422Interleaved, 16, 16,
++                                      std::span<const u8>(yuyv).first(10), {}, {}));
++}
+diff --git a/src/tests/core/hle/service/mvd/test_stream.h b/src/tests/core/hle/service/mvd/test_stream.h
+new file mode 100644
+index 0000000..290575a
+--- /dev/null
++++ b/src/tests/core/hle/service/mvd/test_stream.h
+@@ -0,0 +1,135 @@
++// Copyright 2026 Azahar Emulator Project
++// Licensed under GPLv2 or any later version
++// Refer to the license.txt file included.
++
++#pragma once
++
++#include <array>
++#include <span>
++#include <vector>
++#include "common/common_types.h"
++
++namespace MvdTest {
++
++// Three 48x32 pictures (IDR, P, P; 48 is the narrowest video MVD decodes) of a pattern that
++// changes every frame, Constrained Baseline, Annex B: SPS, PPS, SEI, then one slice per picture.
++// Generated with:
++//   ffmpeg -f lavfi -i "nullsrc=s=48x32:r=30,format=yuv420p,geq=lum='mod(X*4+Y*3+N*37\,220)+16':
++//     cb='128+mod(X*5+N*29\,60)-30':cr='128+mod(Y*7+N*41\,60)-30'" -frames:v 3 -c:v libx264
++//     -profile:v baseline -bf 0 -x264-params "keyint=3:min-keyint=3:scenecut=0"
++//     -bsf:v h264_mp4toannexb -f h264 tiny.h264
++inline constexpr std::array<u8, 1109> stream{
++    0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0xC0, 0x0A, 0xD9, 0x0D, 0x6C, 0x04, 0x40, 0x00, 0x00, 0x03,
++    0x00, 0x40, 0x00, 0x00, 0x0F, 0x03, 0xC4, 0x89, 0x92, 0x00, 0x00, 0x00, 0x01, 0x68, 0xCB, 0x83,
++    0xCB, 0x20, 0x00, 0x00, 0x01, 0x06, 0x05, 0xFF, 0xFF, 0x68, 0xDC, 0x45, 0xE9, 0xBD, 0xE6, 0xD9,
++    0x48, 0xB7, 0x96, 0x2C, 0xD8, 0x20, 0xD9, 0x23, 0xEE, 0xEF, 0x78, 0x32, 0x36, 0x34, 0x20, 0x2D,
++    0x20, 0x63, 0x6F, 0x72, 0x65, 0x20, 0x31, 0x36, 0x35, 0x20, 0x72, 0x33, 0x32, 0x32, 0x32, 0x20,
++    0x62, 0x33, 0x35, 0x36, 0x30, 0x35, 0x61, 0x20, 0x2D, 0x20, 0x48, 0x2E, 0x32, 0x36, 0x34, 0x2F,
++    0x4D, 0x50, 0x45, 0x47, 0x2D, 0x34, 0x20, 0x41, 0x56, 0x43, 0x20, 0x63, 0x6F, 0x64, 0x65, 0x63,
++    0x20, 0x2D, 0x20, 0x43, 0x6F, 0x70, 0x79, 0x6C, 0x65, 0x66, 0x74, 0x20, 0x32, 0x30, 0x30, 0x33,
++    0x2D, 0x32, 0x30, 0x32, 0x35, 0x20, 0x2D, 0x20, 0x68, 0x74, 0x74, 0x70, 0x3A, 0x2F, 0x2F, 0x77,
++    0x77, 0x77, 0x2E, 0x76, 0x69, 0x64, 0x65, 0x6F, 0x6C, 0x61, 0x6E, 0x2E, 0x6F, 0x72, 0x67, 0x2F,
++    0x78, 0x32, 0x36, 0x34, 0x2E, 0x68, 0x74, 0x6D, 0x6C, 0x20, 0x2D, 0x20, 0x6F, 0x70, 0x74, 0x69,
++    0x6F, 0x6E, 0x73, 0x3A, 0x20, 0x63, 0x61, 0x62, 0x61, 0x63, 0x3D, 0x30, 0x20, 0x72, 0x65, 0x66,
++    0x3D, 0x33, 0x20, 0x64, 0x65, 0x62, 0x6C, 0x6F, 0x63, 0x6B, 0x3D, 0x31, 0x3A, 0x30, 0x3A, 0x30,
++    0x20, 0x61, 0x6E, 0x61, 0x6C, 0x79, 0x73, 0x65, 0x3D, 0x30, 0x78, 0x31, 0x3A, 0x30, 0x78, 0x31,
++    0x31, 0x31, 0x20, 0x6D, 0x65, 0x3D, 0x68, 0x65, 0x78, 0x20, 0x73, 0x75, 0x62, 0x6D, 0x65, 0x3D,
++    0x37, 0x20, 0x70, 0x73, 0x79, 0x3D, 0x31, 0x20, 0x70, 0x73, 0x79, 0x5F, 0x72, 0x64, 0x3D, 0x31,
++    0x2E, 0x30, 0x30, 0x3A, 0x30, 0x2E, 0x30, 0x30, 0x20, 0x6D, 0x69, 0x78, 0x65, 0x64, 0x5F, 0x72,
++    0x65, 0x66, 0x3D, 0x31, 0x20, 0x6D, 0x65, 0x5F, 0x72, 0x61, 0x6E, 0x67, 0x65, 0x3D, 0x31, 0x36,
++    0x20, 0x63, 0x68, 0x72, 0x6F, 0x6D, 0x61, 0x5F, 0x6D, 0x65, 0x3D, 0x31, 0x20, 0x74, 0x72, 0x65,
++    0x6C, 0x6C, 0x69, 0x73, 0x3D, 0x31, 0x20, 0x38, 0x78, 0x38, 0x64, 0x63, 0x74, 0x3D, 0x30, 0x20,
++    0x63, 0x71, 0x6D, 0x3D, 0x30, 0x20, 0x64, 0x65, 0x61, 0x64, 0x7A, 0x6F, 0x6E, 0x65, 0x3D, 0x32,
++    0x31, 0x2C, 0x31, 0x31, 0x20, 0x66, 0x61, 0x73, 0x74, 0x5F, 0x70, 0x73, 0x6B, 0x69, 0x70, 0x3D,
++    0x31, 0x20, 0x63, 0x68, 0x72, 0x6F, 0x6D, 0x61, 0x5F, 0x71, 0x70, 0x5F, 0x6F, 0x66, 0x66, 0x73,
++    0x65, 0x74, 0x3D, 0x2D, 0x32, 0x20, 0x74, 0x68, 0x72, 0x65, 0x61, 0x64, 0x73, 0x3D, 0x31, 0x20,
++    0x6C, 0x6F, 0x6F, 0x6B, 0x61, 0x68, 0x65, 0x61, 0x64, 0x5F, 0x74, 0x68, 0x72, 0x65, 0x61, 0x64,
++    0x73, 0x3D, 0x31, 0x20, 0x73, 0x6C, 0x69, 0x63, 0x65, 0x64, 0x5F, 0x74, 0x68, 0x72, 0x65, 0x61,
++    0x64, 0x73, 0x3D, 0x30, 0x20, 0x6E, 0x72, 0x3D, 0x30, 0x20, 0x64, 0x65, 0x63, 0x69, 0x6D, 0x61,
++    0x74, 0x65, 0x3D, 0x31, 0x20, 0x69, 0x6E, 0x74, 0x65, 0x72, 0x6C, 0x61, 0x63, 0x65, 0x64, 0x3D,
++    0x30, 0x20, 0x62, 0x6C, 0x75, 0x72, 0x61, 0x79, 0x5F, 0x63, 0x6F, 0x6D, 0x70, 0x61, 0x74, 0x3D,
++    0x30, 0x20, 0x63, 0x6F, 0x6E, 0x73, 0x74, 0x72, 0x61, 0x69, 0x6E, 0x65, 0x64, 0x5F, 0x69, 0x6E,
++    0x74, 0x72, 0x61, 0x3D, 0x30, 0x20, 0x62, 0x66, 0x72, 0x61, 0x6D, 0x65, 0x73, 0x3D, 0x30, 0x20,
++    0x77, 0x65, 0x69, 0x67, 0x68, 0x74, 0x70, 0x3D, 0x30, 0x20, 0x6B, 0x65, 0x79, 0x69, 0x6E, 0x74,
++    0x3D, 0x33, 0x20, 0x6B, 0x65, 0x79, 0x69, 0x6E, 0x74, 0x5F, 0x6D, 0x69, 0x6E, 0x3D, 0x32, 0x20,
++    0x73, 0x63, 0x65, 0x6E, 0x65, 0x63, 0x75, 0x74, 0x3D, 0x30, 0x20, 0x69, 0x6E, 0x74, 0x72, 0x61,
++    0x5F, 0x72, 0x65, 0x66, 0x72, 0x65, 0x73, 0x68, 0x3D, 0x30, 0x20, 0x72, 0x63, 0x5F, 0x6C, 0x6F,
++    0x6F, 0x6B, 0x61, 0x68, 0x65, 0x61, 0x64, 0x3D, 0x33, 0x20, 0x72, 0x63, 0x3D, 0x63, 0x72, 0x66,
++    0x20, 0x6D, 0x62, 0x74, 0x72, 0x65, 0x65, 0x3D, 0x31, 0x20, 0x63, 0x72, 0x66, 0x3D, 0x32, 0x33,
++    0x2E, 0x30, 0x20, 0x71, 0x63, 0x6F, 0x6D, 0x70, 0x3D, 0x30, 0x2E, 0x36, 0x30, 0x20, 0x71, 0x70,
++    0x6D, 0x69, 0x6E, 0x3D, 0x30, 0x20, 0x71, 0x70, 0x6D, 0x61, 0x78, 0x3D, 0x36, 0x39, 0x20, 0x71,
++    0x70, 0x73, 0x74, 0x65, 0x70, 0x3D, 0x34, 0x20, 0x69, 0x70, 0x5F, 0x72, 0x61, 0x74, 0x69, 0x6F,
++    0x3D, 0x31, 0x2E, 0x34, 0x30, 0x20, 0x61, 0x71, 0x3D, 0x31, 0x3A, 0x31, 0x2E, 0x30, 0x30, 0x00,
++    0x80, 0x00, 0x00, 0x01, 0x65, 0x88, 0x84, 0x08, 0x7E, 0x4D, 0x93, 0x14, 0xBF, 0x1D, 0x12, 0x00,
++    0x02, 0x00, 0x7D, 0xDF, 0x53, 0xFD, 0xDF, 0x17, 0x9B, 0xD4, 0x40, 0x4F, 0x10, 0x01, 0xE9, 0xDD,
++    0xDD, 0xB6, 0xDB, 0x6C, 0x2E, 0x8E, 0x07, 0x40, 0x72, 0x80, 0xE0, 0x1D, 0x51, 0xFD, 0xFD, 0xFD,
++    0xFD, 0xFD, 0xFD, 0xFD, 0xFD, 0xFD, 0xFD, 0xFD, 0xFD, 0xFD, 0xFD, 0xFD, 0xFC, 0x40, 0x00, 0x2D,
++    0xFC, 0x56, 0x2B, 0x15, 0x8A, 0xDB, 0x6D, 0xB6, 0xEF, 0x2E, 0x52, 0x26, 0xCD, 0x99, 0x0E, 0x15,
++    0x22, 0xF8, 0xB8, 0xA6, 0x2F, 0x58, 0x00, 0x44, 0x5B, 0x92, 0x99, 0xB4, 0xA5, 0xE2, 0x59, 0xFB,
++    0x9C, 0x2F, 0xAB, 0xFC, 0x20, 0x21, 0x2B, 0xBB, 0xBF, 0x85, 0x99, 0xC0, 0x1E, 0x03, 0xE8, 0x79,
++    0x05, 0x56, 0x5E, 0xF7, 0xBD, 0xEF, 0x7B, 0xA2, 0x08, 0x0D, 0x78, 0x1E, 0x24, 0x96, 0x1E, 0x24,
++    0x96, 0x5A, 0xCB, 0x58, 0xD4, 0x19, 0x0A, 0x50, 0x15, 0x60, 0x80, 0x00, 0x20, 0x5C, 0x2C, 0x6A,
++    0x84, 0x80, 0x2C, 0x1E, 0x00, 0xB0, 0x24, 0x01, 0x60, 0xF0, 0x05, 0x87, 0xEB, 0xF6, 0x85, 0x42,
++    0xB5, 0x8D, 0xA7, 0x66, 0x23, 0xF5, 0x04, 0x0B, 0x80, 0x05, 0xCD, 0xCA, 0xA6, 0x1F, 0x21, 0x17,
++    0xF6, 0x00, 0x0B, 0x6A, 0xAC, 0x39, 0x37, 0x91, 0x6F, 0x81, 0x46, 0xFC, 0x80, 0x06, 0x17, 0x92,
++    0xB7, 0xCB, 0x55, 0xCF, 0x2A, 0x9B, 0x7D, 0x77, 0x2C, 0x88, 0xEC, 0xDB, 0x8C, 0x88, 0xF5, 0xEC,
++    0x0B, 0xEB, 0x17, 0x10, 0x11, 0xAD, 0xBD, 0xBF, 0xC0, 0x00, 0x00, 0x00, 0x01, 0x41, 0x9A, 0x38,
++    0x10, 0xF6, 0x04, 0x21, 0xC5, 0x47, 0x88, 0x68, 0x80, 0x00, 0x4A, 0xA8, 0x1E, 0x62, 0xB9, 0x0F,
++    0x31, 0x5C, 0x03, 0xC6, 0xD2, 0xC3, 0xCC, 0x52, 0xFF, 0xCE, 0x24, 0x70, 0x0C, 0x40, 0x00, 0x3D,
++    0xD7, 0xE1, 0xC8, 0x62, 0x4B, 0x0E, 0x43, 0x12, 0x5F, 0xE0, 0xDC, 0x09, 0x07, 0x08, 0x08, 0x00,
++    0x5F, 0x90, 0x62, 0x57, 0x32, 0x89, 0x5C, 0xDD, 0xAE, 0xDE, 0x8A, 0x40, 0x90, 0x6C, 0xE3, 0xC3,
++    0x91, 0x02, 0x00, 0x01, 0xC2, 0x28, 0x72, 0x19, 0xAE, 0x7F, 0xA3, 0x88, 0xCE, 0x30, 0x05, 0x22,
++    0x00, 0x07, 0x25, 0xF7, 0x3F, 0xF3, 0x11, 0x15, 0xB7, 0x69, 0x5B, 0xB9, 0xC0, 0x02, 0x63, 0xEA,
++    0x9B, 0xC4, 0xBE, 0xB6, 0xFF, 0x03, 0x87, 0x89, 0xF5, 0x9A, 0x5C, 0xDE, 0xB4, 0x70, 0x02, 0x7E,
++    0xDB, 0x6D, 0xB7, 0x00, 0x00, 0x00, 0x01, 0x41, 0x9A, 0x54, 0x04, 0xBF, 0x02, 0x42, 0x3C, 0x40,
++    0x1F, 0x10, 0x52, 0x07, 0x84, 0xFC, 0x78, 0x4F, 0x83, 0x48, 0xE5, 0x95, 0x23, 0x96, 0x3A, 0x08,
++    0xC8, 0xE8, 0x23, 0x3C, 0x08, 0x20, 0x56, 0x39, 0x84, 0x00, 0x33, 0x18, 0x32, 0x57, 0x25, 0x25,
++    0x73, 0x8E, 0x4B, 0x59, 0x2F, 0xE7, 0x88, 0x00, 0xEC, 0x4E, 0x06, 0x19, 0xC0, 0xC3, 0xAC, 0x96,
++    0xB2, 0x5D, 0x56, 0x02, 0x40, 0x41, 0xCA, 0x0E, 0x03, 0xE3, 0x40, 0x14, 0x3C, 0x4F, 0x96, 0x01,
++    0x2F, 0x07, 0x42, 0x32, 0x0E, 0x84, 0x67, 0x81, 0x20, 0x0C, 0x27, 0x20, 0x9E, 0x20, 0xEA, 0x1E,
++    0xBB, 0x90, 0xF5, 0xDC, 0xF0, 0x3B, 0x94, 0xB0, 0xEE, 0x52, 0xE1, 0x24, 0x71, 0x43, 0x10, 0x10,
++    0xDC, 0xDB, 0xDB, 0xFF, 0x80,
++};
++
++inline constexpr u32 width = 48;
++inline constexpr u32 height = 32;
++
++// FNV-1a of each picture as NV12, from `ffmpeg -i tiny.h264 -f rawvideo -pix_fmt nv12`. H.264
++// decoding is bit-exact, so every decoder must produce exactly these pictures.
++inline constexpr std::array<u64, 3> expected_pictures{
++    0xAD9BE3198B14298EULL,
++    0x559D383AD3E44564ULL,
++    0x9E734A4ABD31A796ULL,
++};
++
++/// The stream's NAL units, each with its start code.
++inline std::vector<std::span<const u8>> SplitAnnexB(std::span<const u8> data) {
++    std::vector<std::size_t> starts;
++    for (std::size_t i = 0; i + 3 <= data.size(); ++i) {
++        if (data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1) {
++            starts.push_back(i);
++        }
++    }
++    std::vector<std::span<const u8>> units;
++    for (std::size_t i = 0; i < starts.size(); ++i) {
++        std::size_t end = i + 1 < starts.size() ? starts[i + 1] : data.size();
++        // A four-byte start code's leading zero belongs to it, not to the previous unit.
++        if (i + 1 < starts.size() && data[end - 1] == 0) {
++            --end;
++        }
++        units.push_back(data.subspan(starts[i], end - starts[i]));
++    }
++    return units;
++}
++
++inline u64 Fnv1a(std::span<const u8> luma, std::span<const u8> chroma) {
++    u64 hash = 0xCBF29CE484222325ULL;
++    for (const auto plane : {luma, chroma}) {
++        for (const u8 byte : plane) {
++            hash = (hash ^ byte) * 0x100000001B3ULL;
++        }
++    }
++    return hash;
++}
++
++} // namespace MvdTest

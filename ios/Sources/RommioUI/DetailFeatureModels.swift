@@ -11,6 +11,7 @@ enum GameDetailActionKind: String, Hashable, Sendable {
     case retry
     case cancel
     case deleteLocal
+    case deleteArchive
     case retryCoreSetup
 
     public var title: String {
@@ -27,6 +28,8 @@ enum GameDetailActionKind: String, Hashable, Sendable {
             "Cancel"
         case .deleteLocal:
             "Delete local"
+        case .deleteArchive:
+            "Delete ZIP"
         case .retryCoreSetup:
             "Retry core setup"
         }
@@ -443,6 +446,7 @@ final class GameDetailFeatureModel {
     private let onRetryDownload: @MainActor (String) async -> Void
     private let onCancelDownload: @MainActor (String) async -> Void
     private let onDeleteLocalContent: @MainActor (String) async -> Void
+    private let onRequestArchiveDeletion: @MainActor (String) async -> Void
 
     init(
         rom: RomDTO,
@@ -455,7 +459,8 @@ final class GameDetailFeatureModel {
         onPlay: @escaping @MainActor (RomDTO, RomFileDTO) async -> Void,
         onRetryDownload: @escaping @MainActor (String) async -> Void,
         onCancelDownload: @escaping @MainActor (String) async -> Void,
-        onDeleteLocalContent: @escaping @MainActor (String) async -> Void
+        onDeleteLocalContent: @escaping @MainActor (String) async -> Void,
+        onRequestArchiveDeletion: @escaping @MainActor (String) async -> Void = { _ in }
     ) {
         self.rom = rom
         self.services = services
@@ -468,6 +473,7 @@ final class GameDetailFeatureModel {
         self.onRetryDownload = onRetryDownload
         self.onCancelDownload = onCancelDownload
         self.onDeleteLocalContent = onDeleteLocalContent
+        self.onRequestArchiveDeletion = onRequestArchiveDeletion
     }
 
     var controlProfile: PlatformControlProfile {
@@ -704,17 +710,25 @@ final class GameDetailFeatureModel {
         !fileStates.isEmpty
     }
 
-    /// Observe local transfer completion without refetching remote metadata each second.
+    /// Observe local transfer completion without refetching remote metadata each second. The page
+    /// stays alive under a running game, so it reads the queue every second only while one of its
+    /// files is downloading (as soon as a refresh shows one) and every 5 seconds otherwise.
     func monitorDownloads() async {
+        let clock = ContinuousClock()
+        var lastRead: ContinuousClock.Instant?
         while !Task.isCancelled {
             do {
-                let profileID = try await services.profileStore.activeProfile()?.id
-                let records = try await services.downloadQueue.records(profileID: profileID)
-                guard !Task.isCancelled else { return }
-                let updated = buildFileStates(from: records)
-                if updated != fileStates {
-                    fileStates = updated
-                    selectedFileID = preferredFileState(from: updated)?.file.id
+                let inFlight = fileStates.contains { $0.downloadRecord?.status == .queued || $0.downloadRecord?.status == .running }
+                if inFlight || lastRead.map({ clock.now - $0 >= .seconds(5) }) ?? true {
+                    lastRead = clock.now
+                    let profileID = try await services.profileStore.activeProfile()?.id
+                    let records = try await services.downloadQueue.records(profileID: profileID)
+                    guard !Task.isCancelled else { return }
+                    let updated = buildFileStates(from: records)
+                    if updated != fileStates {
+                        fileStates = updated
+                        selectedFileID = preferredFileState(from: updated)?.file.id
+                    }
                 }
                 try await Task.sleep(for: .seconds(1))
             } catch is CancellationError {
@@ -769,6 +783,10 @@ final class GameDetailFeatureModel {
             } else if let localPath = fileState.localPath, FileManager.default.fileExists(atPath: localPath) {
                 try? FileManager.default.removeItem(atPath: localPath)
             }
+        case .deleteArchive:
+            // Asks first; the answer arrives after this returns.
+            if let recordID = action.recordID { await onRequestArchiveDeletion(recordID) }
+            return
         case .retryCoreSetup:
             await retryCoreProvisioning(fileID: fileID)
             return
@@ -858,7 +876,7 @@ final class GameDetailFeatureModel {
 
     private func resolveLocalPath(for file: RomFileDTO, record: DownloadRecord?) -> String? {
         if let record {
-            return record.localPath.flatMap { FileManager.default.fileExists(atPath: $0) ? $0 : nil }
+            return record.playablePath(libraryRoot: services.libraryStore.rootDirectory).flatMap { FileManager.default.fileExists(atPath: $0) ? $0 : nil }
         }
         let libraryURL = services.libraryStore.romURL(platformSlug: rom.platformSlug, fileName: file.fileName)
         return FileManager.default.fileExists(atPath: libraryURL.path) ? libraryURL.path : nil
@@ -905,6 +923,10 @@ final class GameDetailFeatureModel {
         }
         if localPath != nil {
             secondary.append(GameDetailAction(kind: .deleteLocal, recordID: record?.id))
+        }
+        // An unzipped game doesn't need its ZIP.
+        if let record, record.hasRemovableArchive, localPath != nil {
+            secondary.append(GameDetailAction(kind: .deleteArchive, recordID: record.id))
         }
         if resolution.canRetryProvisioning, primary?.kind != .retryCoreSetup {
             secondary.append(GameDetailAction(kind: .retryCoreSetup))

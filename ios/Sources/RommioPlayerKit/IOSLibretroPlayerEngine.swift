@@ -276,8 +276,7 @@ public final class IOSLibretroPlayerEngine: ProgressPlayerEngine, ImmediatePlaye
     public func previewFrame() -> PlayDataFrame? {
         guard let frame = locked({ latestFrameSnapshot }) else { return nil }
         if let texture = frame.hardwareTexture {
-            let image = CIImage(mtlTexture: texture, options: nil)?
-                .transformed(by: CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: CGFloat(frame.height)))
+            let image = PlayerFrameImage.hardware(texture, height: frame.height)
             let rendered = image.flatMap { Self.previewContext.createCGImage($0, from: $0.extent) }
             return rendered.map { image in PlayDataFrame { image } }
         }

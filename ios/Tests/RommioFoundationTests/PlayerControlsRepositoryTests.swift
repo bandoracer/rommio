@@ -1,4 +1,5 @@
 import XCTest
+import GRDB
 @testable import RommioFoundation
 
 @MainActor
@@ -64,6 +65,34 @@ final class PlayerControlsRepositoryTests: XCTestCase {
         XCTAssertEqual(persistedLayout.opacity, 0.61, accuracy: 0.001)
         XCTAssertEqual(persistedLayout.globalScale, 1.18, accuracy: 0.001)
         XCTAssertEqual(persistedLayout.leftHanded, true)
+    }
+
+    func testRemappedButtonsPersistPerConsoleAndStandardStoresNothing() async throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let database = try AppDatabase(rootDirectory: root.appending(path: "Database"))
+        let repository = PlayerControlsRepository(database: database, controllerMonitor: TestControllerMonitor())
+
+        var snes = try await repository.controls(platformSlug: "snes").hardwareBinding
+        XCTAssertTrue(snes.bindings.isStandard)
+        snes.bindings.assign(.buttonA, to: RetroJoypad.a)
+        snes.bindings.assign(key: KeyboardKey.space, to: RetroJoypad.b)
+        snes.deadzone = 0.3
+        try await repository.saveHardwareBinding(snes)
+
+        let reloaded = try await repository.controls(platformSlug: "snes").hardwareBinding
+        XCTAssertEqual(reloaded.bindings, snes.bindings)
+        XCTAssertEqual(reloaded.deadzone, 0.3, accuracy: 0.001)
+        let gba = try await repository.controls(platformSlug: "gba").hardwareBinding
+        XCTAssertTrue(gba.bindings.isStandard, "per console")
+
+        var reset = reloaded
+        reset.bindings = .standard
+        try await repository.saveHardwareBinding(reset)
+        let stored: String? = try database.read { db in
+            try String.fetchOne(db, sql: "SELECT button_map FROM player_hardware_bindings WHERE platform_family_id = 'snes'")
+        }
+        XCTAssertNil(stored, "the standard layout follows the app's default")
     }
 
     func testActiveInputModeMatchesAndroidStates() throws {

@@ -207,12 +207,8 @@ final class PlayerSurfaceController: UIViewController, MTKViewDelegate {
 
     private func makeImage(from frame: PlayerVideoFrameSnapshot) -> CIImage? {
         if let texture = frame.hardwareTexture {
-            // Libretro's Vulkan image is top-down; Core Image places a Metal
-            // texture in bottom-up image coordinates. Flip before cropping the
-            // two 3DS screens into their stage positions.
-            return CIImage(mtlTexture: texture, options: nil)?.transformed(
-                by: CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: CGFloat(frame.height))
-            )
+            // Flipped before cropping the two 3DS screens into their stage positions.
+            return PlayerFrameImage.hardware(texture, height: frame.height)
         }
         guard let image = PlayerFrameImage.make(
             data: frame.pixelData, width: frame.width, height: frame.height,

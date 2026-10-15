@@ -36,13 +36,52 @@ public actor ApplicationProgress {
         }
         let id = UUID().uuidString.lowercased(); try ProgressDurability.write(JSONEncoder().encode(id), to: path); return id
     }
+    /// Wakes every game's sync now and every 30 seconds. While a player is open only games with
+    /// saves waiting to upload sync (in practice the one being played), because the emulator shares
+    /// the device with this work; closing the last player wakes everything again.
     public func startForeground() {
         guard timer == nil else { return }
         timer = Task { [weak self] in
+            await self?.removeClosedSessions()
             while !Task.isCancelled {
-                await self?.wake()
+                await self?.periodicWake()
                 do { try await Task.sleep(for: .seconds(30)) } catch { return }
             }
+        }
+    }
+    /// Call at app start, when no game is running: a session folder without a closed marker belongs
+    /// to a run that ended abruptly. Recovery keeps its saves; its copy of the game isn't needed, as
+    /// the game stays installed, and before games were unzipped once it was a full 3DS game. The
+    /// folders are listed now, so a game started meanwhile keeps its copy.
+    public nonisolated func releaseInterruptedSessionContent() {
+        let fileManager = FileManager.default
+        let copies = ((try? fileManager.contentsOfDirectory(at: root.appending(path: "sessions"), includingPropertiesForKeys: nil)) ?? [])
+            .filter { !fileManager.fileExists(atPath: $0.appending(path: "closed").path) }
+            .map { $0.appending(path: "content") }
+        Task.detached(priority: .utility) {
+            for copy in copies { try? FileManager.default.removeItem(at: copy) }
+        }
+    }
+    /// A session's folder holds its working saves and its copy of the game. Once the session closed,
+    /// its progress is in the store, so the folder is deleted, as on Android. Folders of sessions
+    /// that never closed stay for recovery.
+    public func removeClosedSessions() async {
+        guard !maintenance else { return }
+        let sessions = root.appending(path: "sessions")
+        await Task.detached(priority: .utility) {
+            let fileManager = FileManager.default
+            for session in (try? fileManager.contentsOfDirectory(at: sessions, includingPropertiesForKeys: nil)) ?? []
+            where fileManager.fileExists(atPath: session.appending(path: "closed").path) {
+                try? fileManager.removeItem(at: session)
+            }
+        }.value
+    }
+    private func periodicWake() async {
+        guard !players.isEmpty else { return await wake() }
+        guard let store = try? store(), let identities = try? await store.identities() else { return }
+        for identity in identities {
+            let unpublished = (try? await store.outbox(identity))?.contains { $0.status == "PENDING" || $0.status == "LEASED" } ?? false
+            if unpublished { kick(identity) }
         }
     }
     public func stopForeground() { timer?.cancel(); timer = nil }
@@ -115,7 +154,10 @@ public actor ApplicationProgress {
         _ = try store()
         let lease = UUID().uuidString.lowercased(); players.insert(lease); return lease
     }
-    public func endPlayer(_ lease: String) { players.remove(lease) }
+    public func endPlayer(_ lease: String) {
+        guard players.remove(lease) != nil, players.isEmpty, timer != nil else { return }
+        Task { await self.wake() }
+    }
     private func exclusive<T: Sendable>(_ action: (ProgressTransfer) async throws -> T) async throws -> T {
         guard !maintenance, players.isEmpty else { throw ProgressStoreError.invalid("Exit the player before backing up or recovering progress") }
         maintenance = true; epoch += 1

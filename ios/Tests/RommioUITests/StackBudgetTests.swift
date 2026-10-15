@@ -151,6 +151,7 @@ final class StackBudgetTests: XCTestCase {
         measure("settings-cores") { _ in NavigationStack { CoresSettingsPage(model: model, feature: model.settingsFeature) } }
         measure("settings-backup") { _ in NavigationStack { ProgressRecoveryView(service: model.settingsFeature.progressService) } }
         measure("settings-haptics") { _ in NavigationStack { HapticsPlaygroundPage() } }
+        measure("settings-screens") { _ in NavigationStack { ScreenPlaygroundPage(samples: ScreenSample.recent(model)) } }
     }
 
     func testShellStack() {

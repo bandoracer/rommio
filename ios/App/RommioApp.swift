@@ -42,6 +42,10 @@ private struct RommioBootstrapView: View {
                 rootView = AnyView(ExpansionControlsQAHarness(family: family))
                 return
             }
+            if ProcessInfo.processInfo.environment["ROMMIO_SCREENS_QA"] == "1" {
+                rootView = AnyView(ScreenPlaygroundQAHarness())
+                return
+            }
             #endif
             rootView = AnyView(try RommioRootView.live())
         } catch {
