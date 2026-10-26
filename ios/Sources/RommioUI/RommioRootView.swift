@@ -113,20 +113,36 @@ public struct RommioRootView: View {
         }
         .overlay(alignment: .bottom) {
             // Bottom placement keeps navigation (Back, vertical bars) uncovered.
-            if model.onboardingRoute == nil, let message = model.errorMessage ?? model.noticeMessage {
-                Banner(message: message, isError: model.errorMessage != nil)
+            if let banner {
+                Banner(message: banner.message, isError: banner.isError)
                     .padding(.horizontal, 16)
                     .padding(.bottom, 88)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .onTapGesture { dismissBanner(banner.message) }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityHint("Dismisses this message.")
             }
         }
         .animation(.snappy, value: model.errorMessage)
         .animation(.snappy, value: model.noticeMessage)
-        .task(id: model.noticeMessage) {
-            guard let message = model.noticeMessage else { return }
-            do { try await Task.sleep(for: .seconds(5)) } catch { return }
-            if model.noticeMessage == message { model.noticeMessage = nil }
+        // A banner goes by itself, an error a little later as it takes longer to read. Onboarding
+        // shows its errors inline instead, where they stay until the next attempt.
+        .task(id: banner?.message) {
+            guard let banner else { return }
+            do { try await Task.sleep(for: .seconds(banner.isError ? 8 : 5)) } catch { return }
+            dismissBanner(banner.message)
         }
+    }
+
+    /// The banner at the bottom of the app: an error, else a notice.
+    private var banner: (message: String, isError: Bool)? {
+        guard model.onboardingRoute == nil else { return nil }
+        if let error = model.errorMessage { return (error, true) }
+        return model.noticeMessage.map { ($0, false) }
+    }
+
+    private func dismissBanner(_ message: String) {
+        if model.errorMessage == message { model.errorMessage = nil } else if model.noticeMessage == message { model.noticeMessage = nil }
     }
 
     private var bindable: Bindable<RommioAppModel> {
