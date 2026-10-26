@@ -196,6 +196,10 @@ public actor AuthSessionController {
         }
     }
 
+    public func hasCloudflareCredentials(profileID: String) throws -> Bool {
+        try secretStore.readCloudflareCredentials(profileID: profileID) != nil
+    }
+
     public func saveCloudflareCredentials(profileID: String, credentials: CloudflareServiceCredentials) async throws {
         try secretStore.saveCloudflareCredentials(credentials, for: profileID)
         guard var profile = try await profileStore.profile(id: profileID) else { return }
@@ -550,6 +554,52 @@ public actor AuthSessionController {
 
     public func verifiedAccount(profileID: String) throws -> VerifiedAccount? {
         try secretStore.verifiedAccount(profileID: profileID)
+    }
+
+    /// Throws unless `owner` is the profile's verified account. A device without one, such as an
+    /// iPhone set up from another without this app's Keychain items, needs a sign-in; it hasn't
+    /// met a different account.
+    public func requireVerifiedAccount(_ owner: VerifiedAccount, profileID: String) throws {
+        guard let current = try secretStore.verifiedAccount(profileID: profileID) else { throw DownloadOwnershipError.unavailableProfile }
+        guard current == owner else { throw AccountBindingError() }
+    }
+
+    /// An iPhone set up from another one can bring this app's data without its Keychain items, so
+    /// a profile still says it's signed in while this device has none of its credentials. Asks for
+    /// the missing step again, as an expired session would. A Keychain that can't be read right
+    /// now (a locked device) proves nothing, so that profile is left as it is.
+    public func expireSessionsMissingCredentials() async throws {
+        for var profile in try await profileStore.listProfiles() {
+            let edgeMissing: Bool
+            let originMissing: Bool
+            do {
+                edgeMissing = try profile.edgeAuthMode == .cloudflareAccessService && profile.serverAccess.status == .ready
+                    && secretStore.readCloudflareCredentials(profileID: profile.id) == nil
+                originMissing = try profile.sessionState.hasOriginSession && originCredentialsMissing(profile)
+            } catch { continue }
+            guard edgeMissing || originMissing else { continue }
+            invalidateSession(profile.id)
+            profile.sessionState.hasOriginSession = false
+            if edgeMissing {
+                profile.status = .reauthRequiredEdge
+                profile.sessionState.hasEdgeSession = false
+                profile.serverAccess.status = .failed
+                profile.serverAccess.verifiedAt = nil
+                profile.serverAccess.lastError = "This device doesn't have this server's access credentials. Enter them again."
+            } else {
+                profile.status = .reauthRequiredOrigin
+            }
+            profile.updatedAt = isoTimestamp()
+            try await profileStore.save(profile, makeActive: profile.isActive)
+        }
+    }
+
+    private func originCredentialsMissing(_ profile: ServerProfile) throws -> Bool {
+        switch profile.originAuthMode {
+        case .rommBearerPassword: try secretStore.readTokenBundle(profileID: profile.id) == nil
+        case .rommBasicLegacy: try secretStore.readBasicCredentials(profileID: profile.id) == nil
+        case .rommOIDCSession, .none: false
+        }
     }
 
     private func verifyCandidate(profile: ServerProfile, authorization: String) async throws -> UserDTO {

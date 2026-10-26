@@ -25,7 +25,7 @@ import kotlinx.coroutines.withContext
 import kotlin.coroutines.coroutineContext
 
 class DownloadOwnershipException(message: String) : IOException(message)
-class DownloadAuthenticationRequired : IOException("Sign in to the original server account to continue this download.")
+class DownloadAuthenticationRequired : IOException("Sign in to the original server account to use this download.")
 
 typealias DownloadTransfer = suspend (DownloadRecordEntity, String, File, suspend (Long, Long) -> Unit) -> Unit
 

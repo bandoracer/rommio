@@ -40,7 +40,7 @@ public enum DownloadOwnershipError: LocalizedError {
         switch self {
         case .legacyOwnership: "This older download has no verified account owner. Its files and record are preserved for migration."
         case .invalidDestination: "The download has an invalid local destination."
-        case .unavailableProfile: "Sign in to the original server account to continue this download."
+        case .unavailableProfile: "Sign in to the original server account to use this download."
         case .corruptInstall: "The installed file no longer matches the verified download. Download it again before playing."
         }
     }
@@ -286,8 +286,9 @@ public actor ManagedDownloadQueue: DownloadQueue {
         guard let saved = try record(recordID: "\(profileID):\(romID):\(fileID)"),
               saved.status == .completed || saved.status == .failed else { return nil }
         if let owner = saved.owner {
-            guard let profile = try await profileStore.profile(id: profileID), profile.baseURL == owner.baseURL,
-                  try await authController.verifiedAccount(profileID: profileID) == owner else { throw AccountBindingError() }
+            guard let profile = try await profileStore.profile(id: profileID) else { throw DownloadOwnershipError.unavailableProfile }
+            try await authController.requireVerifiedAccount(owner, profileID: profileID)
+            guard profile.baseURL == owner.baseURL else { throw AccountBindingError() }
         }
         return saved
     }
@@ -350,9 +351,9 @@ public actor ManagedDownloadQueue: DownloadQueue {
 
     private func requireOwner(_ record: DownloadRecord) async throws {
         guard let owner = record.owner else { throw DownloadOwnershipError.legacyOwnership }
-        guard let profile = try await profileStore.profile(id: record.profileID),
-              profile.baseURL == owner.baseURL,
-              try await authController.verifiedAccount(profileID: record.profileID) == owner else { throw AccountBindingError() }
+        guard let profile = try await profileStore.profile(id: record.profileID) else { throw DownloadOwnershipError.unavailableProfile }
+        try await authController.requireVerifiedAccount(owner, profileID: record.profileID)
+        guard profile.baseURL == owner.baseURL else { throw AccountBindingError() }
         guard profile.status == .connected, profile.sessionState.hasOriginSession else { throw DownloadOwnershipError.unavailableProfile }
     }
 

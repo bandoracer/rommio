@@ -23,6 +23,31 @@ final class DownloadQueueTests: XCTestCase {
         XCTAssertEqual(verified?.path, installed.localPath)
     }
 
+    /// An iPhone set up from another one brings the install but not the Keychain's verified
+    /// account. That is a sign-in to repeat, not a different account, until one signs in.
+    func testInstallWithoutItsVerifiedAccountAsksForSignIn() async throws {
+        let h = try Harness(); defer { h.clean() }
+        let profile = try await h.profile("A", userID: 1)
+        try await h.queue.enqueue(rom: h.rom, file: h.file)
+        _ = try await h.pipe.waitForCall(0)
+        await h.pipe.finish(0, bytes: "GOOD")
+        let installed = try await h.waitFor(profile.id, .completed)
+
+        let secrets = h.root.appending(path: "secrets")
+        try FileManager.default.removeItem(at: secrets)
+        do { _ = try await h.queue.verifiedLocalURL(profileID: profile.id, romID: 42, fileID: 7); XCTFail("Played without an account") }
+        catch DownloadOwnershipError.unavailableProfile { }
+
+        try h.secrets.bindVerifiedAccount(VerifiedAccount(baseURL: profile.baseURL, userID: 2), profileID: profile.id)
+        do { _ = try await h.queue.verifiedLocalURL(profileID: profile.id, romID: 42, fileID: 7); XCTFail("Another account played") }
+        catch is AccountBindingError { }
+
+        try FileManager.default.removeItem(at: secrets)
+        try h.secrets.bindVerifiedAccount(VerifiedAccount(baseURL: profile.baseURL, userID: 1), profileID: profile.id)
+        let verified = try await h.queue.verifiedLocalURL(profileID: profile.id, romID: 42, fileID: 7)
+        XCTAssertEqual(verified?.path, installed.localPath)
+    }
+
     func testMovedContainerRecoversOnlyDigestVerifiedOwnedInstall() async throws {
         let h = try Harness(); defer { h.clean() }
         let profile = try await h.profile("A", userID: 1)

@@ -270,6 +270,8 @@ public final class RommioAppModel {
                 try? FileManager.default.removeItem(at: leftover)
             }
         }
+        do { try await services.authController.expireSessionsMissingCredentials() }
+        catch { logger.error("credential check failed: \(error.localizedDescription, privacy: .public)") }
         await reloadProfiles()
         await resumeDownloads()
         transitionFromGateDecision()
@@ -670,6 +672,26 @@ public final class RommioAppModel {
         route = .app
         await refreshShell(forceRemote: true)
         isFirstSync = false
+    }
+
+    /// A saved server picked on the Connect page. Returns true when it needs its Cloudflare service
+    /// token entered again (as on an iPhone set up from another one), so the page opens that entry
+    /// instead of showing itself again.
+    public func openSavedServer(_ profile: ServerProfile) async -> Bool {
+        await switchProfile(to: profile)
+        guard route == .onboarding(.serverAccess), let active = activeProfile, active.id == profile.id,
+              active.edgeAuthMode == .cloudflareAccessService,
+              (try? await services.authController.hasCloudflareCredentials(profileID: active.id)) == false else { return false }
+        selectedEdgeAuthMode = .cloudflareAccessService
+        isEdgeAuthModeOverridden = true
+        return true
+    }
+
+    /// Why the Connect page is asking again about the saved server it's filled in with.
+    public var savedServerAccessProblem: String? {
+        guard let activeProfile, activeProfile.serverAccess.status == .failed,
+              serverURL == activeProfile.baseURL.absoluteString else { return nil }
+        return activeProfile.serverAccess.lastError
     }
 
     public func switchProfile(to profile: ServerProfile) async {
@@ -1215,7 +1237,9 @@ public final class RommioAppModel {
         serverURL = profile.baseURL.absoluteString
         profileLabel = profile.label
         selectedEdgeAuthMode = profile.edgeAuthMode
-        isEdgeAuthModeOverridden = false
+        // A service token that stopped working is entered again, not detected: Access options
+        // opens on its fields.
+        isEdgeAuthModeOverridden = profile.edgeAuthMode == .cloudflareAccessService && profile.serverAccess.status == .failed
         discoveryResult = AuthDiscoveryResult(
             baseURL: profile.baseURL,
             capabilities: profile.capabilities,
@@ -1434,8 +1458,8 @@ public final class RommioAppModel {
         if (runtime.runtimeID == "fceumm" || PinnedAppleCore.cartridgeRuntimes.contains(runtime.runtimeID) || PinnedAppleCore.candidateRuntimes.contains(runtime.runtimeID)), FileManager.default.fileExists(atPath: manifest.path), let profile = selectedProfile,
            let record = try await services.downloadQueue.records(profileID: profile.id).first(where: { $0.romID == rom.id && $0.fileID == file.id }),
            let owner = record.owner, let digest = record.contentSHA256, var verified = install {
-            guard try await services.authController.verifiedAccount(profileID: profile.id) == owner,
-                  owner.baseURL == profile.baseURL, verified.downloadSHA256 == digest else { throw AccountBindingError() }
+            try await services.authController.requireVerifiedAccount(owner, profileID: profile.id)
+            guard owner.baseURL == profile.baseURL, verified.downloadSHA256 == digest else { throw AccountBindingError() }
             let runtimeID = runtime.runtimeID
             coreDigest = try await Task.detached(priority: .userInitiated) {
                 try PinnedAppleCore.verify(core: coreURL, manifest: manifest, runtimeID: runtimeID)

@@ -51,7 +51,7 @@ struct ServerAccessStepView: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("serverAccess.accessProfile")
 
-                OnboardingError(message: model.errorMessage)
+                OnboardingError(message: model.errorMessage ?? model.savedServerAccessProblem)
 
                 Button(action: connect) {
                     OnboardingButtonLabel(title: "Continue", isBusy: model.isBusy)
@@ -67,7 +67,7 @@ struct ServerAccessStepView: View {
                     ForEach(model.profiles) { profile in
                         Button {
                             addressFocused = false
-                            Task { await model.switchProfile(to: profile) }
+                            Task { if await model.openSavedServer(profile) { showsAccessProfile = true } }
                         } label: {
                             ListRow(title: profile.label, subtitle: profile.baseURL.absoluteString) {
                                 IconTile(systemImage: "server.rack", tone: .live)

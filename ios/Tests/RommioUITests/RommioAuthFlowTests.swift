@@ -81,6 +81,32 @@ final class RommioAuthFlowTests: XCTestCase {
         XCTAssertEqual(model.route, .onboarding(.login))
     }
 
+    /// An iPhone set up from another one: the saved server is on the Connect page because its
+    /// service token is gone. Picking it opens the token entry instead of the same page again.
+    @MainActor
+    func testSavedServerWithoutItsServiceTokenOpensTokenEntry() async throws {
+        let harness = try TestHarness()
+        let model = harness.makeModel()
+        let restored = profile(serverAccessStatus: .ready, status: .connected, edgeAuthMode: .cloudflareAccessService,
+                               hasOriginSession: true, isActive: true)
+        try await harness.profileStore.save(restored, makeActive: true)
+        try await harness.authController.expireSessionsMissingCredentials()
+        await model.reloadProfiles()
+        model.resumeSetup()
+        XCTAssertEqual(model.route, .onboarding(.serverAccess))
+        XCTAssertTrue(model.isEdgeAuthModeOverridden)
+        XCTAssertNotNil(model.savedServerAccessProblem)
+
+        let opensTokenEntry = await model.openSavedServer(restored)
+        XCTAssertTrue(opensTokenEntry)
+        XCTAssertEqual(model.route, .onboarding(.serverAccess))
+        XCTAssertEqual(model.selectedEdgeAuthMode, .cloudflareAccessService)
+
+        try await harness.authController.saveCloudflareCredentials(profileID: restored.id, credentials: CloudflareServiceCredentials(clientID: "id", clientSecret: "secret"))
+        let reopens = await model.openSavedServer(restored)
+        XCTAssertFalse(reopens)
+    }
+
     @MainActor
     func testReconfigureSetupClearsServerAccessAndReturnsToServerStep() async throws {
         let harness = try TestHarness()

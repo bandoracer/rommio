@@ -468,6 +468,36 @@ final class AuthSessionControllerTests: XCTestCase {
         XCTAssertEqual(recorder.currentUserAuthorization, "Basic " + Data("player: password ".utf8).base64EncodedString())
     }
 
+    /// An iPhone set up from another one: the database says signed in, the Keychain is empty.
+    func testProfileRestoredWithoutItsCredentialsAsksForThemAgain() async throws {
+        let harness = try ControllerHarness()
+        let protected = profile(edge: .cloudflareAccessService, origin: .rommBearerPassword, status: .connected)
+        let direct = profile(edge: .none, origin: .rommBearerPassword, status: .connected)
+        let basic = profile(edge: .none, origin: .rommBasicLegacy, status: .connected)
+        let intact = profile(edge: .cloudflareAccessService, origin: .rommBearerPassword, status: .connected)
+        for saved in [protected, direct, basic, intact] { try await harness.profileStore.save(saved, makeActive: false) }
+        try harness.secretStore.saveCloudflareCredentials(CloudflareServiceCredentials(clientID: "id", clientSecret: "secret"), for: intact.id)
+        try harness.secretStore.saveTokenBundle(expiringToken(expired: false), for: intact.id)
+
+        try await harness.controller.expireSessionsMissingCredentials()
+
+        let edge = try await harness.profileStore.profile(id: protected.id)
+        XCTAssertEqual(edge?.status, .reauthRequiredEdge)
+        XCTAssertEqual(edge?.serverAccess.status, .failed)
+        XCTAssertEqual(edge?.sessionState.hasOriginSession, false)
+        for missing in [direct, basic] {
+            let origin = try await harness.profileStore.profile(id: missing.id)
+            XCTAssertEqual(origin?.status, .reauthRequiredOrigin)
+            XCTAssertEqual(origin?.serverAccess.status, .ready)
+            XCTAssertEqual(origin?.sessionState.hasOriginSession, false)
+        }
+        let unchanged = try await harness.profileStore.profile(id: intact.id)
+        XCTAssertEqual(unchanged?.status, .connected)
+        XCTAssertEqual(unchanged?.serverAccess.status, .ready)
+        XCTAssertEqual(unchanged?.sessionState.hasOriginSession, true)
+        XCTAssertEqual(unchanged?.updatedAt, intact.updatedAt)
+    }
+
     private func expiringToken(expired: Bool = true) -> TokenBundle {
         TokenBundle(accessToken: "original", refreshToken: "refresh-original", tokenType: "Bearer",
                     expiresAt: ISO8601DateFormatter().string(from: Date(timeIntervalSinceNow: expired ? -60 : 3600)))
